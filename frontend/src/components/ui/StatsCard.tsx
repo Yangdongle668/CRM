@@ -1,9 +1,26 @@
 import React from 'react';
-import { HiOutlineArrowTrendingUp, HiOutlineArrowTrendingDown } from 'react-icons/hi2';
+import {
+  HiOutlineUsers,
+  HiOutlineFunnel,
+  HiOutlineShoppingCart,
+  HiOutlineCurrencyDollar,
+  HiOutlineClock,
+  HiOutlineArrowTrendingUp,
+  HiOutlineArrowTrendingDown,
+} from 'react-icons/hi2';
+
+const iconMap: Record<string, React.ElementType> = {
+  users: HiOutlineUsers,
+  target: HiOutlineFunnel,
+  shoppingCart: HiOutlineShoppingCart,
+  dollarSign: HiOutlineCurrencyDollar,
+  clock: HiOutlineClock,
+  trendingUp: HiOutlineArrowTrendingUp,
+};
 
 interface StatsCardProps {
-  icon: React.ElementType;
-  label: string;
+  icon: string | React.ElementType;
+  title: string;
   value: string | number;
   change?: number;
   changeLabel?: string;
@@ -12,8 +29,8 @@ interface StatsCardProps {
 }
 
 export default function StatsCard({
-  icon: Icon,
-  label,
+  icon,
+  title,
   value,
   change,
   changeLabel = '较上月',
@@ -21,11 +38,12 @@ export default function StatsCard({
   iconBg = 'bg-blue-100',
 }: StatsCardProps) {
   const isPositive = change !== undefined && change >= 0;
+  const Icon = typeof icon === 'string' ? iconMap[icon] || HiOutlineUsers : icon;
 
   return (
-    <div className="card flex items-start justify-between">
+    <div className="rounded-lg bg-white p-5 shadow flex items-start justify-between">
       <div>
-        <p className="text-sm font-medium text-gray-500">{label}</p>
+        <p className="text-sm font-medium text-gray-500">{title}</p>
         <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
         {change !== undefined && (
           <div className="mt-2 flex items-center gap-1">

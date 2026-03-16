@@ -4,13 +4,15 @@ import React from 'react';
 import { HiOutlineChevronLeft, HiOutlineChevronRight } from 'react-icons/hi2';
 
 interface PaginationProps {
-  page: number;
+  page?: number;
+  current?: number;
   pageSize: number;
   total: number;
   onChange: (page: number) => void;
 }
 
-export default function Pagination({ page, pageSize, total, onChange }: PaginationProps) {
+export function Pagination({ page: pageProp, current, pageSize, total, onChange }: PaginationProps) {
+  const page = pageProp ?? current ?? 1;
   const totalPages = Math.ceil(total / pageSize);
 
   if (totalPages <= 1) return null;
@@ -87,3 +89,5 @@ export default function Pagination({ page, pageSize, total, onChange }: Paginati
     </div>
   );
 }
+
+export default Pagination;

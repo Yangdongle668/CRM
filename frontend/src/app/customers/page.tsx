@@ -269,7 +269,7 @@ export default function CustomersPage() {
             </tbody>
           </table>
           <Pagination
-            current={page}
+            page={page}
             total={total}
             pageSize={pageSize}
             onChange={setPage}

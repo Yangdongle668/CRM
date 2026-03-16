@@ -303,7 +303,7 @@ export default function TasksPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingTask ? '编辑任务' : '新建任务'}
-        maxWidth="max-w-xl"
+        maxWidth="xl"
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
