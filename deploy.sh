@@ -130,7 +130,7 @@ wait_for_db() {
 # 初始化数据库
 init_database() {
     echo -e "${YELLOW}[*] 正在初始化数据库...${NC}"
-    docker compose exec -T backend npx prisma migrate deploy
+    docker compose exec -T backend npx prisma db push --skip-generate
     docker compose exec -T backend npx prisma db seed
     echo -e "${GREEN}[✓] 数据库初始化完成${NC}"
 }
