@@ -1,10 +1,7 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/auth-context';
 import { Toaster } from 'react-hot-toast';
-
-const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
   title: '外贸CRM - 客户关系管理系统',
@@ -18,7 +15,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="zh-CN">
-      <body className={inter.className}>
+      <body className="font-sans">
         <AuthProvider>
           {children}
           <Toaster

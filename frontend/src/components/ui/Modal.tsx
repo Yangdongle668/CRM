@@ -4,11 +4,13 @@ import React, { useEffect, useRef } from 'react';
 import { HiOutlineXMark } from 'react-icons/hi2';
 
 interface ModalProps {
-  open: boolean;
+  open?: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
 }
 
 const maxWidthClasses: Record<string, string> = {
@@ -19,15 +21,17 @@ const maxWidthClasses: Record<string, string> = {
   '2xl': 'max-w-2xl',
 };
 
-export default function Modal({ open, onClose, title, children, maxWidth = 'lg' }: ModalProps) {
+export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const visible = open ?? isOpen ?? false;
+  const width = maxWidth ?? size ?? 'lg';
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
 
-    if (open) {
+    if (visible) {
       document.addEventListener('keydown', handleEsc);
       document.body.style.overflow = 'hidden';
     }
@@ -36,9 +40,9 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'lg' 
       document.removeEventListener('keydown', handleEsc);
       document.body.style.overflow = '';
     };
-  }, [open, onClose]);
+  }, [visible, onClose]);
 
-  if (!open) return null;
+  if (!visible) return null;
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (e.target === overlayRef.current) onClose();
@@ -51,7 +55,7 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'lg' 
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
     >
       <div
-        className={`w-full ${maxWidthClasses[maxWidth]} rounded-xl bg-white shadow-xl animate-fade-in`}
+        className={`w-full ${maxWidthClasses[width]} rounded-xl bg-white shadow-xl animate-fade-in`}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
@@ -70,3 +74,5 @@ export default function Modal({ open, onClose, title, children, maxWidth = 'lg' 
     </div>
   );
 }
+
+export default Modal;
