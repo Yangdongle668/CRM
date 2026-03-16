@@ -120,17 +120,17 @@ export class CustomValidationPipe implements PipeTransform<any> {
         case 'maxLength':
         case 'arrayMinSize':
         case 'arrayMaxSize': {
-          const match = error.constraints[constraintKey].match(/\d+/);
+          const match = error.constraints?.[constraintKey]?.match(/\d+/);
           if (match) constraints.push(match[0]);
           break;
         }
         case 'length': {
-          const matches = error.constraints[constraintKey].match(/\d+/g);
+          const matches = error.constraints?.[constraintKey]?.match(/\d+/g);
           if (matches) constraints.push(...matches);
           break;
         }
         case 'isIn': {
-          const inMatch = error.constraints[constraintKey].match(
+          const inMatch = error.constraints?.[constraintKey]?.match(
             /following values: (.+)/,
           );
           if (inMatch) constraints.push(inMatch[1]);
