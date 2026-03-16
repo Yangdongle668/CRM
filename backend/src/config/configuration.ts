@@ -1,5 +1,5 @@
 export default () => ({
-  port: parseInt(process.env.PORT, 10) || 3000,
+  port: parseInt(process.env.PORT || '3000', 10),
   apiPrefix: process.env.API_PREFIX || 'api',
   corsOrigin: process.env.CORS_ORIGIN || '*',
 
@@ -17,14 +17,14 @@ export default () => ({
   email: {
     smtp: {
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT, 10) || 587,
+      port: parseInt(process.env.SMTP_PORT || '587', 10),
       secure: process.env.SMTP_SECURE === 'true',
       user: process.env.SMTP_USER || '',
       pass: process.env.SMTP_PASS || '',
     },
     imap: {
       host: process.env.IMAP_HOST || 'imap.gmail.com',
-      port: parseInt(process.env.IMAP_PORT, 10) || 993,
+      port: parseInt(process.env.IMAP_PORT || '993', 10),
       secure: process.env.IMAP_SECURE !== 'false',
       user: process.env.IMAP_USER || '',
       pass: process.env.IMAP_PASS || '',
@@ -34,7 +34,7 @@ export default () => ({
 
   upload: {
     dest: process.env.UPLOAD_DEST || './uploads',
-    maxFileSize: parseInt(process.env.MAX_FILE_SIZE, 10) || 10 * 1024 * 1024, // 10MB
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE || '10485760', 10),
     allowedMimeTypes: [
       'application/pdf',
       'application/msword',

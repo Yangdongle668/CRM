@@ -99,10 +99,13 @@ EOF
 
 # 构建并启动服务
 start_services() {
-    echo -e "${YELLOW}[*] 正在构建并启动服务...${NC}"
+    echo -e "${YELLOW}[*] 清除旧的构建缓存...${NC}"
+    docker compose build --no-cache
+
+    echo -e "${YELLOW}[*] 正在启动服务...${NC}"
     echo -e "${YELLOW}    这可能需要几分钟时间，请耐心等待...${NC}"
 
-    docker compose up -d --build
+    docker compose up -d
 
     echo -e "${GREEN}[✓] 所有服务已启动${NC}"
 }
