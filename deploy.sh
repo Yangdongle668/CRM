@@ -127,10 +127,33 @@ wait_for_db() {
     return 1
 }
 
-# 初始化数据库
+# 等待后端就绪
+wait_for_backend() {
+    echo -e "${YELLOW}[*] 等待后端服务就绪...${NC}"
+    local max_attempts=30
+    local attempt=0
+    while [ $attempt -lt $max_attempts ]; do
+        if docker compose exec -T backend sh -c 'wget -q --spider http://localhost:3001/api/auth/login 2>/dev/null || curl -sf http://localhost:3001/api/auth/login >/dev/null 2>&1'; then
+            echo -e "${GREEN}[✓] 后端服务已就绪${NC}"
+            return 0
+        fi
+        # Also check if the container is still running
+        if ! docker compose ps backend --format '{{.State}}' 2>/dev/null | grep -q running; then
+            echo -e "${RED}[✗] 后端容器已停止，查看日志:${NC}"
+            docker compose logs backend --tail 20
+            return 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 3
+    done
+    echo -e "${RED}[✗] 后端启动超时，查看日志:${NC}"
+    docker compose logs backend --tail 20
+    return 1
+}
+
+# 初始化数据库（种子数据）
 init_database() {
-    echo -e "${YELLOW}[*] 正在初始化数据库...${NC}"
-    docker compose exec -T backend npx prisma db push --skip-generate
+    echo -e "${YELLOW}[*] 正在初始化种子数据...${NC}"
     docker compose exec -T backend npx prisma db seed
     echo -e "${GREEN}[✓] 数据库初始化完成${NC}"
 }
@@ -241,6 +264,7 @@ main() {
             setup_backend_env
             start_services
             wait_for_db
+            wait_for_backend
             init_database
             show_result
             ;;
