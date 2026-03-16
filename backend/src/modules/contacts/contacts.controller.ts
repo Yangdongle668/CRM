@@ -15,7 +15,7 @@ import { UpdateContactDto } from './dto/update-contact.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
-@Controller('api/contacts')
+@Controller('contacts')
 @UseGuards(JwtAuthGuard)
 export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}

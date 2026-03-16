@@ -39,7 +39,7 @@ const uploadStorage = diskStorage({
   },
 });
 
-@Controller('api/documents')
+@Controller('documents')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
