@@ -1,0 +1,411 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== 用户与角色 ====================
+enum Role {
+  ADMIN
+  SALESPERSON
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      Role     @default(SALESPERSON)
+  phone     String?
+  avatar    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // 关联
+  customers    Customer[]
+  leads        Lead[]
+  quotations   Quotation[]
+  orders       Order[]
+  tasks        Task[]
+  activities   Activity[]
+  documents    Document[]
+  emailsSent   Email[]        @relation("SentEmails")
+  emailConfig  EmailConfig?
+
+  @@map("users")
+}
+
+// ==================== 邮件配置 ====================
+model EmailConfig {
+  id         String  @id @default(uuid())
+  userId     String  @unique @map("user_id")
+  smtpHost   String  @map("smtp_host")
+  smtpPort   Int     @map("smtp_port")
+  smtpUser   String  @map("smtp_user")
+  smtpPass   String  @map("smtp_pass")
+  smtpSecure Boolean @default(true) @map("smtp_secure")
+  imapHost   String  @map("imap_host")
+  imapPort   Int     @map("imap_port")
+  imapUser   String  @map("imap_user")
+  imapPass   String  @map("imap_pass")
+  imapSecure Boolean @default(true) @map("imap_secure")
+  fromName   String? @map("from_name")
+  signature  String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("email_configs")
+}
+
+// ==================== 客户管理 ====================
+enum CustomerStatus {
+  POTENTIAL
+  ACTIVE
+  INACTIVE
+  BLACKLISTED
+}
+
+model Customer {
+  id          String         @id @default(uuid())
+  companyName String         @map("company_name")
+  country     String?
+  address     String?
+  website     String?
+  industry    String?
+  scale       String?
+  source      String?
+  status      CustomerStatus @default(POTENTIAL)
+  remark      String?
+  ownerId     String         @map("owner_id")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  // 关联
+  owner      User         @relation(fields: [ownerId], references: [id])
+  contacts   Contact[]
+  leads      Lead[]
+  quotations Quotation[]
+  orders     Order[]
+  activities Activity[]
+  documents  Document[]
+  emails     Email[]
+
+  @@map("customers")
+}
+
+// ==================== 联系人 ====================
+model Contact {
+  id         String   @id @default(uuid())
+  name       String
+  title      String?
+  email      String?
+  phone      String?
+  wechat     String?
+  whatsapp   String?
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  remark     String?
+  customerId String   @map("customer_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("contacts")
+}
+
+// ==================== 销售线索 ====================
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+model Lead {
+  id             String    @id @default(uuid())
+  title          String
+  description    String?
+  stage          LeadStage @default(NEW)
+  expectedAmount Decimal?  @map("expected_amount") @db.Decimal(12, 2)
+  expectedDate   DateTime? @map("expected_date")
+  source         String?
+  priority       Int       @default(0)
+  customerId     String?   @map("customer_id")
+  ownerId        String    @map("owner_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  owner    User      @relation(fields: [ownerId], references: [id])
+  customer Customer? @relation(fields: [customerId], references: [id])
+
+  @@map("leads")
+}
+
+// ==================== 邮件 ====================
+enum EmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum EmailStatus {
+  DRAFT
+  SENT
+  RECEIVED
+  FAILED
+  READ
+}
+
+model Email {
+  id         String         @id @default(uuid())
+  messageId  String?        @unique @map("message_id")
+  threadId   String?        @map("thread_id")
+  fromAddr   String         @map("from_addr")
+  toAddr     String         @map("to_addr")
+  cc         String?
+  bcc        String?
+  subject    String
+  bodyHtml   String?        @map("body_html")
+  bodyText   String?        @map("body_text")
+  direction  EmailDirection
+  status     EmailStatus    @default(DRAFT)
+  sentAt     DateTime?      @map("sent_at")
+  receivedAt DateTime?      @map("received_at")
+  customerId String?        @map("customer_id")
+  senderId   String?        @map("sender_id")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  thread   EmailThread? @relation(fields: [threadId], references: [id])
+  customer Customer?    @relation(fields: [customerId], references: [id])
+  sender   User?        @relation("SentEmails", fields: [senderId], references: [id])
+
+  @@map("emails")
+}
+
+model EmailThread {
+  id        String   @id @default(uuid())
+  subject   String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  emails Email[]
+
+  @@map("email_threads")
+}
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  name      String
+  subject   String
+  bodyHtml  String   @map("body_html")
+  category  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("email_templates")
+}
+
+// ==================== 报价单 ====================
+enum QuotationStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Quotation {
+  id           String          @id @default(uuid())
+  quotationNo  String          @unique @map("quotation_no")
+  customerId   String          @map("customer_id")
+  ownerId      String          @map("owner_id")
+  title        String
+  currency     String          @default("USD")
+  totalAmount  Decimal         @default(0) @map("total_amount") @db.Decimal(12, 2)
+  status       QuotationStatus @default(DRAFT)
+  validUntil   DateTime?       @map("valid_until")
+  terms        String?
+  remark       String?
+  pdfUrl       String?         @map("pdf_url")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  customer Customer        @relation(fields: [customerId], references: [id])
+  owner    User            @relation(fields: [ownerId], references: [id])
+  items    QuotationItem[]
+
+  @@map("quotations")
+}
+
+model QuotationItem {
+  id          String  @id @default(uuid())
+  quotationId String  @map("quotation_id")
+  productName String  @map("product_name")
+  description String?
+  unit        String  @default("PCS")
+  quantity    Int
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+
+  @@map("quotation_items")
+}
+
+// ==================== 订单 ====================
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  IN_PRODUCTION
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PARTIAL
+  PAID
+  REFUNDED
+}
+
+model Order {
+  id            String        @id @default(uuid())
+  orderNo       String        @unique @map("order_no")
+  customerId    String        @map("customer_id")
+  ownerId       String        @map("owner_id")
+  title         String
+  currency      String        @default("USD")
+  totalAmount   Decimal       @default(0) @map("total_amount") @db.Decimal(12, 2)
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+  shippingAddr  String?       @map("shipping_addr")
+  shippingDate  DateTime?     @map("shipping_date")
+  deliveryDate  DateTime?     @map("delivery_date")
+  trackingNo    String?       @map("tracking_no")
+  remark        String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  customer Customer    @relation(fields: [customerId], references: [id])
+  owner    User        @relation(fields: [ownerId], references: [id])
+  items    OrderItem[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String  @map("order_id")
+  productName String  @map("product_name")
+  description String?
+  unit        String  @default("PCS")
+  quantity    Int
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("order_items")
+}
+
+// ==================== 任务与跟进 ====================
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+model Task {
+  id          String       @id @default(uuid())
+  title       String
+  description String?
+  priority    TaskPriority @default(MEDIUM)
+  status      TaskStatus   @default(PENDING)
+  dueDate     DateTime?    @map("due_date")
+  ownerId     String       @map("owner_id")
+  relatedType String?      @map("related_type")
+  relatedId   String?      @map("related_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@map("tasks")
+}
+
+// ==================== 客户活动记录 ====================
+enum ActivityType {
+  NOTE
+  CALL
+  MEETING
+  EMAIL
+  TASK
+  STATUS_CHANGE
+}
+
+model Activity {
+  id          String       @id @default(uuid())
+  type        ActivityType
+  content     String
+  customerId  String?      @map("customer_id")
+  ownerId     String       @map("owner_id")
+  relatedType String?      @map("related_type")
+  relatedId   String?      @map("related_id")
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+  owner    User      @relation(fields: [ownerId], references: [id])
+
+  @@map("activities")
+}
+
+// ==================== 文件管理 ====================
+model Document {
+  id          String   @id @default(uuid())
+  fileName    String   @map("file_name")
+  filePath    String   @map("file_path")
+  fileSize    Int      @map("file_size")
+  mimeType    String   @map("mime_type")
+  category    String?
+  customerId  String?  @map("customer_id")
+  ownerId     String   @map("owner_id")
+  relatedType String?  @map("related_type")
+  relatedId   String?  @map("related_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+  owner    User      @relation(fields: [ownerId], references: [id])
+
+  @@map("documents")
+}
+
+// ==================== 系统设置 ====================
+model SystemSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+  label String?
+
+  @@map("system_settings")
+}

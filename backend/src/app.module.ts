@@ -1,0 +1,44 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
+import configuration from './config/configuration';
+import { PrismaModule } from './prisma/prisma.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { UsersModule } from './modules/users/users.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { ContactsModule } from './modules/contacts/contacts.module';
+import { LeadsModule } from './modules/leads/leads.module';
+import { EmailsModule } from './modules/emails/emails.module';
+import { QuotationsModule } from './modules/quotations/quotations.module';
+import { OrdersModule } from './modules/orders/orders.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { ActivitiesModule } from './modules/activities/activities.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { SettingsModule } from './modules/settings/settings.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [configuration],
+      envFilePath: ['.env.local', '.env'],
+    }),
+    ScheduleModule.forRoot(),
+    PrismaModule,
+    AuthModule,
+    UsersModule,
+    CustomersModule,
+    ContactsModule,
+    LeadsModule,
+    EmailsModule,
+    QuotationsModule,
+    OrdersModule,
+    TasksModule,
+    ActivitiesModule,
+    DocumentsModule,
+    DashboardModule,
+    SettingsModule,
+  ],
+})
+export class AppModule {}
