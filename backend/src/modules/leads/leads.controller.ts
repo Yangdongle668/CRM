@@ -23,7 +23,7 @@ class UpdateStageDto {
   stage: LeadStage;
 }
 
-@Controller('api/leads')
+@Controller('leads')
 @UseGuards(JwtAuthGuard)
 export class LeadsController {
   constructor(private readonly leadsService: LeadsService) {}
