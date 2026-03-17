@@ -8,25 +8,51 @@ export class DashboardService {
   async getStats(userId: string, role: string) {
     const ownerFilter = role !== 'ADMIN' ? { ownerId: userId } : {};
 
-    const [totalCustomers, totalLeads, totalOrders, revenueResult] =
-      await Promise.all([
-        this.prisma.customer.count({ where: ownerFilter }),
-        this.prisma.lead.count({ where: ownerFilter }),
-        this.prisma.order.count({ where: ownerFilter }),
-        this.prisma.order.aggregate({
-          where: {
-            ...ownerFilter,
-            status: { notIn: ['CANCELLED'] },
+    const [
+      totalCustomers,
+      totalLeads,
+      totalOrders,
+      revenueResult,
+      pendingTasks,
+      newLeadsThisMonth,
+    ] = await Promise.all([
+      this.prisma.customer.count({ where: ownerFilter }),
+      this.prisma.lead.count({ where: ownerFilter }),
+      this.prisma.order.count({ where: ownerFilter }),
+      this.prisma.order.aggregate({
+        where: {
+          ...ownerFilter,
+          status: { notIn: ['CANCELLED'] },
+        },
+        _sum: { totalAmount: true },
+      }),
+      this.prisma.task.count({
+        where: {
+          ...ownerFilter,
+          status: 'PENDING',
+        },
+      }),
+      this.prisma.lead.count({
+        where: {
+          ...ownerFilter,
+          createdAt: {
+            gte: new Date(
+              new Date().getFullYear(),
+              new Date().getMonth(),
+              1,
+            ),
           },
-          _sum: { totalAmount: true },
-        }),
-      ]);
+        },
+      }),
+    ]);
 
     return {
       totalCustomers,
       totalLeads,
       totalOrders,
       totalRevenue: revenueResult._sum.totalAmount || 0,
+      pendingTasks,
+      newLeadsThisMonth,
     };
   }
 
@@ -54,24 +80,28 @@ export class DashboardService {
     });
 
     // Group by month
-    const monthlyData: Record<string, number> = {};
+    const monthlyAmount: Record<string, number> = {};
+    const monthlyCount: Record<string, number> = {};
     for (let i = 0; i < 12; i++) {
       const date = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      monthlyData[key] = 0;
+      monthlyAmount[key] = 0;
+      monthlyCount[key] = 0;
     }
 
     for (const order of orders) {
       const date = new Date(order.createdAt);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-      if (key in monthlyData) {
-        monthlyData[key] += Number(order.totalAmount);
+      if (key in monthlyAmount) {
+        monthlyAmount[key] += Number(order.totalAmount);
+        monthlyCount[key] += 1;
       }
     }
 
-    return Object.entries(monthlyData).map(([month, amount]) => ({
+    return Object.keys(monthlyAmount).map((month) => ({
       month,
-      amount,
+      amount: monthlyAmount[month],
+      count: monthlyCount[month],
     }));
   }
 
@@ -129,17 +159,15 @@ export class DashboardService {
 
     const rankings = users
       .map((user) => ({
-        id: user.id,
+        userId: user.id,
         name: user.name,
-        email: user.email,
-        totalRevenue: user.orders.reduce(
+        revenue: user.orders.reduce(
           (sum, order) => sum + Number(order.totalAmount),
           0,
         ),
-        customerCount: user._count.customers,
         orderCount: user._count.orders,
       }))
-      .sort((a, b) => b.totalRevenue - a.totalRevenue);
+      .sort((a, b) => b.revenue - a.revenue);
 
     return rankings;
   }
