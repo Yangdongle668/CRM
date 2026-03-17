@@ -42,6 +42,9 @@ export default api;
 
 // ==================== Auth API ====================
 export const authApi = {
+  checkInit: () => api.get('/auth/check-init'),
+  setup: (data: { email: string; password: string; name: string; phone?: string }) =>
+    api.post('/auth/setup', data),
   login: (data: { email: string; password: string }) =>
     api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
