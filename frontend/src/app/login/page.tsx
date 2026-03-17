@@ -75,13 +75,12 @@ export default function LoginPage() {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
         toast.success('管理员账户创建成功！');
-        router.push('/dashboard');
-        // Force full reload to pick up new auth state
+        // Full reload to pick up new auth state in AuthProvider
         window.location.href = '/dashboard';
+        return;
       } else {
         await login(email, password);
         toast.success('登录成功');
-        router.push('/dashboard');
       }
     } catch (err: any) {
       const message =
