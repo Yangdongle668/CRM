@@ -9,8 +9,8 @@ interface ModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
 }
 
 const maxWidthClasses: Record<string, string> = {
@@ -19,6 +19,9 @@ const maxWidthClasses: Record<string, string> = {
   lg: 'max-w-lg',
   xl: 'max-w-xl',
   '2xl': 'max-w-2xl',
+  '3xl': 'max-w-3xl',
+  '4xl': 'max-w-4xl',
+  '5xl': 'max-w-5xl',
 };
 
 export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }: ModalProps) {
@@ -69,7 +72,7 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }
         </div>
 
         {/* Content */}
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-4">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto px-6 py-4">{children}</div>
       </div>
     </div>
   );

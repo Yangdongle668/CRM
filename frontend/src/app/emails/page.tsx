@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
@@ -14,7 +14,7 @@ type TabType = 'INBOUND' | 'OUTBOUND' | 'TEMPLATES';
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
   SENT: { label: '已发送', color: 'bg-green-100 text-green-800' },
-  RECEIVED: { label: '已接收', color: 'bg-blue-100 text-blue-800' },
+  RECEIVED: { label: '未读', color: 'bg-blue-100 text-blue-800' },
   FAILED: { label: '发送失败', color: 'bg-red-100 text-red-800' },
   READ: { label: '已读', color: 'bg-purple-100 text-purple-800' },
 };
@@ -26,6 +26,7 @@ interface ComposeForm {
   subject: string;
   bodyHtml: string;
   customerId: string;
+  inReplyTo: string;
 }
 
 const emptyComposeForm: ComposeForm = {
@@ -35,6 +36,7 @@ const emptyComposeForm: ComposeForm = {
   subject: '',
   bodyHtml: '',
   customerId: '',
+  inReplyTo: '',
 };
 
 interface TemplateForm {
@@ -62,11 +64,16 @@ export default function EmailsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
 
-  // Detail panel
+  // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
 
-  // Compose modal
+  // Reply state
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyForm, setReplyForm] = useState<ComposeForm>(emptyComposeForm);
+  const [replySending, setReplySending] = useState(false);
+
+  // Compose modal (for new emails)
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState<ComposeForm>(emptyComposeForm);
   const [sending, setSending] = useState(false);
@@ -75,6 +82,10 @@ export default function EmailsPage() {
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [templateForm, setTemplateForm] = useState<TemplateForm>(emptyTemplateForm);
   const [savingTemplate, setSavingTemplate] = useState(false);
+
+  // Unread count for notification
+  const [unreadCount, setUnreadCount] = useState(0);
+  const prevUnreadRef = useRef(0);
 
   // Fetch emails
   const fetchEmails = useCallback(async () => {
@@ -88,8 +99,8 @@ export default function EmailsPage() {
       };
       const res: any = await emailsApi.list(params);
       const data: PaginatedData<Email> = res.data;
-      setEmails(data.items);
-      setTotal(data.total);
+      setEmails(Array.isArray(data.items) ? data.items : []);
+      setTotal(data.total || 0);
     } catch {
       // handled by interceptor
     } finally {
@@ -100,7 +111,7 @@ export default function EmailsPage() {
   const fetchTemplates = useCallback(async () => {
     try {
       const res: any = await emailsApi.getTemplates();
-      setTemplates(res.data || []);
+      setTemplates(Array.isArray(res.data) ? res.data : []);
     } catch {
       // handled by interceptor
     }
@@ -109,9 +120,21 @@ export default function EmailsPage() {
   const fetchCustomers = useCallback(async () => {
     try {
       const res: any = await customersApi.list({ page: 1, pageSize: 200 });
-      setCustomers(res.data.items || []);
+      setCustomers(Array.isArray(res.data?.items) ? res.data.items : []);
     } catch {
       // handled by interceptor
+    }
+  }, []);
+
+  // Poll unread count
+  const fetchUnreadCount = useCallback(async () => {
+    try {
+      const res: any = await emailsApi.getUnreadCount();
+      const count = res.data?.count ?? 0;
+      setUnreadCount(count);
+      return count;
+    } catch {
+      return 0;
     }
   }, []);
 
@@ -127,19 +150,142 @@ export default function EmailsPage() {
     fetchCustomers();
   }, [fetchCustomers]);
 
+  // Initial unread count fetch
+  useEffect(() => {
+    fetchUnreadCount().then((count) => {
+      prevUnreadRef.current = count;
+    });
+  }, [fetchUnreadCount]);
+
+  // Poll for new emails every 60 seconds
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const count = await fetchUnreadCount();
+      if (count > prevUnreadRef.current) {
+        const newCount = count - prevUnreadRef.current;
+        toast(
+          `📬 您有 ${newCount} 封新邮件`,
+          {
+            duration: 5000,
+            style: {
+              background: '#3B82F6',
+              color: '#fff',
+              fontWeight: 600,
+              padding: '12px 20px',
+              borderRadius: '10px',
+              fontSize: '14px',
+            },
+            icon: '📬',
+          }
+        );
+        // Auto-refresh inbox if currently viewing
+        if (activeTab === 'INBOUND') {
+          fetchEmails();
+        }
+      }
+      prevUnreadRef.current = count;
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [fetchUnreadCount, activeTab, fetchEmails]);
+
   // View email detail
   const handleViewEmail = async (email: Email) => {
+    setDetailLoading(true);
+    setReplyOpen(false);
     try {
       const res: any = await emailsApi.getById(email.id);
       setSelectedEmail(res.data);
-      setDetailOpen(true);
+      // Mark as read if inbound and unread
+      if (email.direction === 'INBOUND' && email.status === 'RECEIVED') {
+        await emailsApi.markAsRead(email.id);
+        // Update local list
+        setEmails((prev) =>
+          prev.map((e) =>
+            e.id === email.id ? { ...e, status: 'READ' as const } : e
+          )
+        );
+        // Update unread count
+        setUnreadCount((prev) => Math.max(0, prev - 1));
+        prevUnreadRef.current = Math.max(0, prevUnreadRef.current - 1);
+      }
     } catch {
       setSelectedEmail(email);
-      setDetailOpen(true);
+    } finally {
+      setDetailLoading(false);
     }
   };
 
-  // Send email
+  // Handle reply
+  const handleReply = () => {
+    if (!selectedEmail) return;
+    const replyTo = selectedEmail.direction === 'INBOUND'
+      ? selectedEmail.fromAddr
+      : selectedEmail.toAddr;
+    const subject = selectedEmail.subject.startsWith('Re:')
+      ? selectedEmail.subject
+      : `Re: ${selectedEmail.subject}`;
+
+    const quotedContent = `
+<br/><br/>
+<div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;">
+  <p><strong>${selectedEmail.fromAddr}</strong> 于 ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)} 写道：</p>
+  ${selectedEmail.bodyHtml || `<pre>${selectedEmail.bodyText || ''}</pre>`}
+</div>`;
+
+    setReplyForm({
+      toAddr: replyTo,
+      cc: '',
+      bcc: '',
+      subject,
+      bodyHtml: '',
+      customerId: selectedEmail.customerId || '',
+      inReplyTo: selectedEmail.id,
+    });
+    setReplyOpen(true);
+  };
+
+  // Send reply
+  const handleSendReply = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!replyForm.toAddr.trim()) {
+      toast.error('请输入收件人地址');
+      return;
+    }
+    setReplySending(true);
+
+    // Build the reply body with quoted content
+    const quotedContent = selectedEmail
+      ? `<br/><br/><div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;"><p><strong>${selectedEmail.fromAddr}</strong> 于 ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)} 写道：</p>${selectedEmail.bodyHtml || `<pre>${selectedEmail.bodyText || ''}</pre>`}</div>`
+      : '';
+
+    try {
+      const payload: any = {
+        toAddr: replyForm.toAddr,
+        subject: replyForm.subject,
+        bodyHtml: replyForm.bodyHtml + quotedContent,
+        inReplyTo: replyForm.inReplyTo || undefined,
+      };
+      if (replyForm.cc) payload.cc = replyForm.cc;
+      if (replyForm.bcc) payload.bcc = replyForm.bcc;
+      if (replyForm.customerId) payload.customerId = replyForm.customerId;
+
+      await emailsApi.send(payload);
+      toast.success('回复已发送');
+      setReplyOpen(false);
+      setReplyForm(emptyComposeForm);
+      // Refresh if on outbound
+      if (activeTab === 'OUTBOUND') {
+        fetchEmails();
+      }
+    } catch {
+      // handled by interceptor
+    } finally {
+      setReplySending(false);
+    }
+  };
+
+  // Send new email
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!composeForm.toAddr.trim()) {
@@ -184,6 +330,7 @@ export default function EmailsPage() {
       if (activeTab === 'INBOUND') {
         fetchEmails();
       }
+      fetchUnreadCount();
     } catch {
       toast.error('邮件收取失败', { id: 'fetch-email' });
     }
@@ -220,99 +367,251 @@ export default function EmailsPage() {
     return new Date(dateStr).toLocaleString('zh-CN');
   };
 
+  const formatShortTime = (dateStr?: string) => {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    const now = new Date();
+    const isToday = d.toDateString() === now.toDateString();
+    if (isToday) {
+      return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  };
+
   // ==================== Tabs ====================
-  const tabs: { key: TabType; label: string }[] = [
-    { key: 'INBOUND', label: '收件箱' },
+  const tabs: { key: TabType; label: string; badge?: number }[] = [
+    { key: 'INBOUND', label: '收件箱', badge: unreadCount > 0 ? unreadCount : undefined },
     { key: 'OUTBOUND', label: '已发送' },
     { key: 'TEMPLATES', label: '邮件模板' },
   ];
 
-  // ==================== Email List ====================
-  const renderEmailList = () => (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                {activeTab === 'INBOUND' ? '发件人' : '收件人'}
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                主题
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                关联客户
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                时间
-              </th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                状态
-              </th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {emails.map((email) => (
-              <tr
-                key={email.id}
-                className="hover:bg-gray-50 cursor-pointer"
-                onClick={() => handleViewEmail(email)}
-              >
-                <td className="px-4 py-3 text-sm text-gray-900">
-                  {activeTab === 'INBOUND' ? email.fromAddr : email.toAddr}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-900 font-medium">
-                  {email.subject || '(无主题)'}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {email.customer?.companyName || '-'}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500">
-                  {formatTime(email.sentAt || email.receivedAt || email.createdAt)}
-                </td>
-                <td className="px-4 py-3">
-                  <Badge className={STATUS_MAP[email.status]?.color || 'bg-gray-100 text-gray-800'}>
-                    {STATUS_MAP[email.status]?.label || email.status}
-                  </Badge>
-                </td>
-              </tr>
-            ))}
-            {!loading && emails.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                  暂无邮件
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+  // ==================== Email List Item ====================
+  const renderEmailListItem = (email: Email) => {
+    const isSelected = selectedEmail?.id === email.id;
+    const isUnread = email.status === 'RECEIVED';
+    const addr = activeTab === 'INBOUND' ? email.fromAddr : email.toAddr;
+    const time = email.sentAt || email.receivedAt || email.createdAt;
+
+    return (
+      <div
+        key={email.id}
+        onClick={() => handleViewEmail(email)}
+        className={`px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
+          isSelected
+            ? 'bg-blue-50 border-l-2 border-l-blue-600'
+            : 'hover:bg-gray-50 border-l-2 border-l-transparent'
+        }`}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <span className={`text-sm truncate max-w-[200px] ${isUnread ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
+            {addr}
+          </span>
+          <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{formatShortTime(time)}</span>
+        </div>
+        <div className={`text-sm truncate ${isUnread ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
+          {email.subject || '(无主题)'}
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="text-xs text-gray-400 truncate max-w-[180px]">
+            {email.customer?.companyName || ''}
+          </span>
+          {isUnread && (
+            <span className="w-2 h-2 rounded-full bg-blue-600 flex-shrink-0"></span>
+          )}
+        </div>
       </div>
-      {total > pageSize && (
-        <div className="flex items-center justify-between px-4 py-3 border-t">
-          <span className="text-sm text-gray-500">共 {total} 封邮件</span>
-          <div className="flex gap-2">
+    );
+  };
+
+  // ==================== Email Detail Panel ====================
+  const renderDetailPanel = () => {
+    if (!selectedEmail) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-gray-400">
+          <div className="text-center">
+            <svg className="mx-auto h-16 w-16 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <p className="text-sm">选择一封邮件查看详情</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (detailLoading) {
+      return (
+        <div className="flex-1 flex items-center justify-center text-gray-400">
+          <div className="text-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto mb-3" />
+            <p className="text-sm">加载中...</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Email header */}
+        <div className="px-6 py-4 border-b bg-white flex-shrink-0">
+          <h2 className="text-lg font-semibold text-gray-900 mb-3">
+            {selectedEmail.subject || '(无主题)'}
+          </h2>
+          <div className="flex items-start justify-between">
+            <div className="space-y-1 text-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 w-16 flex-shrink-0">发件人：</span>
+                <span className="font-medium text-gray-900">{selectedEmail.fromAddr}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 w-16 flex-shrink-0">收件人：</span>
+                <span className="text-gray-700">{selectedEmail.toAddr}</span>
+              </div>
+              {selectedEmail.cc && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-16 flex-shrink-0">抄送：</span>
+                  <span className="text-gray-700">{selectedEmail.cc}</span>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 w-16 flex-shrink-0">时间：</span>
+                <span className="text-gray-700">
+                  {formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}
+                </span>
+              </div>
+              {selectedEmail.customer && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-16 flex-shrink-0">客户：</span>
+                  <span className="text-blue-600">{selectedEmail.customer.companyName}</span>
+                </div>
+              )}
+            </div>
+            <Badge className={STATUS_MAP[selectedEmail.status]?.color || 'bg-gray-100 text-gray-800'}>
+              {STATUS_MAP[selectedEmail.status]?.label || selectedEmail.status}
+            </Badge>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 mt-3 pt-3 border-t">
             <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={handleReply}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
             >
-              上一页
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              回复
             </button>
-            <span className="px-3 py-1 text-sm text-gray-600">
-              第 {page} 页
-            </span>
             <button
-              onClick={() => setPage((p) => p + 1)}
-              disabled={page * pageSize >= total}
-              className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => {
+                if (!selectedEmail) return;
+                const fwdSubject = selectedEmail.subject.startsWith('Fwd:')
+                  ? selectedEmail.subject
+                  : `Fwd: ${selectedEmail.subject}`;
+                const fwdBody = `<br/><br/>---------- 转发的邮件 ----------<br/>发件人: ${selectedEmail.fromAddr}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${selectedEmail.subject}<br/>收件人: ${selectedEmail.toAddr}<br/><br/>${selectedEmail.bodyHtml || selectedEmail.bodyText || ''}`;
+                setComposeForm({
+                  ...emptyComposeForm,
+                  subject: fwdSubject,
+                  bodyHtml: fwdBody,
+                  customerId: selectedEmail.customerId || '',
+                });
+                setComposeOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
             >
-              下一页
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+              </svg>
+              转发
             </button>
           </div>
         </div>
-      )}
-    </div>
-  );
+
+        {/* Email body - scrollable */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50">
+          <div className="bg-white rounded-lg border p-6 min-h-[300px]">
+            {selectedEmail.bodyHtml ? (
+              <div
+                dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
+                className="prose prose-sm max-w-none"
+              />
+            ) : (
+              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                {selectedEmail.bodyText || '(无内容)'}
+              </pre>
+            )}
+          </div>
+        </div>
+
+        {/* Inline reply form */}
+        {replyOpen && (
+          <div className="border-t bg-white flex-shrink-0 px-6 py-4">
+            <form onSubmit={handleSendReply} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-gray-700">回复邮件</h3>
+                <button
+                  type="button"
+                  onClick={() => setReplyOpen(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-4 text-sm">
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-gray-500 flex-shrink-0">收件人：</span>
+                  <input
+                    type="text"
+                    value={replyForm.toAddr}
+                    onChange={(e) => setReplyForm({ ...replyForm, toAddr: e.target.value })}
+                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex items-center gap-2 flex-1">
+                  <span className="text-gray-500 flex-shrink-0">抄送：</span>
+                  <input
+                    type="text"
+                    value={replyForm.cc}
+                    onChange={(e) => setReplyForm({ ...replyForm, cc: e.target.value })}
+                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="可选"
+                  />
+                </div>
+              </div>
+
+              <textarea
+                value={replyForm.bodyHtml}
+                onChange={(e) => setReplyForm({ ...replyForm, bodyHtml: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                rows={4}
+                placeholder="输入回复内容..."
+                autoFocus
+              />
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setReplyOpen(false)}
+                  className="px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={replySending}
+                  className="px-4 py-1.5 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {replySending ? '发送中...' : '发送回复'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // ==================== Templates List ====================
   const renderTemplates = () => (
@@ -375,91 +674,13 @@ export default function EmailsPage() {
     </div>
   );
 
-  // ==================== Email Detail Modal ====================
-  const renderDetailModal = () => (
-    <Modal
-      isOpen={detailOpen}
-      onClose={() => {
-        setDetailOpen(false);
-        setSelectedEmail(null);
-      }}
-      title="邮件详情"
-      size="xl"
-    >
-      {selectedEmail && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="font-medium text-gray-500">发件人：</span>
-              <span className="text-gray-900">{selectedEmail.fromAddr}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-500">收件人：</span>
-              <span className="text-gray-900">{selectedEmail.toAddr}</span>
-            </div>
-            {selectedEmail.cc && (
-              <div>
-                <span className="font-medium text-gray-500">抄送：</span>
-                <span className="text-gray-900">{selectedEmail.cc}</span>
-              </div>
-            )}
-            {selectedEmail.bcc && (
-              <div>
-                <span className="font-medium text-gray-500">密送：</span>
-                <span className="text-gray-900">{selectedEmail.bcc}</span>
-              </div>
-            )}
-            <div>
-              <span className="font-medium text-gray-500">时间：</span>
-              <span className="text-gray-900">
-                {formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}
-              </span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-500">状态：</span>
-              <Badge className={STATUS_MAP[selectedEmail.status]?.color || ''}>
-                {STATUS_MAP[selectedEmail.status]?.label || selectedEmail.status}
-              </Badge>
-            </div>
-            {selectedEmail.customer && (
-              <div>
-                <span className="font-medium text-gray-500">关联客户：</span>
-                <span className="text-gray-900">
-                  {selectedEmail.customer.companyName}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div className="border-t pt-4">
-            <h4 className="font-medium text-gray-700 mb-2">
-              主题：{selectedEmail.subject || '(无主题)'}
-            </h4>
-            <div className="border rounded-lg p-4 bg-gray-50 min-h-[200px] max-h-[400px] overflow-y-auto">
-              {selectedEmail.bodyHtml ? (
-                <div
-                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                  className="prose prose-sm max-w-none"
-                />
-              ) : (
-                <pre className="text-sm text-gray-700 whitespace-pre-wrap">
-                  {selectedEmail.bodyText || '(无内容)'}
-                </pre>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </Modal>
-  );
-
   // ==================== Compose Modal ====================
   const renderComposeModal = () => (
     <Modal
       isOpen={composeOpen}
       onClose={() => setComposeOpen(false)}
       title="写邮件"
-      size="lg"
+      size="3xl"
     >
       <form onSubmit={handleSendEmail} className="space-y-4">
         <div>
@@ -535,7 +756,7 @@ export default function EmailsPage() {
             value={composeForm.bodyHtml}
             onChange={(e) => setComposeForm({ ...composeForm, bodyHtml: e.target.value })}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            rows={8}
+            rows={12}
             placeholder="请输入邮件内容（支持 HTML）"
           />
         </div>
@@ -566,7 +787,7 @@ export default function EmailsPage() {
       isOpen={templateModalOpen}
       onClose={() => setTemplateModalOpen(false)}
       title="新建邮件模板"
-      size="lg"
+      size="3xl"
     >
       <form onSubmit={handleCreateTemplate} className="space-y-4">
         <div>
@@ -612,7 +833,7 @@ export default function EmailsPage() {
             value={templateForm.bodyHtml}
             onChange={(e) => setTemplateForm({ ...templateForm, bodyHtml: e.target.value })}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            rows={8}
+            rows={10}
             placeholder="请输入模板内容（支持 HTML）"
           />
         </div>
@@ -639,9 +860,9 @@ export default function EmailsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-4">
+      <div className="flex flex-col h-[calc(100vh-64px)]">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between px-0 py-4 flex-shrink-0">
           <h1 className="text-2xl font-bold text-gray-900">邮件中心</h1>
           <div className="flex items-center gap-3">
             <button
@@ -663,7 +884,7 @@ export default function EmailsPage() {
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200">
+        <div className="border-b border-gray-200 flex-shrink-0">
           <nav className="flex -mb-px space-x-6">
             {tabs.map((tab) => (
               <button
@@ -671,14 +892,21 @@ export default function EmailsPage() {
                 onClick={() => {
                   setActiveTab(tab.key);
                   setPage(1);
+                  setSelectedEmail(null);
+                  setReplyOpen(false);
                 }}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors ${
+                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors relative ${
                   activeTab === tab.key
                     ? 'border-blue-600 text-blue-600'
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
                 {tab.label}
+                {tab.badge && (
+                  <span className="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full min-w-[18px]">
+                    {tab.badge > 99 ? '99+' : tab.badge}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -686,7 +914,7 @@ export default function EmailsPage() {
 
         {/* Template actions */}
         {activeTab === 'TEMPLATES' && (
-          <div className="flex justify-end">
+          <div className="flex justify-end py-3 flex-shrink-0">
             <button
               onClick={() => {
                 setTemplateForm(emptyTemplateForm);
@@ -699,17 +927,67 @@ export default function EmailsPage() {
           </div>
         )}
 
-        {/* Loading */}
-        {loading && (
-          <div className="text-center py-8 text-gray-500">加载中...</div>
+        {/* Content */}
+        {activeTab === 'TEMPLATES' ? (
+          <div className="flex-1 overflow-y-auto py-2">
+            {renderTemplates()}
+          </div>
+        ) : (
+          /* Split pane layout for inbox/outbound */
+          <div className="flex flex-1 mt-3 bg-white rounded-lg shadow overflow-hidden border">
+            {/* Left panel: email list */}
+            <div className="w-[380px] flex flex-col border-r bg-white flex-shrink-0">
+              {/* List */}
+              <div className="flex-1 overflow-y-auto">
+                {loading ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
+                    加载中...
+                  </div>
+                ) : emails.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 text-sm">
+                    暂无邮件
+                  </div>
+                ) : (
+                  emails.map((email) => renderEmailListItem(email))
+                )}
+              </div>
+
+              {/* Pagination */}
+              {total > pageSize && (
+                <div className="flex items-center justify-between px-3 py-2 border-t text-xs flex-shrink-0">
+                  <span className="text-gray-500">共 {total} 封</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page <= 1}
+                      className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      上一页
+                    </button>
+                    <span className="px-2 py-1 text-gray-500">
+                      {page}/{Math.ceil(total / pageSize)}
+                    </span>
+                    <button
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={page * pageSize >= total}
+                      className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      下一页
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Right panel: email detail */}
+            <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+              {renderDetailPanel()}
+            </div>
+          </div>
         )}
 
-        {/* Content */}
-        {!loading && activeTab !== 'TEMPLATES' && renderEmailList()}
-        {activeTab === 'TEMPLATES' && renderTemplates()}
-
         {/* Modals */}
-        {renderDetailModal()}
         {renderComposeModal()}
         {renderTemplateModal()}
       </div>

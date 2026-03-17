@@ -96,6 +96,8 @@ export const emailsApi = {
   fetch: () => api.post('/emails/fetch'),
   getTemplates: () => api.get('/emails/templates'),
   createTemplate: (data: any) => api.post('/emails/templates', data),
+  getUnreadCount: () => api.get('/emails/unread-count'),
+  markAsRead: (id: string) => api.patch(`/emails/${id}/read`),
 };
 
 // ==================== Quotations API ====================

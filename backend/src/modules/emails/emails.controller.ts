@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -32,15 +33,22 @@ export class EmailsController {
     return this.emailsService.sendEmail(user.id, dto);
   }
 
+  @Get('unread-count')
+  async getUnreadCount(@CurrentUser() user: any) {
+    return this.emailsService.getUnreadCount(user.id, user.role);
+  }
+
   @Get()
   async findAll(
     @CurrentUser() user: any,
     @Query('customerId') customerId?: string,
+    @Query('direction') direction?: string,
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
   ) {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
+      direction,
       page,
       pageSize,
     });
@@ -72,6 +80,11 @@ export class EmailsController {
   @Get(':id')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.emailsService.findOne(id, user.id, user.role);
+  }
+
+  @Patch(':id/read')
+  async markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.markAsRead(id, user.id, user.role);
   }
 
   @Post('fetch')

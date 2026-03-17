@@ -354,7 +354,7 @@ export default function OrdersPage() {
                           {o.customer?.companyName ?? '-'}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
-                          {o.currency} {o.totalAmount.toLocaleString()}
+                          {o.currency} {(o.totalAmount ?? 0).toLocaleString()}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm">
                           <Badge className={os?.color}>{os?.label}</Badge>
@@ -580,7 +580,7 @@ export default function OrdersPage() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-gray-800">
-                        {item.totalPrice.toLocaleString()}
+                        {(item.totalPrice ?? 0).toLocaleString()}
                       </td>
                       <td className="px-3 py-2">
                         <button
@@ -651,7 +651,7 @@ export default function OrdersPage() {
               <div>
                 <span className="font-medium text-gray-500">金额：</span>
                 <span className="text-gray-900">
-                  {detailOrder.currency} {detailOrder.totalAmount.toLocaleString()}
+                  {detailOrder.currency} {(detailOrder.totalAmount ?? 0).toLocaleString()}
                 </span>
               </div>
               <div>
@@ -737,10 +737,10 @@ export default function OrdersPage() {
                         <td className="px-3 py-2 text-gray-600">{item.unit}</td>
                         <td className="px-3 py-2 text-right text-gray-900">{item.quantity}</td>
                         <td className="px-3 py-2 text-right text-gray-900">
-                          {item.unitPrice.toLocaleString()}
+                          {(item.unitPrice ?? 0).toLocaleString()}
                         </td>
                         <td className="px-3 py-2 text-right font-medium text-gray-900">
-                          {item.totalPrice.toLocaleString()}
+                          {(item.totalPrice ?? 0).toLocaleString()}
                         </td>
                       </tr>
                     ))}

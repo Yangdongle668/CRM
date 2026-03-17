@@ -30,4 +30,8 @@ export class SendEmailDto {
   @IsUUID()
   @IsOptional()
   customerId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  inReplyTo?: string;
 }

@@ -2,7 +2,7 @@ import {
   Controller,
   Get,
   Post,
-  Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -48,7 +48,7 @@ export class QuotationsController {
     return this.quotationsService.findOne(id, user.id, user.role);
   }
 
-  @Put(':id')
+  @Patch(':id')
   async update(
     @CurrentUser() user: any,
     @Param('id') id: string,

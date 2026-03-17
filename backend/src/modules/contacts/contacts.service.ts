@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateContactDto } from './dto/create-contact.dto';
 import { UpdateContactDto } from './dto/update-contact.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class ContactsService {
@@ -40,19 +41,55 @@ export class ContactsService {
     return customer;
   }
 
-  async findAllByCustomer(
-    customerId: string,
+  async findAll(
     userId: string,
     role: string,
+    query: {
+      page?: string;
+      pageSize?: string;
+      search?: string;
+      customerId?: string;
+    },
   ) {
-    await this.verifyCustomerAccess(customerId, userId, role);
+    const page = parseInt(query.page || '1', 10);
+    const pageSize = parseInt(query.pageSize || '20', 10);
+    const skip = (page - 1) * pageSize;
 
-    const items = await this.prisma.contact.findMany({
-      where: { customerId },
-      orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
-    });
+    const where: Prisma.ContactWhereInput = {};
 
-    return { items, total: items.length };
+    // If customerId is provided, filter by it
+    if (query.customerId) {
+      where.customerId = query.customerId;
+    }
+
+    // SALESPERSON can only see contacts belonging to their customers
+    if (role !== 'ADMIN') {
+      where.customer = { ownerId: userId };
+    }
+
+    // Search by name, email, or phone
+    if (query.search) {
+      where.OR = [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { email: { contains: query.search, mode: 'insensitive' } },
+        { phone: { contains: query.search, mode: 'insensitive' } },
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.contact.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: [{ isPrimary: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          customer: { select: { id: true, companyName: true } },
+        },
+      }),
+      this.prisma.contact.count({ where }),
+    ]);
+
+    return { items, total, page, pageSize };
   }
 
   async findOne(id: string, userId: string, role: string) {

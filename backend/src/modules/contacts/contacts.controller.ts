@@ -21,15 +21,19 @@ export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
   @Get()
-  findAllByCustomer(
+  findAll(
+    @Query('page') page: string,
+    @Query('pageSize') pageSize: string,
+    @Query('search') search: string,
     @Query('customerId') customerId: string,
     @CurrentUser() user: { id: string; role: string },
   ) {
-    return this.contactsService.findAllByCustomer(
+    return this.contactsService.findAll(user.id, user.role, {
+      page,
+      pageSize,
+      search,
       customerId,
-      user.id,
-      user.role,
-    );
+    });
   }
 
   @Get(':id')
