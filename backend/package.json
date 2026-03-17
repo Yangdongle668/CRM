@@ -38,7 +38,7 @@
     "uuid": "^9.0.0"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node --compiler-options {\"module\":\"CommonJS\"} prisma/seed.ts"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.3.0",
