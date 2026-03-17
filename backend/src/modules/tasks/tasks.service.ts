@@ -54,7 +54,7 @@ export class TasksService {
       }
     }
 
-    const [data, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.task.findMany({
         where,
         skip,
@@ -66,7 +66,7 @@ export class TasksService {
     ]);
 
     return {
-      data,
+      items,
       total,
       page,
       pageSize,

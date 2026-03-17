@@ -58,7 +58,7 @@ export class ActivitiesService {
 
     const where = { customerId };
 
-    const [data, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.activity.findMany({
         where,
         skip,
@@ -73,7 +73,7 @@ export class ActivitiesService {
     ]);
 
     return {
-      data,
+      items,
       total,
       page,
       pageSize,

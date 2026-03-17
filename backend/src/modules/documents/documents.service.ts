@@ -69,7 +69,7 @@ export class DocumentsService {
       where.category = query.category;
     }
 
-    const [data, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       this.prisma.document.findMany({
         where,
         skip,
@@ -84,7 +84,7 @@ export class DocumentsService {
     ]);
 
     return {
-      data,
+      items,
       total,
       page,
       pageSize,
