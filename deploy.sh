@@ -133,7 +133,7 @@ wait_for_backend() {
     local max_attempts=30
     local attempt=0
     while [ $attempt -lt $max_attempts ]; do
-        if docker compose exec -T backend sh -c 'wget -q --spider http://localhost:3001/api/auth/login 2>/dev/null || curl -sf http://localhost:3001/api/auth/login >/dev/null 2>&1'; then
+        if docker compose exec -T backend sh -c 'wget -q -O /dev/null http://localhost:3001/api/auth/check-init 2>/dev/null || curl -sf http://localhost:3001/api/auth/check-init >/dev/null 2>&1'; then
             echo -e "${GREEN}[✓] 后端服务已就绪${NC}"
             return 0
         fi
