@@ -15,11 +15,25 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { SetupDto } from './dto/setup.dto';
 
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
+
+  @Get('check-init')
+  @ApiOperation({ summary: 'Check if system is initialized' })
+  async checkInit() {
+    return this.authService.checkInit();
+  }
+
+  @Post('setup')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Initial admin setup (first run only)' })
+  async setup(@Body() dto: SetupDto) {
+    return this.authService.setup(dto);
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
