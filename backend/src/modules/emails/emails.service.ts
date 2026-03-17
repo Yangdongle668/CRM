@@ -47,15 +47,49 @@ export class EmailsService {
       htmlBody += `<br/><br/>--<br/>${config.signature}`;
     }
 
+    // Handle reply threading
+    let inReplyToMessageId: string | undefined;
+    let threadId: string | undefined;
+
+    if (dto.inReplyTo) {
+      const originalEmail = await this.prisma.email.findUnique({
+        where: { id: dto.inReplyTo },
+      });
+      if (originalEmail) {
+        inReplyToMessageId = originalEmail.messageId || undefined;
+        // Reuse existing thread or create new one
+        if (originalEmail.threadId) {
+          threadId = originalEmail.threadId;
+        } else {
+          const thread = await this.prisma.emailThread.create({
+            data: { subject: originalEmail.subject },
+          });
+          threadId = thread.id;
+          // Link original email to thread
+          await this.prisma.email.update({
+            where: { id: originalEmail.id },
+            data: { threadId: thread.id },
+          });
+        }
+      }
+    }
+
     try {
-      const info = await transporter.sendMail({
+      const mailOptions: any = {
         from: fromAddress,
         to: dto.toAddr,
         cc: dto.cc || undefined,
         bcc: dto.bcc || undefined,
         subject: dto.subject,
         html: htmlBody,
-      });
+      };
+
+      if (inReplyToMessageId) {
+        mailOptions.inReplyTo = inReplyToMessageId;
+        mailOptions.references = [inReplyToMessageId];
+      }
+
+      const info = await transporter.sendMail(mailOptions);
 
       const email = await this.prisma.email.create({
         data: {
@@ -71,6 +105,7 @@ export class EmailsService {
           sentAt: new Date(),
           customerId: dto.customerId || null,
           senderId: userId,
+          threadId: threadId || null,
         },
         include: {
           customer: true,
@@ -93,6 +128,7 @@ export class EmailsService {
           status: 'FAILED',
           customerId: dto.customerId || null,
           senderId: userId,
+          threadId: threadId || null,
         },
       });
 
@@ -156,12 +192,47 @@ export class EmailsService {
       include: {
         customer: true,
         sender: { select: { id: true, name: true, email: true } },
-        thread: { include: { emails: { orderBy: { createdAt: 'asc' } } } },
+        thread: { include: { emails: { orderBy: { createdAt: 'asc' }, include: { sender: { select: { id: true, name: true, email: true } } } } } },
       },
     });
 
     if (!email) {
       throw new NotFoundException('Email not found');
+    }
+
+    return email;
+  }
+
+  async getUnreadCount(userId: string, role: string) {
+    const where: any = {
+      direction: 'INBOUND',
+      status: 'RECEIVED',
+    };
+
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    const count = await this.prisma.email.count({ where });
+    return { count };
+  }
+
+  async markAsRead(id: string, userId: string, role: string) {
+    const where: any = { id };
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    const email = await this.prisma.email.findFirst({ where });
+    if (!email) {
+      throw new NotFoundException('Email not found');
+    }
+
+    if (email.status === 'RECEIVED') {
+      return this.prisma.email.update({
+        where: { id },
+        data: { status: 'READ' },
+      });
     }
 
     return email;

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -30,6 +31,11 @@ export class EmailsController {
     @Body() dto: SendEmailDto,
   ) {
     return this.emailsService.sendEmail(user.id, dto);
+  }
+
+  @Get('unread-count')
+  async getUnreadCount(@CurrentUser() user: any) {
+    return this.emailsService.getUnreadCount(user.id, user.role);
   }
 
   @Get()
@@ -74,6 +80,11 @@ export class EmailsController {
   @Get(':id')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.emailsService.findOne(id, user.id, user.role);
+  }
+
+  @Patch(':id/read')
+  async markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.markAsRead(id, user.id, user.role);
   }
 
   @Post('fetch')
