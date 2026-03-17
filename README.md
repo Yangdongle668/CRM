@@ -85,8 +85,7 @@
 
 ```bash
 # 克隆项目
-git clone <repo-url> && cd CRM
-
+git clone https://github.com/Yangdongle668/CRM && cd CRM
 # 赋予执行权限并运行
 chmod +x deploy.sh
 ./deploy.sh
