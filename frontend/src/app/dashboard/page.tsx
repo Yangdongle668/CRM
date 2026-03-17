@@ -74,15 +74,19 @@ export default function DashboardPage() {
         ]);
 
         setStats((statsRes as any).data);
-        setSalesTrend((trendRes as any).data);
-        setFunnelData((funnelRes as any).data);
+        const trendData = (trendRes as any).data;
+        setSalesTrend(Array.isArray(trendData) ? trendData : []);
+        const funnelResult = (funnelRes as any).data;
+        setFunnelData(Array.isArray(funnelResult) ? funnelResult : []);
+        const tasksData = (tasksRes as any).data;
         setRecentTasks(
-          (tasksRes as any).data?.items || (tasksRes as any).data || []
+          Array.isArray(tasksData?.items) ? tasksData.items : Array.isArray(tasksData) ? tasksData : []
         );
 
         if (isAdmin) {
           const rankingsRes = await dashboardApi.getRankings();
-          setRankings((rankingsRes as any).data);
+          const rankingsData = (rankingsRes as any).data;
+          setRankings(Array.isArray(rankingsData) ? rankingsData : []);
         }
       } catch {
         // errors handled by api interceptor
