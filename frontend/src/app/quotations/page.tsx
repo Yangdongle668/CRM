@@ -301,7 +301,7 @@ export default function QuotationsPage() {
                           {q.customer?.companyName ?? '-'}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
-                          {q.totalAmount.toLocaleString()}
+                          {(q.totalAmount ?? 0).toLocaleString()}
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-700">
                           {q.currency}
@@ -530,7 +530,7 @@ export default function QuotationsPage() {
                         />
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 text-sm font-medium text-gray-800">
-                        {item.totalPrice.toLocaleString()}
+                        {(item.totalPrice ?? 0).toLocaleString()}
                       </td>
                       <td className="px-3 py-2">
                         <button

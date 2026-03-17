@@ -36,11 +36,13 @@ export class EmailsController {
   async findAll(
     @CurrentUser() user: any,
     @Query('customerId') customerId?: string,
+    @Query('direction') direction?: string,
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
   ) {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
+      direction,
       page,
       pageSize,
     });

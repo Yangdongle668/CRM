@@ -105,6 +105,7 @@ export class EmailsService {
     role: string,
     query: {
       customerId?: string;
+      direction?: string;
       page?: number;
       pageSize?: number;
     },
@@ -121,6 +122,10 @@ export class EmailsService {
 
     if (query.customerId) {
       where.customerId = query.customerId;
+    }
+
+    if (query.direction) {
+      where.direction = query.direction;
     }
 
     const [items, total] = await Promise.all([
