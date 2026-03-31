@@ -26,10 +26,14 @@
 - 客户与联系人管理（含客户详情页、活动时间线）
 - 销售线索全生命周期管理（新线索 → 联系 → 资质确认 → 报价 → 谈判 → 成交/丢失）
 - 报价单 & 订单管理（含行项明细）
-- 邮件中心（SMTP/IMAP 收发邮件、邮件模板）
+- 邮件中心（分栏布局、收件箱/发件箱同步、在线回复/转发、邮件模板）
+- 邮件已读追踪（跟踪像素检测客户打开邮件，实时通知）
+- 客户时间线（价格讨论、订单意向、样品、模具费、付款、物流、投诉、拜访等）
 - 任务管理（优先级、状态、到期提醒）
 - 文件管理（上传/分类/关联客户）
 - 数据仪表盘（业务数据概览）
+- 全量数据备份导出与导入（JSON 格式，一键备份恢复）
+- Apple 风格简洁 UI（毛玻璃效果、圆角设计、流畅动画）
 - 角色权限控制（管理员 / 业务员）
 - Docker 一键部署
 
@@ -242,12 +246,16 @@ npm run dev
 
 ### 5. 邮件中心 (`/emails`)
 
-- 发送邮件（支持 HTML 富文本）
-- 收件箱（通过 IMAP 同步）
-- 邮件模板管理（内置开发信、跟进、订单确认模板）
-- 邮件关联客户
+- **分栏布局**：左侧邮件列表（380px），右侧邮件详情与回复区
+- **收件箱 & 发件箱同步**：通过 IMAP 自动同步收件箱和发件箱（自动检测 Sent 文件夹）
+- **在线回复/转发**：分栏内直接回复，自动引用原文并关联邮件线程
+- **邮件已读追踪**：发送的邮件嵌入跟踪像素，客户打开后自动记录已读时间和次数
+- **已读通知**：页面右上角绿色信封图标，实时展示最近 24 小时内被客户打开的邮件
+- **未读提醒**：每 60 秒轮询，新邮件到达时弹窗通知
+- **邮件模板**：内置开发信、跟进、订单确认等模板
+- **统一账密**：SMTP/IMAP 使用同一组邮箱账号密码，无需重复填写
 
-用户需在 **系统设置** 中配置个人的 SMTP/IMAP 邮箱信息后方可使用。
+用户需在 **系统设置 → 邮件配置** 中配置邮箱信息后方可使用。
 
 ### 6. 报价管理 (`/quotations`)
 
@@ -277,8 +285,31 @@ npm run dev
 
 ### 10. 系统设置 (`/settings`，仅管理员)
 
-- 邮箱配置（SMTP/IMAP 参数）
-- 系统参数管理
+- **用户管理**：创建/编辑/删除用户账户，分配角色
+- **邮箱配置**：SMTP/IMAP 服务器参数、统一账密、发件人名称、邮件签名
+- **系统参数**：自定义 key-value 参数
+- **数据备份**：一键导出全量数据为 JSON 文件，支持从备份文件恢复
+
+### 11. 客户时间线
+
+客户详情页内的时间线功能，支持记录外贸业务全流程关键节点：
+
+| 类型 | 说明 |
+|------|------|
+| 备注 | 一般性备注记录 |
+| 电话 | 电话沟通记录 |
+| 会议 | 线上/线下会议 |
+| 邮件 | 邮件往来记录 |
+| 任务 | 任务关联记录 |
+| 状态变更 | 客户状态变化 |
+| 价格讨论 | 报价、议价沟通 |
+| 订单意向 | 客户下单意向确认 |
+| 样品 | 样品寄送、确认 |
+| 模具费 | 模具开发费用讨论 |
+| 付款 | 付款进度跟踪 |
+| 物流 | 发货、物流跟踪 |
+| 投诉 | 客户投诉处理 |
+| 拜访 | 客户拜访记录 |
 
 ---
 
@@ -293,7 +324,7 @@ npm run dev
 | `customers` | 客户 | companyName, country, industry, status, owner |
 | `contacts` | 联系人 | name, email, phone, wechat, whatsapp, 关联 customer |
 | `leads` | 销售线索 | title, stage, expectedAmount, 关联 customer/owner |
-| `emails` | 邮件 | subject, body, direction, status, 关联 customer |
+| `emails` | 邮件 | subject, body, direction, status, viewedAt, viewCount, 关联 customer |
 | `email_threads` | 邮件会话 | 邮件线程分组 |
 | `email_templates` | 邮件模板 | name, subject, bodyHtml, category |
 | `quotations` | 报价单 | quotationNo, totalAmount, status, validUntil |
@@ -301,7 +332,7 @@ npm run dev
 | `orders` | 订单 | orderNo, totalAmount, status, paymentStatus |
 | `order_items` | 订单明细 | productName, quantity, unitPrice, totalPrice |
 | `tasks` | 任务 | title, priority, status, dueDate |
-| `activities` | 活动记录 | type (NOTE/CALL/MEETING/EMAIL/TASK), content |
+| `activities` | 活动记录 | type (NOTE/CALL/MEETING/EMAIL/TASK/PRICE_DISCUSSION/ORDER_INTENT/SAMPLE/MOLD_FEE/PAYMENT/SHIPPING/COMPLAINT/VISIT), content |
 | `documents` | 文件 | fileName, filePath, fileSize, mimeType |
 | `system_settings` | 系统设置 | key-value 键值对 |
 
@@ -394,7 +425,12 @@ Authorization: Bearer <token>
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/emails` | 邮件列表 |
-| POST | `/api/emails/send` | 发送邮件 |
+| POST | `/api/emails/send` | 发送邮件（支持 inReplyTo 回复关联） |
+| POST | `/api/emails/fetch` | 手动触发 IMAP 邮件同步 |
+| GET | `/api/emails/unread-count` | 获取未读邮件数 |
+| GET | `/api/emails/recently-viewed` | 获取最近 24 小时客户已读邮件 |
+| PATCH | `/api/emails/:id/read` | 标记邮件为已读 |
+| GET | `/api/emails/track/:id/pixel.png` | 邮件跟踪像素（公开接口，无需认证） |
 | GET | `/api/emails/templates` | 邮件模板列表 |
 | POST | `/api/emails/templates` | 创建邮件模板 |
 
@@ -421,6 +457,8 @@ Authorization: Bearer <token>
 | GET | `/api/settings` | 获取系统设置 |
 | PUT | `/api/settings` | 更新系统设置 |
 | PUT | `/api/settings/email-config` | 更新邮箱配置 |
+| GET | `/api/backup/export` | 导出全量数据备份（JSON 下载） |
+| POST | `/api/backup/import` | 导入备份数据（覆盖现有数据） |
 
 ---
 
@@ -498,6 +536,7 @@ CRM/
 │   │   ├── modules/            # 业务模块
 │   │   │   ├── activities/     # 活动记录
 │   │   │   ├── auth/           # 认证 (JWT)
+│   │   │   ├── backup/         # 数据备份导入导出
 │   │   │   ├── contacts/       # 联系人
 │   │   │   ├── customers/      # 客户
 │   │   │   ├── dashboard/      # 仪表盘
@@ -581,6 +620,12 @@ CRM/
 编辑 `docker-compose.yml` 中 nginx 服务的 ports 映射，例如将 `80:80` 改为 `8080:80`。
 
 ### Q: 如何备份数据？
+
+**方式一：通过系统界面（推荐）**
+
+进入 **系统设置 → 数据备份**，点击「导出备份文件」即可下载包含所有业务数据的 JSON 文件。恢复时点击「选择备份文件导入」上传 JSON 文件即可。
+
+**方式二：数据库级别备份**
 
 ```bash
 # 数据库备份

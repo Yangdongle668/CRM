@@ -55,24 +55,24 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-fade-in"
     >
       <div
-        className={`w-full ${maxWidthClasses[width]} rounded-xl bg-white shadow-xl animate-fade-in`}
+        className={`w-full ${maxWidthClasses[width]} rounded-2xl bg-white/95 backdrop-blur-xl shadow-apple-xl animate-scale-in`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+          <h2 className="text-[17px] font-semibold tracking-tight text-gray-900">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
           >
             <HiOutlineXMark className="h-5 w-5" />
           </button>
         </div>
 
         {/* Content */}
-        <div className="max-h-[80vh] overflow-y-auto px-6 py-4">{children}</div>
+        <div className="max-h-[80vh] overflow-y-auto px-6 py-5">{children}</div>
       </div>
     </div>
   );

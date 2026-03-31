@@ -14,14 +14,10 @@ export default function LoginPage() {
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // Login fields
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // Setup-only fields
   const [name, setName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -31,7 +27,6 @@ export default function LoginPage() {
         setIsSetupMode(!res.data.initialized);
       })
       .catch(() => {
-        // If check fails, default to login mode
         setIsSetupMode(false);
       })
       .finally(() => setChecking(false));
@@ -39,27 +34,12 @@ export default function LoginPage() {
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-
-    if (isSetupMode && !name.trim()) {
-      newErrors.name = '请输入姓名';
-    }
-
-    if (!email.trim()) {
-      newErrors.email = '请输入邮箱地址';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      newErrors.email = '请输入有效的邮箱地址';
-    }
-
-    if (!password) {
-      newErrors.password = '请输入密码';
-    } else if (password.length < 6) {
-      newErrors.password = '密码长度不能少于6位';
-    }
-
-    if (isSetupMode && password !== confirmPassword) {
-      newErrors.confirmPassword = '两次输入的密码不一致';
-    }
-
+    if (isSetupMode && !name.trim()) newErrors.name = '请输入姓名';
+    if (!email.trim()) newErrors.email = '请输入邮箱地址';
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) newErrors.email = '请输入有效的邮箱地址';
+    if (!password) newErrors.password = '请输入密码';
+    else if (password.length < 6) newErrors.password = '密码长度不能少于6位';
+    if (isSetupMode && password !== confirmPassword) newErrors.confirmPassword = '两次输入的密码不一致';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -75,7 +55,6 @@ export default function LoginPage() {
         localStorage.setItem('token', res.data.token);
         localStorage.setItem('user', JSON.stringify(res.data.user));
         toast.success('管理员账户创建成功！');
-        // Full reload to pick up new auth state in AuthProvider
         window.location.href = '/dashboard';
         return;
       } else {
@@ -97,148 +76,105 @@ export default function LoginPage() {
 
   if (checking) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-100">
-        <div className="text-gray-500">加载中...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7]">
+        <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-primary-500 border-t-transparent" />
       </div>
     );
   }
 
+  const inputClass = (field: string) =>
+    `w-full px-4 py-3 rounded-xl border bg-white/80 backdrop-blur-sm text-[15px] transition-all focus:outline-none focus:ring-2 focus:ring-primary-500/30 focus:border-primary-500 ${
+      errors[field] ? 'border-red-400' : 'border-gray-200'
+    }`;
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-8">
-        {/* Title */}
+    <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7]">
+      <div className="w-full max-w-[400px] mx-4">
+        {/* Logo & Title */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">外贸CRM系统</h1>
-          <p className="text-gray-500 mt-2">
+          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500 text-xl font-bold text-white shadow-apple-md mb-4">
+            CRM
+          </div>
+          <h1 className="text-[28px] font-bold tracking-tight text-gray-900">外贸CRM</h1>
+          <p className="text-[15px] text-gray-500 mt-1">
             {isSetupMode ? '首次使用，请设置管理员账户' : '请登录您的账户'}
           </p>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} noValidate className="space-y-5">
-          {/* Name - setup only */}
-          {isSetupMode && (
+        {/* Card */}
+        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-apple-lg border border-gray-200/60 p-8">
+          <form onSubmit={handleSubmit} noValidate className="space-y-4">
+            {isSetupMode && (
+              <div>
+                <label htmlFor="name" className="label">姓名</label>
+                <input
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => { setName(e.target.value); clearFieldError('name'); }}
+                  placeholder="管理员姓名"
+                  className={inputClass('name')}
+                />
+                {errors.name && <p className="text-red-500 text-xs mt-1.5">{errors.name}</p>}
+              </div>
+            )}
+
             <div>
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                姓名
-              </label>
+              <label htmlFor="email" className="label">邮箱地址</label>
               <input
-                id="name"
-                type="text"
-                value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  clearFieldError('name');
-                }}
-                placeholder="请输入管理员姓名"
-                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.name ? 'border-red-500' : 'border-gray-300'
-                }`}
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => { setEmail(e.target.value); clearFieldError('email'); }}
+                placeholder="name@example.com"
+                className={inputClass('email')}
               />
-              {errors.name && (
-                <p className="text-red-500 text-sm mt-1">{errors.name}</p>
-              )}
+              {errors.email && <p className="text-red-500 text-xs mt-1.5">{errors.email}</p>}
             </div>
-          )}
 
-          {/* Email */}
-          <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              邮箱地址
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                clearFieldError('email');
-              }}
-              placeholder="请输入邮箱"
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.email ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {errors.email && (
-              <p className="text-red-500 text-sm mt-1">{errors.email}</p>
-            )}
-          </div>
-
-          {/* Password */}
-          <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700 mb-1"
-            >
-              密码
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                clearFieldError('password');
-              }}
-              placeholder={isSetupMode ? '请设置密码（至少6位）' : '请输入密码'}
-              className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                errors.password ? 'border-red-500' : 'border-gray-300'
-              }`}
-            />
-            {errors.password && (
-              <p className="text-red-500 text-sm mt-1">{errors.password}</p>
-            )}
-          </div>
-
-          {/* Confirm Password - setup only */}
-          {isSetupMode && (
             <div>
-              <label
-                htmlFor="confirmPassword"
-                className="block text-sm font-medium text-gray-700 mb-1"
-              >
-                确认密码
-              </label>
+              <label htmlFor="password" className="label">密码</label>
               <input
-                id="confirmPassword"
+                id="password"
                 type="password"
-                value={confirmPassword}
-                onChange={(e) => {
-                  setConfirmPassword(e.target.value);
-                  clearFieldError('confirmPassword');
-                }}
-                placeholder="请再次输入密码"
-                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                  errors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                }`}
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); clearFieldError('password'); }}
+                placeholder={isSetupMode ? '设置密码（至少6位）' : '输入密码'}
+                className={inputClass('password')}
               />
-              {errors.confirmPassword && (
-                <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>
-              )}
+              {errors.password && <p className="text-red-500 text-xs mt-1.5">{errors.password}</p>}
             </div>
-          )}
 
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-2 px-4 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading
-              ? isSetupMode
-                ? '创建中...'
-                : '登录中...'
-              : isSetupMode
-                ? '创建管理员账户'
-                : '登 录'}
-          </button>
-        </form>
+            {isSetupMode && (
+              <div>
+                <label htmlFor="confirmPassword" className="label">确认密码</label>
+                <input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => { setConfirmPassword(e.target.value); clearFieldError('confirmPassword'); }}
+                  placeholder="再次输入密码"
+                  className={inputClass('confirmPassword')}
+                />
+                {errors.confirmPassword && <p className="text-red-500 text-xs mt-1.5">{errors.confirmPassword}</p>}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 px-4 bg-primary-500 text-white text-[15px] font-semibold rounded-xl hover:bg-primary-600 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all mt-2"
+            >
+              {loading
+                ? isSetupMode ? '创建中...' : '登录中...'
+                : isSetupMode ? '创建管理员账户' : '登录'}
+            </button>
+          </form>
+        </div>
+
+        <p className="text-center text-xs text-gray-400 mt-6">
+          外贸CRM客户关系管理系统
+        </p>
       </div>
     </div>
   );

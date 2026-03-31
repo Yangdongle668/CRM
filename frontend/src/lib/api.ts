@@ -160,6 +160,13 @@ export const dashboardApi = {
   getRankings: () => api.get('/dashboard/rankings'),
 };
 
+// ==================== Backup API ====================
+export const backupApi = {
+  export: () =>
+    api.get('/backup/export', { responseType: 'blob' }),
+  import: (data: any) => api.post('/backup/import', data),
+};
+
 // ==================== Settings API ====================
 export const settingsApi = {
   getAll: () => api.get('/settings'),

@@ -6,16 +6,17 @@ import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/contexts/auth-context';
-import { usersApi, settingsApi, authApi } from '@/lib/api';
+import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
 import type { User, Role, EmailConfig } from '@/types';
 
-type TabKey = 'users' | 'email' | 'system';
+type TabKey = 'users' | 'email' | 'system' | 'backup';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'users', label: '用户管理' },
   { key: 'email', label: '邮件配置' },
   { key: 'system', label: '系统参数' },
+  { key: 'backup', label: '数据备份' },
 ];
 
 const defaultUserForm = {
@@ -67,6 +68,63 @@ export default function SettingsPage() {
   const [systemSaving, setSystemSaving] = useState(false);
   const [newSettingKey, setNewSettingKey] = useState('');
   const [newSettingValue, setNewSettingValue] = useState('');
+
+  // ==================== Backup tab ====================
+  const [backupExporting, setBackupExporting] = useState(false);
+  const [backupImporting, setBackupImporting] = useState(false);
+
+  const handleExportBackup = async () => {
+    setBackupExporting(true);
+    try {
+      const res: any = await backupApi.export();
+      // The interceptor returns response.data, which is a Blob
+      const blob = res instanceof Blob ? res : new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `crm-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('备份文件已导出');
+    } catch {
+      toast.error('导出失败，请重试');
+    } finally {
+      setBackupExporting(false);
+    }
+  };
+
+  const handleImportBackup = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      if (!confirm('导入备份将覆盖所有现有数据，确定要继续吗？')) return;
+
+      setBackupImporting(true);
+      try {
+        const text = await file.text();
+        const data = JSON.parse(text);
+        if (!data.version || !data.data) {
+          toast.error('无效的备份文件格式');
+          setBackupImporting(false);
+          return;
+        }
+        await backupApi.import(data);
+        toast.success('备份数据已成功导入，页面将刷新');
+        setTimeout(() => window.location.reload(), 1500);
+      } catch (err: any) {
+        toast.error(err?.response?.data?.message || '导入失败，请检查文件格式');
+      } finally {
+        setBackupImporting(false);
+      }
+    };
+    input.click();
+  };
 
   // Admin check
   useEffect(() => {
@@ -633,6 +691,47 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+        {/* ==================== Backup Tab ==================== */}
+        {activeTab === 'backup' && (
+          <div className="rounded-lg border border-gray-200 bg-white p-6">
+            <div className="space-y-6">
+              {/* Export */}
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-2">导出备份</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  将所有系统数据（客户、联系人、线索、邮件、报价、订单、任务、活动记录等）导出为 JSON 文件。
+                </p>
+                <button
+                  onClick={handleExportBackup}
+                  disabled={backupExporting}
+                  className="rounded-lg bg-primary-500 px-5 py-2.5 text-sm font-medium text-white hover:bg-primary-600 disabled:opacity-50 transition-colors"
+                >
+                  {backupExporting ? '导出中...' : '导出备份文件'}
+                </button>
+              </div>
+
+              <div className="border-t border-gray-200" />
+
+              {/* Import */}
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-2">导入备份</h3>
+                <p className="text-sm text-gray-500 mb-2">
+                  从之前导出的 JSON 备份文件恢复数据。
+                </p>
+                <p className="text-sm text-red-500 mb-4">
+                  注意：导入操作将覆盖所有现有数据，请谨慎操作！
+                </p>
+                <button
+                  onClick={handleImportBackup}
+                  disabled={backupImporting}
+                  className="rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {backupImporting ? '导入中...' : '选择备份文件导入'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

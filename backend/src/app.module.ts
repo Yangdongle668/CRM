@@ -16,6 +16,7 @@ import { ActivitiesModule } from './modules/activities/activities.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { BackupModule } from './modules/backup/backup.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     DocumentsModule,
     DashboardModule,
     SettingsModule,
+    BackupModule,
   ],
 })
 export class AppModule {}
