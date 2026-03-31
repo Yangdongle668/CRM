@@ -8,15 +8,24 @@ import {
   Body,
   Param,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EmailsService } from './emails.service';
 import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
+
+// 1x1 transparent GIF pixel
+const TRACKING_PIXEL = Buffer.from(
+  'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+  'base64',
+);
 
 @ApiTags('邮件')
 @ApiBearerAuth('JWT-auth')
@@ -24,6 +33,23 @@ import { CreateTemplateDto } from './dto/create-template.dto';
 @Controller('emails')
 export class EmailsController {
   constructor(private readonly emailsService: EmailsService) {}
+
+  // Public tracking pixel endpoint - no auth required
+  @Public()
+  @Get('track/:id/pixel.png')
+  async trackOpen(@Param('id') id: string, @Res() res: Response) {
+    // Record the view asynchronously, don't block the pixel response
+    this.emailsService.recordView(id).catch(() => {});
+
+    res.set({
+      'Content-Type': 'image/gif',
+      'Content-Length': TRACKING_PIXEL.length.toString(),
+      'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    });
+    res.end(TRACKING_PIXEL);
+  }
 
   @Post('send')
   async sendEmail(
@@ -36,6 +62,11 @@ export class EmailsController {
   @Get('unread-count')
   async getUnreadCount(@CurrentUser() user: any) {
     return this.emailsService.getUnreadCount(user.id, user.role);
+  }
+
+  @Get('recently-viewed')
+  async getRecentlyViewed(@CurrentUser() user: any) {
+    return this.emailsService.getRecentlyViewed(user.id, user.role);
   }
 
   @Get()

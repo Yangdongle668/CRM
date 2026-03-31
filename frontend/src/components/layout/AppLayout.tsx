@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './Sidebar';
+import EmailReadNotification from './EmailReadNotification';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -40,9 +41,15 @@ export default function AppLayout({ children }: AppLayoutProps) {
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar with notification */}
+        <div className="flex items-center justify-end px-6 py-2 bg-white border-b border-gray-200 flex-shrink-0">
+          <EmailReadNotification />
+        </div>
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

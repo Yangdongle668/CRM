@@ -1,18 +1,9 @@
-import { IsString, IsNotEmpty, IsOptional, IsEnum } from 'class-validator';
-
-export enum ActivityType {
-  NOTE = 'NOTE',
-  CALL = 'CALL',
-  MEETING = 'MEETING',
-  EMAIL = 'EMAIL',
-  TASK = 'TASK',
-  STATUS_CHANGE = 'STATUS_CHANGE',
-}
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateActivityDto {
-  @IsEnum(ActivityType)
+  @IsString()
   @IsNotEmpty()
-  type: ActivityType;
+  type: string;
 
   @IsString()
   @IsNotEmpty()

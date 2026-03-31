@@ -69,6 +69,14 @@ export const ACTIVITY_TYPE_MAP: Record<string, { label: string; icon: string }> 
   EMAIL: { label: '邮件', icon: '📧' },
   TASK: { label: '任务', icon: '✅' },
   STATUS_CHANGE: { label: '状态变更', icon: '🔄' },
+  PRICE_DISCUSSION: { label: '价格讨论', icon: '💰' },
+  ORDER_INTENT: { label: '下单意向', icon: '📋' },
+  SAMPLE: { label: '样品', icon: '📦' },
+  MOLD_FEE: { label: '模具费', icon: '🔧' },
+  PAYMENT: { label: '付款', icon: '💳' },
+  SHIPPING: { label: '发货/物流', icon: '🚢' },
+  COMPLAINT: { label: '投诉/售后', icon: '⚠️' },
+  VISIT: { label: '拜访', icon: '🏢' },
 };
 
 // 角色

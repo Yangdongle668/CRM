@@ -28,7 +28,7 @@ import type {
 const TABS = [
   { key: 'info', label: '基本信息' },
   { key: 'contacts', label: '联系人' },
-  { key: 'activities', label: '活动记录' },
+  { key: 'activities', label: '时间线' },
   { key: 'files', label: '文件' },
   { key: 'emails', label: '邮件' },
 ] as const;
@@ -470,21 +470,23 @@ export default function CustomerDetailPage() {
             </div>
           )}
 
-          {/* Activities Tab */}
+          {/* Activities Tab - Timeline */}
           {activeTab === 'activities' && (
             <div className="space-y-6">
-              <form onSubmit={handleAddActivity} className="space-y-3 rounded-lg border border-gray-200 p-4">
+              <form onSubmit={handleAddActivity} className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/30 p-4">
                 <div className="flex items-center gap-4">
                   <select
                     value={activityType}
                     onChange={(e) => setActivityType(e.target.value as ActivityType)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none bg-white"
                   >
-                    <option value="NOTE">备注</option>
-                    <option value="CALL">电话</option>
-                    <option value="MEETING">会议</option>
+                    {Object.entries(ACTIVITY_TYPE_MAP).map(([key, val]) => (
+                      <option key={key} value={key}>
+                        {val.icon} {val.label}
+                      </option>
+                    ))}
                   </select>
-                  <span className="text-sm text-gray-500">添加新的活动记录</span>
+                  <span className="text-sm text-gray-500">添加时间线记录</span>
                 </div>
                 <textarea
                   value={activityContent}

@@ -163,6 +163,7 @@ enum EmailStatus {
   RECEIVED
   FAILED
   READ
+  VIEWED
 }
 
 model Email {
@@ -180,6 +181,8 @@ model Email {
   status     EmailStatus    @default(DRAFT)
   sentAt     DateTime?      @map("sent_at")
   receivedAt DateTime?      @map("received_at")
+  viewedAt   DateTime?      @map("viewed_at")
+  viewCount  Int            @default(0) @map("view_count")
   customerId String?        @map("customer_id")
   senderId   String?        @map("sender_id")
   createdAt  DateTime       @default(now()) @map("created_at")
@@ -363,6 +366,14 @@ enum ActivityType {
   EMAIL
   TASK
   STATUS_CHANGE
+  PRICE_DISCUSSION
+  ORDER_INTENT
+  SAMPLE
+  MOLD_FEE
+  PAYMENT
+  SHIPPING
+  COMPLAINT
+  VISIT
 }
 
 model Activity {

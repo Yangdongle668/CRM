@@ -72,6 +72,30 @@ export class EmailsService {
       }
     }
 
+    // Create email record first (as DRAFT) to get the ID for tracking pixel
+    const emailRecord = await this.prisma.email.create({
+      data: {
+        fromAddr: config.smtpUser,
+        toAddr: dto.toAddr,
+        cc: dto.cc,
+        bcc: dto.bcc,
+        subject: dto.subject,
+        bodyHtml: htmlBody,
+        direction: 'OUTBOUND',
+        status: 'DRAFT',
+        customerId: dto.customerId || null,
+        senderId: userId,
+        threadId: threadId || null,
+      },
+    });
+
+    // Embed tracking pixel in HTML body
+    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || '';
+    const trackingPixel = appUrl
+      ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
+      : '';
+    const htmlWithTracking = htmlBody + trackingPixel;
+
     try {
       const mailOptions: any = {
         from: fromAddress,
@@ -79,7 +103,7 @@ export class EmailsService {
         cc: dto.cc || undefined,
         bcc: dto.bcc || undefined,
         subject: dto.subject,
-        html: htmlBody,
+        html: htmlWithTracking,
       };
 
       if (inReplyToMessageId) {
@@ -89,21 +113,14 @@ export class EmailsService {
 
       const info = await transporter.sendMail(mailOptions);
 
-      const email = await this.prisma.email.create({
+      // Update email record to SENT with messageId
+      const email = await this.prisma.email.update({
+        where: { id: emailRecord.id },
         data: {
           messageId: info.messageId,
-          fromAddr: config.smtpUser,
-          toAddr: dto.toAddr,
-          cc: dto.cc,
-          bcc: dto.bcc,
-          subject: dto.subject,
-          bodyHtml: htmlBody,
-          direction: 'OUTBOUND',
           status: 'SENT',
           sentAt: new Date(),
-          customerId: dto.customerId || null,
-          senderId: userId,
-          threadId: threadId || null,
+          bodyHtml: htmlWithTracking,
         },
         include: {
           customer: true,
@@ -114,20 +131,10 @@ export class EmailsService {
     } catch (error) {
       this.logger.error(`Failed to send email: ${error.message}`, error.stack);
 
-      await this.prisma.email.create({
-        data: {
-          fromAddr: config.smtpUser,
-          toAddr: dto.toAddr,
-          cc: dto.cc,
-          bcc: dto.bcc,
-          subject: dto.subject,
-          bodyHtml: htmlBody,
-          direction: 'OUTBOUND',
-          status: 'FAILED',
-          customerId: dto.customerId || null,
-          senderId: userId,
-          threadId: threadId || null,
-        },
+      // Update record to FAILED
+      await this.prisma.email.update({
+        where: { id: emailRecord.id },
+        data: { status: 'FAILED' },
       });
 
       throw new BadRequestException(`Failed to send email: ${error.message}`);
@@ -243,6 +250,61 @@ export class EmailsService {
     }
 
     return email;
+  }
+
+  async recordView(emailId: string) {
+    try {
+      const email = await this.prisma.email.findUnique({
+        where: { id: emailId },
+      });
+
+      if (!email || email.direction !== 'OUTBOUND') return;
+
+      const isFirstView = !email.viewedAt;
+
+      await this.prisma.email.update({
+        where: { id: emailId },
+        data: {
+          viewedAt: email.viewedAt || new Date(),
+          viewCount: { increment: 1 },
+          status: 'VIEWED',
+        },
+      });
+
+      this.logger.log(
+        `Email ${emailId} viewed (${isFirstView ? 'first time' : `view #${email.viewCount + 1}`})`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to record email view: ${error.message}`);
+    }
+  }
+
+  async getRecentlyViewed(userId: string, role: string) {
+    const where: any = {
+      direction: 'OUTBOUND',
+      status: 'VIEWED',
+      viewedAt: { not: null },
+    };
+
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    // Get emails viewed in the last 24 hours
+    const since = new Date();
+    since.setHours(since.getHours() - 24);
+    where.viewedAt = { gte: since };
+
+    const items = await this.prisma.email.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, companyName: true } },
+      },
+      orderBy: { viewedAt: 'desc' },
+      take: 20,
+    });
+
+    return { items };
   }
 
   async fetchEmails(userId: string): Promise<{ fetched: number }> {

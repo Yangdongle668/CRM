@@ -84,7 +84,7 @@ export interface Lead {
 
 // ==================== 邮件 ====================
 export type EmailDirection = 'INBOUND' | 'OUTBOUND';
-export type EmailStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'FAILED' | 'READ';
+export type EmailStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'FAILED' | 'READ' | 'VIEWED';
 
 export interface Email {
   id: string;
@@ -101,6 +101,8 @@ export interface Email {
   status: EmailStatus;
   sentAt?: string;
   receivedAt?: string;
+  viewedAt?: string;
+  viewCount?: number;
   customerId?: string;
   customer?: Customer;
   senderId?: string;
@@ -206,7 +208,7 @@ export interface Task {
 }
 
 // ==================== 活动记录 ====================
-export type ActivityType = 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK' | 'STATUS_CHANGE';
+export type ActivityType = 'NOTE' | 'CALL' | 'MEETING' | 'EMAIL' | 'TASK' | 'STATUS_CHANGE' | 'PRICE_DISCUSSION' | 'ORDER_INTENT' | 'SAMPLE' | 'MOLD_FEE' | 'PAYMENT' | 'SHIPPING' | 'COMPLAINT' | 'VISIT';
 
 export interface Activity {
   id: string;
