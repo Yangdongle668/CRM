@@ -98,6 +98,7 @@ export const emailsApi = {
   createTemplate: (data: any) => api.post('/emails/templates', data),
   getUnreadCount: () => api.get('/emails/unread-count'),
   markAsRead: (id: string) => api.patch(`/emails/${id}/read`),
+  getRecentlyViewed: () => api.get('/emails/recently-viewed'),
 };
 
 // ==================== Quotations API ====================
@@ -157,6 +158,13 @@ export const dashboardApi = {
   getSalesTrend: () => api.get('/dashboard/sales-trend'),
   getFunnel: () => api.get('/dashboard/funnel'),
   getRankings: () => api.get('/dashboard/rankings'),
+};
+
+// ==================== Backup API ====================
+export const backupApi = {
+  export: () =>
+    api.get('/backup/export', { responseType: 'blob' }),
+  import: (data: any) => api.post('/backup/import', data),
 };
 
 // ==================== Settings API ====================

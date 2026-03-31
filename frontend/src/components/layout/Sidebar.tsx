@@ -52,32 +52,32 @@ export default function Sidebar() {
 
   return (
     <aside
-      className={`flex h-screen flex-col border-r border-gray-200 bg-white transition-all duration-300 ${
+      className={`flex h-screen flex-col bg-white/80 backdrop-blur-xl border-r border-gray-200/60 transition-all duration-300 ${
         collapsed ? 'w-[68px]' : 'w-60'
       }`}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center justify-between border-b border-gray-200 px-4">
+      <div className="flex h-14 items-center justify-between px-4">
         {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-              外
+          <Link href="/dashboard" className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-sm font-bold text-white shadow-apple">
+              CRM
             </div>
-            <span className="text-lg font-bold text-gray-900">外贸CRM</span>
+            <span className="text-[15px] font-semibold tracking-tight text-gray-900">外贸CRM</span>
           </Link>
         )}
         {collapsed && (
           <Link href="/dashboard" className="mx-auto">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-sm font-bold text-white">
-              外
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-[10px] font-bold text-white shadow-apple">
+              CRM
             </div>
           </Link>
         )}
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
-        <ul className="space-y-1">
+      <nav className="flex-1 overflow-y-auto px-3 py-3">
+        <ul className="space-y-0.5">
           {navItems.map((item) => {
             if (item.adminOnly && user?.role !== 'ADMIN') return null;
             const Icon = item.icon;
@@ -87,16 +87,16 @@ export default function Sidebar() {
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
+                  className={`group flex items-center gap-3 rounded-xl px-3 py-2 text-[13px] font-medium transition-all ${
                     active
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      ? 'bg-primary-500/10 text-primary-600'
+                      : 'text-gray-600 hover:bg-gray-100/80 hover:text-gray-900'
                   }`}
                   title={collapsed ? item.label : undefined}
                 >
                   <Icon
-                    className={`h-5 w-5 flex-shrink-0 ${
-                      active ? 'text-blue-700' : 'text-gray-400 group-hover:text-gray-600'
+                    className={`h-[18px] w-[18px] flex-shrink-0 ${
+                      active ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-600'
                     }`}
                   />
                   {!collapsed && <span>{item.label}</span>}
@@ -108,33 +108,33 @@ export default function Sidebar() {
       </nav>
 
       {/* Collapse toggle */}
-      <div className="border-t border-gray-200 px-3 py-2">
+      <div className="px-3 py-1.5">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center justify-center rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="flex w-full items-center justify-center rounded-xl p-2 text-gray-400 transition-colors hover:bg-gray-100/80 hover:text-gray-600"
           title={collapsed ? '展开侧边栏' : '收起侧边栏'}
         >
           {collapsed ? (
-            <HiOutlineChevronRight className="h-5 w-5" />
+            <HiOutlineChevronRight className="h-4 w-4" />
           ) : (
-            <HiOutlineChevronLeft className="h-5 w-5" />
+            <HiOutlineChevronLeft className="h-4 w-4" />
           )}
         </button>
       </div>
 
       {/* User info & Logout */}
-      <div className="border-t border-gray-200 px-3 py-3">
+      <div className="border-t border-gray-200/60 px-3 py-3">
         {!collapsed ? (
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-medium text-blue-700">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-xs font-semibold text-white">
                 {user?.name?.charAt(0) || '?'}
               </div>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-gray-900">
+                <p className="truncate text-[13px] font-medium text-gray-900">
                   {user?.name || '未知用户'}
                 </p>
-                <p className="truncate text-xs text-gray-500">
+                <p className="truncate text-[11px] text-gray-500">
                   {user?.role === 'ADMIN' ? '管理员' : '销售人员'}
                 </p>
               </div>
@@ -144,16 +144,16 @@ export default function Sidebar() {
               className="flex-shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
               title="退出登录"
             >
-              <HiOutlineArrowRightOnRectangle className="h-5 w-5" />
+              <HiOutlineArrowRightOnRectangle className="h-4 w-4" />
             </button>
           </div>
         ) : (
           <button
             onClick={logout}
-            className="flex w-full items-center justify-center rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="flex w-full items-center justify-center rounded-xl p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
             title="退出登录"
           >
-            <HiOutlineArrowRightOnRectangle className="h-5 w-5" />
+            <HiOutlineArrowRightOnRectangle className="h-4 w-4" />
           </button>
         )}
       </div>

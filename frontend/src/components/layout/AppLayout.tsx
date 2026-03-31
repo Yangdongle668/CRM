@@ -4,6 +4,7 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './Sidebar';
+import EmailReadNotification from './EmailReadNotification';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -24,10 +25,10 @@ export default function AppLayout({ children }: AppLayoutProps) {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
+      <div className="flex h-screen items-center justify-center bg-[#f5f5f7]">
         <div className="flex flex-col items-center gap-3">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-600 border-t-transparent" />
-          <p className="text-sm text-gray-500">加载中...</p>
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-primary-500 border-t-transparent" />
+          <p className="text-sm text-gray-500 font-medium">加载中...</p>
         </div>
       </div>
     );
@@ -38,11 +39,17 @@ export default function AppLayout({ children }: AppLayoutProps) {
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-gray-50">
+    <div className="flex h-screen overflow-hidden bg-[#f5f5f7]">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top bar */}
+        <div className="flex items-center justify-end h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
+          <EmailReadNotification />
+        </div>
+        <main className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-7xl px-6 py-6">{children}</div>
+        </main>
+      </div>
     </div>
   );
 }

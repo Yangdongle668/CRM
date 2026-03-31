@@ -57,7 +57,6 @@ export class EmailsService {
       });
       if (originalEmail) {
         inReplyToMessageId = originalEmail.messageId || undefined;
-        // Reuse existing thread or create new one
         if (originalEmail.threadId) {
           threadId = originalEmail.threadId;
         } else {
@@ -65,7 +64,6 @@ export class EmailsService {
             data: { subject: originalEmail.subject },
           });
           threadId = thread.id;
-          // Link original email to thread
           await this.prisma.email.update({
             where: { id: originalEmail.id },
             data: { threadId: thread.id },
@@ -74,6 +72,30 @@ export class EmailsService {
       }
     }
 
+    // Create email record first (as DRAFT) to get the ID for tracking pixel
+    const emailRecord = await this.prisma.email.create({
+      data: {
+        fromAddr: config.smtpUser,
+        toAddr: dto.toAddr,
+        cc: dto.cc,
+        bcc: dto.bcc,
+        subject: dto.subject,
+        bodyHtml: htmlBody,
+        direction: 'OUTBOUND',
+        status: 'DRAFT',
+        customerId: dto.customerId || null,
+        senderId: userId,
+        threadId: threadId || null,
+      },
+    });
+
+    // Embed tracking pixel in HTML body
+    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || '';
+    const trackingPixel = appUrl
+      ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
+      : '';
+    const htmlWithTracking = htmlBody + trackingPixel;
+
     try {
       const mailOptions: any = {
         from: fromAddress,
@@ -81,7 +103,7 @@ export class EmailsService {
         cc: dto.cc || undefined,
         bcc: dto.bcc || undefined,
         subject: dto.subject,
-        html: htmlBody,
+        html: htmlWithTracking,
       };
 
       if (inReplyToMessageId) {
@@ -91,21 +113,14 @@ export class EmailsService {
 
       const info = await transporter.sendMail(mailOptions);
 
-      const email = await this.prisma.email.create({
+      // Update email record to SENT with messageId
+      const email = await this.prisma.email.update({
+        where: { id: emailRecord.id },
         data: {
           messageId: info.messageId,
-          fromAddr: config.smtpUser,
-          toAddr: dto.toAddr,
-          cc: dto.cc,
-          bcc: dto.bcc,
-          subject: dto.subject,
-          bodyHtml: htmlBody,
-          direction: 'OUTBOUND',
           status: 'SENT',
           sentAt: new Date(),
-          customerId: dto.customerId || null,
-          senderId: userId,
-          threadId: threadId || null,
+          bodyHtml: htmlWithTracking,
         },
         include: {
           customer: true,
@@ -116,20 +131,10 @@ export class EmailsService {
     } catch (error) {
       this.logger.error(`Failed to send email: ${error.message}`, error.stack);
 
-      await this.prisma.email.create({
-        data: {
-          fromAddr: config.smtpUser,
-          toAddr: dto.toAddr,
-          cc: dto.cc,
-          bcc: dto.bcc,
-          subject: dto.subject,
-          bodyHtml: htmlBody,
-          direction: 'OUTBOUND',
-          status: 'FAILED',
-          customerId: dto.customerId || null,
-          senderId: userId,
-          threadId: threadId || null,
-        },
+      // Update record to FAILED
+      await this.prisma.email.update({
+        where: { id: emailRecord.id },
+        data: { status: 'FAILED' },
       });
 
       throw new BadRequestException(`Failed to send email: ${error.message}`);
@@ -192,7 +197,16 @@ export class EmailsService {
       include: {
         customer: true,
         sender: { select: { id: true, name: true, email: true } },
-        thread: { include: { emails: { orderBy: { createdAt: 'asc' }, include: { sender: { select: { id: true, name: true, email: true } } } } } },
+        thread: {
+          include: {
+            emails: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                sender: { select: { id: true, name: true, email: true } },
+              },
+            },
+          },
+        },
       },
     });
 
@@ -238,6 +252,61 @@ export class EmailsService {
     return email;
   }
 
+  async recordView(emailId: string) {
+    try {
+      const email = await this.prisma.email.findUnique({
+        where: { id: emailId },
+      });
+
+      if (!email || email.direction !== 'OUTBOUND') return;
+
+      const isFirstView = !email.viewedAt;
+
+      await this.prisma.email.update({
+        where: { id: emailId },
+        data: {
+          viewedAt: email.viewedAt || new Date(),
+          viewCount: { increment: 1 },
+          status: 'VIEWED',
+        },
+      });
+
+      this.logger.log(
+        `Email ${emailId} viewed (${isFirstView ? 'first time' : `view #${email.viewCount + 1}`})`,
+      );
+    } catch (error) {
+      this.logger.error(`Failed to record email view: ${error.message}`);
+    }
+  }
+
+  async getRecentlyViewed(userId: string, role: string) {
+    const where: any = {
+      direction: 'OUTBOUND',
+      status: 'VIEWED',
+      viewedAt: { not: null },
+    };
+
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    // Get emails viewed in the last 24 hours
+    const since = new Date();
+    since.setHours(since.getHours() - 24);
+    where.viewedAt = { gte: since };
+
+    const items = await this.prisma.email.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, companyName: true } },
+      },
+      orderBy: { viewedAt: 'desc' },
+      take: 20,
+    });
+
+    return { items };
+  }
+
   async fetchEmails(userId: string): Promise<{ fetched: number }> {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },
@@ -249,124 +318,56 @@ export class EmailsService {
       );
     }
 
+    const imap = new Imap({
+      user: config.imapUser,
+      password: config.imapPass,
+      host: config.imapHost,
+      port: config.imapPort,
+      tls: config.imapSecure,
+      tlsOptions: { rejectUnauthorized: false },
+    });
+
     return new Promise((resolve, reject) => {
-      const imap = new Imap({
-        user: config.imapUser,
-        password: config.imapPass,
-        host: config.imapHost,
-        port: config.imapPort,
-        tls: config.imapSecure,
-        tlsOptions: { rejectUnauthorized: false },
-      });
+      let totalFetched = 0;
 
-      let fetchedCount = 0;
+      imap.once('ready', async () => {
+        try {
+          // 1. Fetch from INBOX (inbound emails)
+          const inboxCount = await this.fetchFromFolder(
+            imap,
+            userId,
+            config.smtpUser,
+            'INBOX',
+            'INBOUND',
+          );
+          totalFetched += inboxCount;
 
-      imap.once('ready', () => {
-        imap.openBox('INBOX', true, (err, box) => {
-          if (err) {
-            imap.end();
-            return reject(
-              new BadRequestException(`Failed to open inbox: ${err.message}`),
+          // 2. Find and fetch from Sent folder (outbound emails)
+          const sentFolder = await this.findSentFolder(imap);
+          if (sentFolder) {
+            this.logger.log(`Found sent folder: ${sentFolder}`);
+            const sentCount = await this.fetchFromFolder(
+              imap,
+              userId,
+              config.smtpUser,
+              sentFolder,
+              'OUTBOUND',
             );
+            totalFetched += sentCount;
+          } else {
+            this.logger.warn('No sent folder found on IMAP server');
           }
 
-          // Fetch emails from last 7 days
-          const since = new Date();
-          since.setDate(since.getDate() - 7);
-
-          imap.search(['ALL', ['SINCE', since]], (searchErr, results) => {
-            if (searchErr) {
-              imap.end();
-              return reject(
-                new BadRequestException(
-                  `Search failed: ${searchErr.message}`,
-                ),
-              );
-            }
-
-            if (!results || results.length === 0) {
-              imap.end();
-              return resolve({ fetched: 0 });
-            }
-
-            // Take last 50 messages max
-            const toFetch = results.slice(-50);
-            const fetch = imap.fetch(toFetch, {
-              bodies: '',
-              struct: true,
-            });
-
-            const emailPromises: Promise<void>[] = [];
-
-            fetch.on('message', (msg) => {
-              msg.on('body', (stream) => {
-                const promise = simpleParser(stream).then(async (parsed) => {
-                  const messageId = parsed.messageId || null;
-
-                  // Skip if already stored
-                  if (messageId) {
-                    const existing = await this.prisma.email.findUnique({
-                      where: { messageId },
-                    });
-                    if (existing) return;
-                  }
-
-                  const fromAddr =
-                    parsed.from?.value?.[0]?.address || 'unknown';
-                  const toAddr =
-                    parsed.to?.value?.map((v) => v.address).join(', ') || '';
-                  const ccAddr =
-                    parsed.cc?.value?.map((v) => v.address).join(', ') || null;
-
-                  // Auto-match customer by sender email address
-                  const customer = await this.autoMatchCustomer(fromAddr);
-
-                  await this.prisma.email.create({
-                    data: {
-                      messageId,
-                      fromAddr,
-                      toAddr,
-                      cc: ccAddr,
-                      subject: parsed.subject || '(No Subject)',
-                      bodyHtml: parsed.html || null,
-                      bodyText: parsed.text || null,
-                      direction: 'INBOUND',
-                      status: 'RECEIVED',
-                      receivedAt: parsed.date || new Date(),
-                      customerId: customer?.id || null,
-                      senderId: userId,
-                    },
-                  });
-
-                  fetchedCount++;
-                });
-
-                emailPromises.push(promise);
-              });
-            });
-
-            fetch.once('end', () => {
-              Promise.all(emailPromises)
-                .then(() => {
-                  imap.end();
-                  resolve({ fetched: fetchedCount });
-                })
-                .catch((promiseErr) => {
-                  imap.end();
-                  reject(promiseErr);
-                });
-            });
-
-            fetch.once('error', (fetchErr) => {
-              imap.end();
-              reject(
-                new BadRequestException(
-                  `Fetch failed: ${fetchErr.message}`,
-                ),
-              );
-            });
-          });
-        });
+          imap.end();
+          resolve({ fetched: totalFetched });
+        } catch (error) {
+          imap.end();
+          reject(
+            error instanceof BadRequestException
+              ? error
+              : new BadRequestException(`Fetch failed: ${error.message}`),
+          );
+        }
       });
 
       imap.once('error', (imapErr: Error) => {
@@ -378,6 +379,229 @@ export class EmailsService {
       });
 
       imap.connect();
+    });
+  }
+
+  /**
+   * Fetch emails from a specific IMAP folder
+   */
+  private fetchFromFolder(
+    imap: any,
+    userId: string,
+    userEmail: string,
+    folderName: string,
+    direction: 'INBOUND' | 'OUTBOUND',
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      imap.openBox(folderName, true, (err: any) => {
+        if (err) {
+          // If we can't open the folder, just skip (don't fail the whole fetch)
+          this.logger.warn(
+            `Failed to open folder ${folderName}: ${err.message}`,
+          );
+          return resolve(0);
+        }
+
+        // Fetch emails from last 7 days
+        const since = new Date();
+        since.setDate(since.getDate() - 7);
+
+        imap.search(['ALL', ['SINCE', since]], (searchErr: any, results: number[]) => {
+          if (searchErr) {
+            this.logger.warn(
+              `Search failed in ${folderName}: ${searchErr.message}`,
+            );
+            return resolve(0);
+          }
+
+          if (!results || results.length === 0) {
+            return resolve(0);
+          }
+
+          // Take last 50 messages max
+          const toFetch = results.slice(-50);
+          const fetch = imap.fetch(toFetch, {
+            bodies: '',
+            struct: true,
+          });
+
+          let fetchedCount = 0;
+          const emailPromises: Promise<void>[] = [];
+
+          fetch.on('message', (msg: any) => {
+            msg.on('body', (stream: any) => {
+              const promise = simpleParser(stream).then(async (parsed) => {
+                const messageId = parsed.messageId || null;
+
+                // Skip if already stored
+                if (messageId) {
+                  const existing = await this.prisma.email.findUnique({
+                    where: { messageId },
+                  });
+                  if (existing) return;
+                }
+
+                const fromAddr =
+                  parsed.from?.value?.[0]?.address || 'unknown';
+                const toAddr =
+                  parsed.to?.value?.map((v) => v.address).join(', ') || '';
+                const ccAddr =
+                  parsed.cc?.value?.map((v) => v.address).join(', ') || null;
+
+                // For outbound, match customer by recipient; for inbound, by sender
+                const matchEmail =
+                  direction === 'INBOUND' ? fromAddr : toAddr.split(',')[0]?.trim();
+                const customer = matchEmail
+                  ? await this.autoMatchCustomer(matchEmail)
+                  : null;
+
+                // Determine status
+                const status =
+                  direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
+
+                await this.prisma.email.create({
+                  data: {
+                    messageId,
+                    fromAddr,
+                    toAddr,
+                    cc: ccAddr,
+                    subject: parsed.subject || '(No Subject)',
+                    bodyHtml: parsed.html || null,
+                    bodyText: parsed.text || null,
+                    direction,
+                    status,
+                    sentAt: direction === 'OUTBOUND' ? (parsed.date || new Date()) : null,
+                    receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
+                    customerId: customer?.id || null,
+                    senderId: userId,
+                  },
+                });
+
+                fetchedCount++;
+              });
+
+              emailPromises.push(promise);
+            });
+          });
+
+          fetch.once('end', () => {
+            Promise.all(emailPromises)
+              .then(() => {
+                this.logger.log(
+                  `Fetched ${fetchedCount} emails from ${folderName}`,
+                );
+                resolve(fetchedCount);
+              })
+              .catch((promiseErr) => {
+                this.logger.error(
+                  `Error processing emails from ${folderName}: ${promiseErr.message}`,
+                );
+                resolve(fetchedCount);
+              });
+          });
+
+          fetch.once('error', (fetchErr: any) => {
+            this.logger.warn(
+              `Fetch error in ${folderName}: ${fetchErr.message}`,
+            );
+            resolve(0);
+          });
+        });
+      });
+    });
+  }
+
+  /**
+   * Find the Sent folder by trying common names and checking IMAP attributes
+   */
+  private findSentFolder(imap: any): Promise<string | null> {
+    return new Promise((resolve) => {
+      imap.getBoxes((err: any, boxes: any) => {
+        if (err) {
+          this.logger.warn(`Failed to list IMAP boxes: ${err.message}`);
+          return resolve(null);
+        }
+
+        // Check top-level folders for \Sent attribute or common names
+        const sentNames = [
+          'Sent',
+          'Sent Messages',
+          'Sent Items',
+          'INBOX.Sent',
+          'INBOX.Sent Messages',
+          '已发送',
+          '已发邮件',
+        ];
+
+        // First: check for special-use \Sent attribute at top level
+        for (const [name, box] of Object.entries(boxes)) {
+          const attribs = (box as any).attribs || [];
+          if (
+            attribs.includes('\\Sent') ||
+            attribs.includes('\\sent')
+          ) {
+            return resolve(name);
+          }
+        }
+
+        // Second: check common top-level names
+        for (const name of sentNames) {
+          if (boxes[name]) {
+            return resolve(name);
+          }
+        }
+
+        // Third: check [Gmail] or [Google Mail] subfolder
+        const gmailKey =
+          Object.keys(boxes).find(
+            (k) => k === '[Gmail]' || k === '[Google Mail]',
+          ) || null;
+        if (gmailKey && (boxes[gmailKey] as any).children) {
+          const children = (boxes[gmailKey] as any).children;
+          // Check for \Sent attribute in children
+          for (const [childName, childBox] of Object.entries(children)) {
+            const attribs = (childBox as any).attribs || [];
+            if (
+              attribs.includes('\\Sent') ||
+              attribs.includes('\\sent')
+            ) {
+              return resolve(`${gmailKey}/${childName}`);
+            }
+          }
+          // Fallback: common Gmail sent names
+          const gmailSentNames = [
+            'Sent Mail',
+            '已发送邮件',
+            'Sent',
+            'Sent Messages',
+          ];
+          for (const name of gmailSentNames) {
+            if (children[name]) {
+              return resolve(`${gmailKey}/${name}`);
+            }
+          }
+        }
+
+        // Fourth: check Namespaces or nested INBOX children
+        if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
+          const inboxChildren = (boxes['INBOX'] as any).children;
+          for (const [childName, childBox] of Object.entries(inboxChildren)) {
+            const attribs = (childBox as any).attribs || [];
+            if (
+              attribs.includes('\\Sent') ||
+              attribs.includes('\\sent')
+            ) {
+              return resolve(`INBOX/${childName}`);
+            }
+          }
+          // Common nested names
+          if (inboxChildren['Sent']) return resolve('INBOX/Sent');
+          if (inboxChildren['Sent Messages'])
+            return resolve('INBOX/Sent Messages');
+        }
+
+        resolve(null);
+      });
     });
   }
 
