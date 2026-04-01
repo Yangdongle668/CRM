@@ -72,6 +72,13 @@ export class EmailsService {
       }
     }
 
+    // Auto-match customer by recipient domain if not manually specified
+    let customerId = dto.customerId || null;
+    if (!customerId) {
+      const matched = await this.autoMatchCustomer(dto.toAddr);
+      if (matched) customerId = matched.id;
+    }
+
     // Create email record first (as DRAFT) to get the ID for tracking pixel
     const emailRecord = await this.prisma.email.create({
       data: {
@@ -83,7 +90,7 @@ export class EmailsService {
         bodyHtml: htmlBody,
         direction: 'OUTBOUND',
         status: 'DRAFT',
-        customerId: dto.customerId || null,
+        customerId,
         senderId: userId,
         threadId: threadId || null,
       },
@@ -126,6 +133,18 @@ export class EmailsService {
           customer: true,
         },
       });
+
+      // Create activity on customer timeline
+      if (email.customerId) {
+        await this.prisma.activity.create({
+          data: {
+            type: 'EMAIL',
+            content: `发送邮件 - 收件人: ${dto.toAddr}，主题: ${dto.subject}`,
+            customerId: email.customerId,
+            ownerId: userId,
+          },
+        }).catch(() => {});
+      }
 
       return email;
     } catch (error) {
@@ -452,6 +471,10 @@ export class EmailsService {
                   ? await this.autoMatchCustomer(matchEmail)
                   : null;
 
+                // Get sender display name
+                const fromName =
+                  parsed.from?.value?.[0]?.name || '';
+
                 // Determine status
                 const status =
                   direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
@@ -473,6 +496,25 @@ export class EmailsService {
                     senderId: userId,
                   },
                 });
+
+                // Create activity record on customer timeline when auto-matched
+                if (customer) {
+                  const senderLabel = fromName
+                    ? `${fromName} (${fromAddr})`
+                    : fromAddr;
+                  const actContent = direction === 'INBOUND'
+                    ? `收到邮件 - 发件人: ${senderLabel}，主题: ${parsed.subject || '(无主题)'}`
+                    : `发送邮件 - 收件人: ${toAddr}，主题: ${parsed.subject || '(无主题)'}`;
+
+                  await this.prisma.activity.create({
+                    data: {
+                      type: 'EMAIL',
+                      content: actContent,
+                      customerId: customer.id,
+                      ownerId: userId,
+                    },
+                  }).catch(() => {});
+                }
 
                 fetchedCount++;
               });
@@ -632,7 +674,7 @@ export class EmailsService {
   }
 
   private async autoMatchCustomer(emailAddress: string) {
-    // Match by contact email
+    // 1. Match by contact email (exact match)
     const contact = await this.prisma.contact.findFirst({
       where: { email: emailAddress },
       include: { customer: true },
@@ -640,6 +682,38 @@ export class EmailsService {
 
     if (contact) {
       return contact.customer;
+    }
+
+    // 2. Match by customer website domain
+    const domain = emailAddress.split('@')[1]?.toLowerCase();
+    if (domain && domain !== 'gmail.com' && domain !== 'yahoo.com' &&
+        domain !== 'hotmail.com' && domain !== 'outlook.com' &&
+        domain !== 'qq.com' && domain !== '163.com' && domain !== '126.com' &&
+        domain !== 'foxmail.com' && domain !== 'icloud.com' &&
+        domain !== 'live.com' && domain !== 'msn.com' &&
+        domain !== 'aol.com' && domain !== 'mail.com' &&
+        domain !== 'protonmail.com' && domain !== 'zoho.com') {
+      // Search customers whose website contains this domain
+      const customers = await this.prisma.customer.findMany({
+        where: {
+          website: { not: null },
+        },
+        select: { id: true, website: true, companyName: true },
+      });
+
+      for (let i = 0; i < customers.length; i++) {
+        const c = customers[i];
+        if (!c.website) continue;
+        // Extract domain from website: "https://www.example.com/path" → "example.com"
+        const websiteDomain = c.website
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .split('/')[0]
+          .toLowerCase();
+        if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
+          return c;
+        }
+      }
     }
 
     return null;
