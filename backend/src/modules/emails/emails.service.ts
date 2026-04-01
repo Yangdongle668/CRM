@@ -402,9 +402,9 @@ export class EmailsService {
           return resolve(0);
         }
 
-        // Fetch emails from last 7 days
+        // Fetch emails from last 30 days
         const since = new Date();
-        since.setDate(since.getDate() - 7);
+        since.setDate(since.getDate() - 30);
 
         imap.search(['ALL', ['SINCE', since]], (searchErr: any, results: number[]) => {
           if (searchErr) {
@@ -418,8 +418,8 @@ export class EmailsService {
             return resolve(0);
           }
 
-          // Take last 50 messages max
-          const toFetch = results.slice(-50);
+          // Take last 200 messages max
+          const toFetch = results.slice(-200);
           const fetch = imap.fetch(toFetch, {
             bodies: '',
             struct: true,
@@ -522,25 +522,54 @@ export class EmailsService {
           return resolve(null);
         }
 
-        // Check top-level folders for \Sent attribute or common names
+        // Comprehensive list of sent folder names across providers
         const sentNames = [
+          // Standard
+          'Sent', 'SENT', 'sent',
+          'Sent Items', 'Sent Messages', 'Sent Mail',
+          // INBOX-prefixed (common on many providers)
+          'INBOX.Sent', 'INBOX.Sent Messages', 'INBOX.Sent Items', 'INBOX.Sent Mail',
+          // Chinese (QQ Mail, 163, Foxmail, etc.)
+          '已发送', '已发邮件', '已发送邮件',
+          'INBOX.已发送', 'INBOX.已发邮件',
+          '&XfJT0ZAB-', // UTF-7 encoded 已发送
+          'INBOX.&XfJT0ZAB-',
+          // Outlook / Exchange
+          'Sent Items', 'SentItems',
+          // Yahoo
           'Sent',
-          'Sent Messages',
-          'Sent Items',
-          'INBOX.Sent',
-          'INBOX.Sent Messages',
-          '已发送',
-          '已发邮件',
+          // German
+          'Gesendete Objekte', 'Gesendet',
+          // French
+          'Messages envoy\u00e9s', 'Envoy\u00e9s',
+          // Spanish
+          'Enviados', 'Mensajes enviados',
         ];
 
-        // First: check for special-use \Sent attribute at top level
-        for (const [name, box] of Object.entries(boxes)) {
-          const attribs = (box as any).attribs || [];
+        // Helper: recursively flatten all folders into { path, attribs } list
+        const flattenBoxes = (boxTree: any, prefix = ''): Array<{ path: string; attribs: string[] }> => {
+          const result: Array<{ path: string; attribs: string[] }> = [];
+          for (const [name, box] of Object.entries(boxTree)) {
+            const path = prefix ? `${prefix}/${name}` : name;
+            const attribs = (box as any).attribs || [];
+            result.push({ path, attribs });
+            if ((box as any).children) {
+              result.push(...flattenBoxes((box as any).children, path));
+            }
+          }
+          return result;
+        };
+
+        const allFolders = flattenBoxes(boxes);
+
+        // First: check ALL folders for \Sent attribute (most reliable)
+        for (let i = 0; i < allFolders.length; i++) {
+          const folder = allFolders[i];
           if (
-            attribs.includes('\\Sent') ||
-            attribs.includes('\\sent')
+            folder.attribs.includes('\\Sent') ||
+            folder.attribs.includes('\\sent')
           ) {
-            return resolve(name);
+            return resolve(folder.path);
           }
         }
 
@@ -558,22 +587,8 @@ export class EmailsService {
           ) || null;
         if (gmailKey && (boxes[gmailKey] as any).children) {
           const children = (boxes[gmailKey] as any).children;
-          // Check for \Sent attribute in children
-          for (const [childName, childBox] of Object.entries(children)) {
-            const attribs = (childBox as any).attribs || [];
-            if (
-              attribs.includes('\\Sent') ||
-              attribs.includes('\\sent')
-            ) {
-              return resolve(`${gmailKey}/${childName}`);
-            }
-          }
-          // Fallback: common Gmail sent names
           const gmailSentNames = [
-            'Sent Mail',
-            '已发送邮件',
-            'Sent',
-            'Sent Messages',
+            'Sent Mail', '已发送邮件', 'Sent', 'Sent Messages',
           ];
           for (const name of gmailSentNames) {
             if (children[name]) {
@@ -582,24 +597,35 @@ export class EmailsService {
           }
         }
 
-        // Fourth: check Namespaces or nested INBOX children
+        // Fourth: check INBOX children
         if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
           const inboxChildren = (boxes['INBOX'] as any).children;
-          for (const [childName, childBox] of Object.entries(inboxChildren)) {
-            const attribs = (childBox as any).attribs || [];
-            if (
-              attribs.includes('\\Sent') ||
-              attribs.includes('\\sent')
-            ) {
-              return resolve(`INBOX/${childName}`);
+          const inboxSentNames = ['Sent', 'Sent Messages', 'Sent Items', 'Sent Mail', '已发送', '已发邮件'];
+          for (const name of inboxSentNames) {
+            if (inboxChildren[name]) {
+              return resolve(`INBOX/${name}`);
             }
           }
-          // Common nested names
-          if (inboxChildren['Sent']) return resolve('INBOX/Sent');
-          if (inboxChildren['Sent Messages'])
-            return resolve('INBOX/Sent Messages');
         }
 
+        // Fifth (fallback): scan all folders for name containing "sent" or "已发"
+        const skipPatterns = /^(INBOX|Drafts|Trash|Junk|Spam|Archive|Deleted|Deleted Items|Deleted Messages|Notes|Outbox)$/i;
+        for (let i = 0; i < allFolders.length; i++) {
+          const folder = allFolders[i];
+          const baseName = folder.path.split('/').pop() || '';
+          if (skipPatterns.test(baseName)) continue;
+          if (
+            /sent/i.test(baseName) ||
+            /已发/.test(baseName) ||
+            /envoy/i.test(baseName) ||
+            /enviados/i.test(baseName) ||
+            /gesendet/i.test(baseName)
+          ) {
+            return resolve(folder.path);
+          }
+        }
+
+        this.logger.warn('Could not find Sent folder after exhaustive search');
         resolve(null);
       });
     });

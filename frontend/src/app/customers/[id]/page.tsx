@@ -14,6 +14,7 @@ import {
   CUSTOMER_SOURCES,
   INDUSTRIES,
   ACTIVITY_TYPE_MAP,
+  COUNTRIES,
 } from '@/lib/constants';
 import type {
   Customer,
@@ -34,12 +35,6 @@ const TABS = [
 ] as const;
 
 type TabKey = (typeof TABS)[number]['key'];
-
-const COUNTRIES = [
-  '中国', '美国', '英国', '德国', '法国', '日本', '韩国', '澳大利亚',
-  '加拿大', '巴西', '印度', '俄罗斯', '新加坡', '马来西亚', '泰国',
-  '越南', '印度尼西亚', '菲律宾', '阿联酋', '沙特阿拉伯', '其他',
-];
 
 const initialContactForm = {
   name: '',
