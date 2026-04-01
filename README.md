@@ -24,18 +24,20 @@
 ### 核心特性
 
 - 客户与联系人管理（含客户详情页、活动时间线）
+- **邮件自动关联客户**：根据客户网站域名自动匹配收发邮件，并在时间线生成记录
 - 销售线索全生命周期管理（新线索 → 联系 → 资质确认 → 报价 → 谈判 → 成交/丢失）
 - 报价单 & 订单管理（含行项明细）
-- 邮件中心（分栏布局、收件箱/发件箱同步、在线回复/转发、邮件模板）
-- 邮件已读追踪（跟踪像素检测客户打开邮件，实时通知）
+- 邮件中心（分栏布局、收件箱/发件箱全量同步、在线回复/转发、邮件模板）
+- 邮件已读追踪（跟踪像素检测客户打开邮件，详情页显示已读时间和次数）
 - 客户时间线（价格讨论、订单意向、样品、模具费、付款、物流、投诉、拜访等）
 - 任务管理（优先级、状态、到期提醒）
 - 文件管理（上传/分类/关联客户）
 - 数据仪表盘（业务数据概览）
 - 全量数据备份导出与导入（JSON 格式，一键备份恢复）
+- 60+ 国家/地区选项，细分社交媒体来源（LinkedIn、Instagram、Facebook、TikTok 等）
 - Apple 风格简洁 UI（毛玻璃效果、圆角设计、流畅动画）
 - 角色权限控制（管理员 / 业务员）
-- Docker 一键部署
+- Docker 一键部署，**一键升级**（`./deploy.sh upgrade`）
 
 ---
 
@@ -216,9 +218,12 @@ npm run dev
 | 功能 | 说明 |
 |------|------|
 | 客户列表 | 支持按公司名搜索、按状态/来源/行业筛选、分页 |
-| 新建客户 | 填写公司名、国家、行业、规模、来源等信息 |
-| 客户详情 (`/customers/[id]`) | 查看客户完整信息、联系人列表、活动时间线 |
+| 新建客户 | 填写公司名、国家（60+ 国家）、行业、规模、来源（细分社交平台）、网站等 |
+| 客户详情 (`/customers/[id]`) | 查看客户完整信息、联系人列表、活动时间线、关联邮件 |
+| 邮件自动关联 | 填写客户网站后，该域名的企业邮箱来往邮件自动关联并生成时间线记录 |
 | 状态管理 | 潜在客户 → 活跃客户 → 非活跃客户 / 黑名单 |
+
+**客户来源**：展会、阿里巴巴、Google广告、LinkedIn、Facebook、Instagram、TikTok、Twitter/X、YouTube、Pinterest、WhatsApp、客户推荐、电话开发、邮件开发、独立站、其他
 
 **客户状态说明：**
 - `POTENTIAL` - 潜在客户（新录入，尚未成交）
@@ -247,15 +252,18 @@ npm run dev
 ### 5. 邮件中心 (`/emails`)
 
 - **分栏布局**：左侧邮件列表（380px），右侧邮件详情与回复区
-- **收件箱 & 发件箱同步**：通过 IMAP 自动同步收件箱和发件箱（自动检测 Sent 文件夹）
+- **收件箱 & 发件箱全量同步**：通过 IMAP 同步全部历史邮件（无日期限制），自动检测 Sent 文件夹（支持 Hostinger、网易企业邮箱、QQ、Gmail、Outlook 等 20+ 文件夹命名规则）
+- **邮件自动关联客户**：根据客户录入的公司网站域名，自动匹配收发邮件并关联到对应客户（排除 gmail/qq/163 等公共邮箱域名），同时在客户时间线自动生成邮件记录（含发件人姓名）
 - **在线回复/转发**：分栏内直接回复，自动引用原文并关联邮件线程
-- **邮件已读追踪**：发送的邮件嵌入跟踪像素，客户打开后自动记录已读时间和次数
+- **邮件已读追踪**：发送的邮件嵌入跟踪像素，客户打开后自动记录已读时间和次数，发件箱详情页显示"收件人已读 · 时间 · 打开次数"
 - **已读通知**：页面右上角绿色信封图标，实时展示最近 24 小时内被客户打开的邮件
 - **未读提醒**：每 60 秒轮询，新邮件到达时弹窗通知
 - **邮件模板**：内置开发信、跟进、订单确认等模板
 - **统一账密**：SMTP/IMAP 使用同一组邮箱账号密码，无需重复填写
 
 用户需在 **系统设置 → 邮件配置** 中配置邮箱信息后方可使用。
+
+**已测试兼容的邮箱服务商**：Hostinger、网易企业邮箱(qiye.163.com)、QQ 邮箱、Gmail、Outlook
 
 ### 6. 报价管理 (`/quotations`)
 
@@ -481,27 +489,26 @@ Authorization: Bearer <token>
 ## 常用运维命令
 
 ```bash
-# 查看所有容器状态
-docker compose ps
+# ==================== 一键操作 ====================
+./deploy.sh                     # 首次部署（完整安装）
+./deploy.sh upgrade             # 一键升级（拉取代码 + 重新构建 + 迁移）
+./deploy.sh dev                 # 启动本地开发环境
+./deploy.sh stop                # 停止所有服务
+./deploy.sh restart             # 重启所有服务
+./deploy.sh logs                # 查看所有日志
+./deploy.sh logs backend        # 查看后端日志
+./deploy.sh reset               # 完全重置（清除所有数据，慎用！）
 
-# 查看实时日志
-docker compose logs -f              # 所有服务
-docker compose logs -f backend      # 仅后端
-docker compose logs -f frontend     # 仅前端
-docker compose logs -f postgres     # 仅数据库
-
-# 重启服务
-docker compose restart              # 重启所有
+# ==================== Docker Compose ====================
+docker compose ps                   # 查看所有容器状态
+docker compose logs -f              # 查看实时日志
+docker compose logs -f backend      # 仅后端日志
+docker compose restart              # 重启所有服务
 docker compose restart backend      # 重启后端
-
-# 停止服务
 docker compose down                 # 停止并移除容器（保留数据）
-docker compose down -v              # 停止并移除容器和数据卷（清除所有数据）
+docker compose down -v              # 停止并清除所有数据卷
 
-# 重新构建并启动
-docker compose up -d --build
-
-# 进入容器
+# ==================== 数据库 ====================
 docker compose exec backend sh      # 进入后端容器
 docker compose exec postgres psql -U crm_user -d trade_crm  # 连接数据库
 
@@ -510,9 +517,6 @@ docker compose exec postgres pg_dump -U crm_user trade_crm > backup_$(date +%Y%m
 
 # 数据库恢复
 cat backup.sql | docker compose exec -T postgres psql -U crm_user trade_crm
-
-# 完全重置（清除所有数据）
-./deploy.sh reset
 ```
 
 ---
@@ -609,11 +613,19 @@ CRM/
 ### Q: 邮件发送失败？
 
 1. 进入 **系统设置** → **邮箱配置**，确认 SMTP 参数填写正确
-2. 常见邮箱 SMTP 配置：
-   - QQ 邮箱：`smtp.qq.com:465`（需开启 SMTP 服务并使用授权码）
-   - 网易邮箱：`smtp.163.com:465`
-   - Gmail：`smtp.gmail.com:465`（需开启应用密码）
-   - 阿里企业邮箱：`smtp.mxhichina.com:465`
+2. 常见邮箱 SMTP/IMAP 配置：
+
+| 邮箱服务商 | SMTP 服务器 | SMTP 端口 | IMAP 服务器 | IMAP 端口 |
+|-----------|------------|----------|------------|----------|
+| Hostinger | `smtp.hostinger.com` | 465 | `imap.hostinger.com` | 993 |
+| 网易企业邮箱 | `smtp.qiye.163.com` | 465 | `imap.qiye.163.com` | 993 |
+| QQ 邮箱 | `smtp.qq.com` | 465 | `imap.qq.com` | 993 |
+| 网易 163 | `smtp.163.com` | 465 | `imap.163.com` | 993 |
+| Gmail | `smtp.gmail.com` | 465 | `imap.gmail.com` | 993 |
+| Outlook | `smtp.office365.com` | 587 | `outlook.office365.com` | 993 |
+| 阿里企业邮箱 | `smtp.mxhichina.com` | 465 | `imap.mxhichina.com` | 993 |
+
+> **注意**：QQ 邮箱和网易邮箱需先在邮箱设置中开启 SMTP/IMAP 服务并使用授权码（非登录密码）。Gmail 需开启应用密码。
 
 ### Q: 如何修改 Nginx 监听端口？
 
@@ -637,10 +649,21 @@ docker compose cp crm-backend:/app/uploads ./uploads_backup
 
 ### Q: 如何升级系统？
 
+**方式一：一键升级（推荐）**
+
+```bash
+./deploy.sh upgrade
+```
+
+该命令会自动完成：拉取最新代码 → 清除构建缓存 → 重新构建镜像 → 重启服务 → 等待就绪（数据库迁移在容器启动时自动执行）。
+
+**方式二：手动升级**
+
 ```bash
 git pull                          # 拉取最新代码
-docker compose up -d --build      # 重新构建并启动
-docker compose exec backend npx prisma migrate deploy  # 执行数据库迁移
+docker compose build --no-cache   # 重新构建镜像（清除缓存）
+docker compose up -d              # 重启服务
+# 数据库迁移会在后端容器启动时自动执行
 ```
 
 ---

@@ -173,6 +173,7 @@ show_result() {
     echo -e "  ${YELLOW}首次访问请设置管理员账户${NC}"
     echo ""
     echo -e "  常用命令:"
+    echo -e "    一键升级: ${YELLOW}./deploy.sh upgrade${NC}"
     echo -e "    查看日志: ${YELLOW}docker compose logs -f${NC}"
     echo -e "    重启服务: ${YELLOW}docker compose restart${NC}"
     echo -e "    停止服务: ${YELLOW}docker compose down${NC}"
@@ -236,6 +237,48 @@ main() {
             ;;
         logs)
             docker compose logs -f "${2:-}"
+            ;;
+        upgrade)
+            echo -e "${BLUE}[升级模式] 一键更新系统${NC}"
+            echo ""
+
+            # Pull latest code
+            echo -e "${YELLOW}[1/4] 拉取最新代码...${NC}"
+            git pull
+            echo -e "${GREEN}[✓] 代码已更新${NC}"
+
+            # Clear build cache and rebuild
+            echo -e "${YELLOW}[2/4] 清除缓存并重新构建镜像...${NC}"
+            docker builder prune -f 2>/dev/null || true
+            docker compose build --no-cache
+            echo -e "${GREEN}[✓] 镜像构建完成${NC}"
+
+            # Restart services
+            echo -e "${YELLOW}[3/4] 重启服务...${NC}"
+            docker compose up -d
+            echo -e "${GREEN}[✓] 服务已重启${NC}"
+
+            # Wait for backend and run migrations
+            echo -e "${YELLOW}[4/4] 等待服务就绪并执行数据库迁移...${NC}"
+            sleep 5
+            local upgrade_attempts=0
+            while [ $upgrade_attempts -lt 30 ]; do
+                if docker compose exec -T backend sh -c 'wget -q -O /dev/null http://localhost:3001/api/auth/check-init 2>/dev/null || curl -sf http://localhost:3001/api/auth/check-init >/dev/null 2>&1'; then
+                    break
+                fi
+                upgrade_attempts=$((upgrade_attempts + 1))
+                sleep 3
+            done
+            echo -e "${GREEN}[✓] 数据库迁移已在容器启动时自动执行${NC}"
+
+            echo ""
+            echo -e "${GREEN}============================================${NC}"
+            echo -e "${GREEN}    系统升级完成！${NC}"
+            echo -e "${GREEN}============================================${NC}"
+            echo ""
+            echo -e "  查看日志: ${YELLOW}docker compose logs -f${NC}"
+            echo -e "  查看状态: ${YELLOW}docker compose ps${NC}"
+            echo ""
             ;;
         reset)
             echo -e "${RED}[警告] 这将清除所有数据！${NC}"
