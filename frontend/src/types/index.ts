@@ -238,6 +238,18 @@ export interface Document {
   createdAt: string;
 }
 
+// ==================== 备忘录 ====================
+export interface Memo {
+  id: string;
+  title: string;
+  content?: string;
+  color?: string;
+  date: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ==================== 仪表盘 ====================
 export interface DashboardStats {
   totalCustomers: number;

@@ -1,4 +1,5 @@
 import React from 'react';
+import Link from 'next/link';
 import {
   HiOutlineUsers,
   HiOutlineFunnel,
@@ -26,6 +27,7 @@ interface StatsCardProps {
   changeLabel?: string;
   iconColor?: string;
   iconBg?: string;
+  href?: string;
 }
 
 export default function StatsCard({
@@ -36,12 +38,13 @@ export default function StatsCard({
   changeLabel = '较上月',
   iconColor = 'text-blue-600',
   iconBg = 'bg-blue-100',
+  href,
 }: StatsCardProps) {
   const isPositive = change !== undefined && change >= 0;
   const Icon = typeof icon === 'string' ? iconMap[icon] || HiOutlineUsers : icon;
 
-  return (
-    <div className="rounded-lg bg-white p-5 shadow flex items-start justify-between">
+  const cardContent = (
+    <div className={`rounded-lg bg-white p-5 shadow flex items-start justify-between${href ? ' cursor-pointer hover:shadow-md hover:scale-[1.02] transition-all' : ''}`}>
       <div>
         <p className="text-sm font-medium text-gray-500">{title}</p>
         <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
@@ -69,4 +72,10 @@ export default function StatsCard({
       </div>
     </div>
   );
+
+  if (href) {
+    return <Link href={href}>{cardContent}</Link>;
+  }
+
+  return cardContent;
 }

@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
+import { settingsApi } from '@/lib/api';
 import {
   HiOutlineHome,
   HiOutlineBuildingOffice2,
@@ -18,6 +19,7 @@ import {
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
   HiOutlineArrowRightOnRectangle,
+  HiOutlineBookOpen,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -37,18 +39,35 @@ const navItems: NavItem[] = [
   { label: '订单管理', href: '/orders', icon: HiOutlineClipboardDocumentList },
   { label: '任务管理', href: '/tasks', icon: HiOutlineCheckCircle },
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
+  { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
   { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth, adminOnly: true },
 ];
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const pathname = usePathname();
   const { user, logout } = useAuth();
+
+  useEffect(() => {
+    settingsApi.getLogo().then((res: any) => {
+      const url = res?.data?.logoUrl || res?.logoUrl;
+      if (url) setLogoUrl(url);
+    }).catch(() => {});
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
     return pathname.startsWith(href);
   };
+
+  const LogoIcon = () => logoUrl ? (
+    <img src={logoUrl} alt="Logo" className="h-8 w-8 rounded-xl object-cover" />
+  ) : (
+    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-sm font-bold text-white shadow-apple">
+      CRM
+    </div>
+  );
 
   return (
     <aside
@@ -60,17 +79,13 @@ export default function Sidebar() {
       <div className="flex h-14 items-center justify-between px-4">
         {!collapsed && (
           <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-sm font-bold text-white shadow-apple">
-              CRM
-            </div>
+            <LogoIcon />
             <span className="text-[15px] font-semibold tracking-tight text-gray-900">外贸CRM</span>
           </Link>
         )}
         {collapsed && (
           <Link href="/dashboard" className="mx-auto">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-[10px] font-bold text-white shadow-apple">
-              CRM
-            </div>
+            <LogoIcon />
           </Link>
         )}
       </div>

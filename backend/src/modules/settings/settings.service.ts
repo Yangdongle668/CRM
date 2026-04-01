@@ -95,6 +95,21 @@ export class SettingsService {
     });
   }
 
+  async saveLogoUrl(url: string) {
+    return this.prisma.systemSetting.upsert({
+      where: { key: 'company_logo' },
+      update: { value: url },
+      create: { key: 'company_logo', value: url, label: '公司Logo' },
+    });
+  }
+
+  async getLogoUrl(): Promise<string | null> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'company_logo' },
+    });
+    return setting?.value || null;
+  }
+
   async testEmailConnection(userId: string) {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },

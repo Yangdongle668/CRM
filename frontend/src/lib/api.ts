@@ -167,6 +167,16 @@ export const backupApi = {
   import: (data: any) => api.post('/backup/import', data),
 };
 
+// ==================== Memos API ====================
+export const memosApi = {
+  list: (params?: any) => api.get('/memos', { params }),
+  getByRange: (startDate: string, endDate: string) =>
+    api.get('/memos/range', { params: { startDate, endDate } }),
+  create: (data: any) => api.post('/memos', data),
+  update: (id: string, data: any) => api.patch(`/memos/${id}`, data),
+  delete: (id: string) => api.delete(`/memos/${id}`),
+};
+
 // ==================== Settings API ====================
 export const settingsApi = {
   getAll: () => api.get('/settings'),
@@ -174,4 +184,9 @@ export const settingsApi = {
   getEmailConfig: () => api.get('/settings/email-config'),
   updateEmailConfig: (data: any) => api.put('/settings/email-config', data),
   testEmailConfig: (data: any) => api.post('/settings/email-config/test', data),
+  uploadLogo: (formData: FormData) =>
+    api.post('/settings/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  getLogo: () => api.get('/settings/logo'),
 };

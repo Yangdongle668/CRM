@@ -36,6 +36,7 @@ model User {
   documents    Document[]
   emailsSent   Email[]        @relation("SentEmails")
   emailConfig  EmailConfig?
+  memos        Memo[]
 
   @@map("users")
 }
@@ -410,6 +411,22 @@ model Document {
   owner    User      @relation(fields: [ownerId], references: [id])
 
   @@map("documents")
+}
+
+// ==================== 备忘录 ====================
+model Memo {
+  id        String   @id @default(uuid())
+  title     String
+  content   String?
+  color     String?  @default("#ffffff")
+  date      DateTime @default(now())
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@map("memos")
 }
 
 // ==================== 系统设置 ====================

@@ -121,13 +121,13 @@ export class EmailsService {
       const info = await transporter.sendMail(mailOptions);
 
       // Update email record to SENT with messageId
+      // Store original HTML without tracking pixel to avoid self-read when viewing in CRM
       const email = await this.prisma.email.update({
         where: { id: emailRecord.id },
         data: {
           messageId: info.messageId,
           status: 'SENT',
           sentAt: new Date(),
-          bodyHtml: htmlWithTracking,
         },
         include: {
           customer: true,
@@ -344,6 +344,8 @@ export class EmailsService {
       port: config.imapPort,
       tls: config.imapSecure,
       tlsOptions: { rejectUnauthorized: false },
+      authTimeout: 30000,
+      connTimeout: 30000,
     });
 
     return new Promise((resolve, reject) => {
@@ -667,7 +669,9 @@ export class EmailsService {
           }
         }
 
-        this.logger.warn('Could not find Sent folder after exhaustive search');
+        // Log all available folders for debugging
+        const folderPaths = allFolders.map(f => `${f.path} [${f.attribs.join(',')}]`);
+        this.logger.warn(`Could not find Sent folder. Available folders: ${folderPaths.join('; ')}`);
         resolve(null);
       });
     });

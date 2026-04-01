@@ -14,9 +14,10 @@ import {
   Filler,
 } from 'chart.js';
 import { Line, Bar } from 'react-chartjs-2';
+import Link from 'next/link';
 import AppLayout from '@/components/layout/AppLayout';
 import StatsCard from '@/components/ui/StatsCard';
-import { dashboardApi, tasksApi } from '@/lib/api';
+import { dashboardApi, tasksApi, memosApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP } from '@/lib/constants';
 import {
@@ -25,6 +26,7 @@ import {
   FunnelData,
   SalesRanking,
   Task,
+  Memo,
 } from '@/types';
 
 ChartJS.register(
@@ -61,16 +63,19 @@ export default function DashboardPage() {
   const [funnelData, setFunnelData] = useState<FunnelData[]>([]);
   const [rankings, setRankings] = useState<SalesRanking[]>([]);
   const [recentTasks, setRecentTasks] = useState<Task[]>([]);
+  const [todayMemos, setTodayMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, trendRes, funnelRes, tasksRes] = await Promise.all([
+        const today = new Date().toISOString().slice(0, 10);
+        const [statsRes, trendRes, funnelRes, tasksRes, memosRes] = await Promise.all([
           dashboardApi.getStats(),
           dashboardApi.getSalesTrend(),
           dashboardApi.getFunnel(),
           tasksApi.list({ pageSize: 5, status: 'PENDING' }),
+          memosApi.list({ date: today }),
         ]);
 
         setStats((statsRes as any).data);
@@ -82,6 +87,8 @@ export default function DashboardPage() {
         setRecentTasks(
           Array.isArray(tasksData?.items) ? tasksData.items : Array.isArray(tasksData) ? tasksData : []
         );
+        const memosData = (memosRes as any).data;
+        setTodayMemos(Array.isArray(memosData) ? memosData : []);
 
         if (isAdmin) {
           const rankingsRes = await dashboardApi.getRankings();
@@ -208,31 +215,37 @@ export default function DashboardPage() {
             title="客户总数"
             value={stats?.totalCustomers ?? 0}
             icon="users"
+            href="/customers"
           />
           <StatsCard
             title="销售线索"
             value={stats?.totalLeads ?? 0}
             icon="target"
+            href="/leads"
           />
           <StatsCard
             title="订单总数"
             value={stats?.totalOrders ?? 0}
             icon="shoppingCart"
+            href="/orders"
           />
           <StatsCard
             title="总收入"
             value={`$${(stats?.totalRevenue ?? 0).toLocaleString()}`}
             icon="dollarSign"
+            href="/orders"
           />
           <StatsCard
             title="待处理任务"
             value={stats?.pendingTasks ?? 0}
             icon="clock"
+            href="/tasks"
           />
           <StatsCard
             title="本月新线索"
             value={stats?.newLeadsThisMonth ?? 0}
             icon="trendingUp"
+            href="/leads"
           />
         </div>
 
@@ -253,6 +266,34 @@ export default function DashboardPage() {
             </h2>
             <Bar data={funnelChartData} options={funnelChartOptions} />
           </div>
+        </div>
+
+        {/* Memos widget */}
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">今日备忘</h2>
+            <Link href="/memos" className="text-sm text-primary-500 hover:text-primary-600">
+              查看全部
+            </Link>
+          </div>
+          {todayMemos.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">今日暂无备忘录</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {todayMemos.slice(0, 6).map((memo) => (
+                <div
+                  key={memo.id}
+                  className="rounded-xl p-3 border border-gray-100"
+                  style={{ backgroundColor: memo.color || '#ffffff' }}
+                >
+                  <h4 className="text-sm font-medium text-gray-900 truncate">{memo.title}</h4>
+                  {memo.content && (
+                    <p className="mt-1 text-xs text-gray-600 line-clamp-2">{memo.content}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Bottom row */}

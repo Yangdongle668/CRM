@@ -68,6 +68,8 @@ export default function SettingsPage() {
   const [systemSaving, setSystemSaving] = useState(false);
   const [newSettingKey, setNewSettingKey] = useState('');
   const [newSettingValue, setNewSettingValue] = useState('');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
 
   // ==================== Backup tab ====================
   const [backupExporting, setBackupExporting] = useState(false);
@@ -304,9 +306,44 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchLogo = useCallback(async () => {
+    try {
+      const res: any = await settingsApi.getLogo();
+      setLogoUrl(res.data?.logoUrl || null);
+    } catch {
+      // ignore
+    }
+  }, []);
+
   useEffect(() => {
-    if (isAdmin && activeTab === 'system') fetchSystemSettings();
-  }, [isAdmin, activeTab, fetchSystemSettings]);
+    if (isAdmin && activeTab === 'system') {
+      fetchSystemSettings();
+      fetchLogo();
+    }
+  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo]);
+
+  const handleLogoUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setLogoUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('logo', file);
+        const res: any = await settingsApi.uploadLogo(formData);
+        setLogoUrl(res.data?.logoUrl || null);
+        toast.success('Logo上传成功');
+      } catch {
+        toast.error('Logo上传失败');
+      } finally {
+        setLogoUploading(false);
+      }
+    };
+    input.click();
+  };
 
   const handleSystemSave = async () => {
     setSystemSaving(true);
@@ -616,7 +653,33 @@ export default function SettingsPage() {
 
         {/* ==================== System Settings Tab ==================== */}
         {activeTab === 'system' && (
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="space-y-6">
+            {/* Logo Upload Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">公司Logo</h3>
+              <div className="flex items-center gap-6">
+                <div className="flex h-20 w-20 items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="公司Logo" className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-sm text-gray-400">无Logo</span>
+                  )}
+                </div>
+                <div>
+                  <button
+                    onClick={handleLogoUpload}
+                    disabled={logoUploading}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {logoUploading ? '上传中...' : '上传Logo'}
+                  </button>
+                  <p className="mt-2 text-xs text-gray-500">支持 JPG、PNG 格式，最大 5MB</p>
+                </div>
+              </div>
+            </div>
+
+            {/* System Parameters Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
             {systemLoading ? (
               <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
             ) : (
@@ -691,6 +754,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+            </div>
           </div>
         )}
         {/* ==================== Backup Tab ==================== */}

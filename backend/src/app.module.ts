@@ -17,6 +17,7 @@ import { DocumentsModule } from './modules/documents/documents.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { BackupModule } from './modules/backup/backup.module';
+import { MemosModule } from './modules/memos/memos.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { BackupModule } from './modules/backup/backup.module';
     DashboardModule,
     SettingsModule,
     BackupModule,
+    MemosModule,
   ],
 })
 export class AppModule {}
