@@ -402,11 +402,8 @@ export class EmailsService {
           return resolve(0);
         }
 
-        // Fetch emails from last 30 days
-        const since = new Date();
-        since.setDate(since.getDate() - 30);
-
-        imap.search(['ALL', ['SINCE', since]], (searchErr: any, results: number[]) => {
+        // Fetch ALL emails in the folder (no date limit)
+        imap.search(['ALL'], (searchErr: any, results: number[]) => {
           if (searchErr) {
             this.logger.warn(
               `Search failed in ${folderName}: ${searchErr.message}`,
@@ -418,8 +415,8 @@ export class EmailsService {
             return resolve(0);
           }
 
-          // Take last 200 messages max
-          const toFetch = results.slice(-200);
+          // Fetch all messages (no cap)
+          const toFetch = results;
           const fetch = imap.fetch(toFetch, {
             bodies: '',
             struct: true,
@@ -529,11 +526,14 @@ export class EmailsService {
           'Sent Items', 'Sent Messages', 'Sent Mail',
           // INBOX-prefixed (common on many providers)
           'INBOX.Sent', 'INBOX.Sent Messages', 'INBOX.Sent Items', 'INBOX.Sent Mail',
-          // Chinese (QQ Mail, 163, Foxmail, etc.)
+          // Chinese (QQ Mail, 163/网易企业邮箱, Foxmail, etc.)
           '已发送', '已发邮件', '已发送邮件',
           'INBOX.已发送', 'INBOX.已发邮件',
           '&XfJT0ZAB-', // UTF-7 encoded 已发送
           'INBOX.&XfJT0ZAB-',
+          '&XfJSIJZk;', // UTF-7 variant for 已发邮件
+          // Hostinger
+          'INBOX.Sent', 'Sent',
           // Outlook / Exchange
           'Sent Items', 'SentItems',
           // Yahoo
