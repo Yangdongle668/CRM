@@ -23,6 +23,11 @@ export class ActivitiesController {
     return this.activitiesService.create(user.id, dto);
   }
 
+  @Get()
+  findAll(@CurrentUser() user: any, @Query() query: any) {
+    return this.activitiesService.findAll(user.id, user.role, query);
+  }
+
   @Get('customer/:customerId')
   findByCustomerId(
     @CurrentUser() user: any,

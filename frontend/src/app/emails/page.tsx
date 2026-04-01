@@ -416,9 +416,19 @@ export default function EmailsPage() {
           <span className="text-xs text-gray-400 truncate max-w-[180px]">
             {email.customer?.companyName || ''}
           </span>
-          {isUnread && (
-            <span className="w-2 h-2 rounded-full bg-blue-600 flex-shrink-0"></span>
-          )}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {isUnread && (
+              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+            )}
+            {email.direction === 'OUTBOUND' && email.viewedAt && (
+              <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-medium">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                已读
+              </span>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -485,10 +495,31 @@ export default function EmailsPage() {
                   <span className="text-blue-600">{selectedEmail.customer.companyName}</span>
                 </div>
               )}
+              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.viewedAt && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-16 flex-shrink-0">已读：</span>
+                  <span className="text-green-600 font-medium">
+                    收件人已读 · {formatTime(selectedEmail.viewedAt)}
+                    {selectedEmail.viewCount && selectedEmail.viewCount > 1
+                      ? ` · 共打开 ${selectedEmail.viewCount} 次`
+                      : ''}
+                  </span>
+                </div>
+              )}
             </div>
-            <Badge className={STATUS_MAP[selectedEmail.status]?.color || 'bg-gray-100 text-gray-800'}>
-              {STATUS_MAP[selectedEmail.status]?.label || selectedEmail.status}
-            </Badge>
+            <div className="flex flex-col items-end gap-1.5">
+              <Badge className={STATUS_MAP[selectedEmail.status]?.color || 'bg-gray-100 text-gray-800'}>
+                {STATUS_MAP[selectedEmail.status]?.label || selectedEmail.status}
+              </Badge>
+              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.viewedAt && (
+                <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                  </svg>
+                  对方已读
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Action buttons */}

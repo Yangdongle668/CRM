@@ -35,6 +35,56 @@ export class ActivitiesService {
     });
   }
 
+  async findAll(
+    userId: string,
+    role: string,
+    query: { customerId?: string; page?: string; pageSize?: string },
+  ) {
+    const page = query.page ? parseInt(query.page, 10) : 1;
+    const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
+    const skip = (page - 1) * pageSize;
+
+    const where: any = {};
+
+    if (query.customerId) {
+      // Verify customer access for SALESPERSON
+      if (role !== 'ADMIN') {
+        const customer = await this.prisma.customer.findUnique({
+          where: { id: query.customerId },
+          select: { ownerId: true },
+        });
+        if (!customer || customer.ownerId !== userId) {
+          throw new ForbiddenException('You do not have access to this customer');
+        }
+      }
+      where.customerId = query.customerId;
+    } else if (role !== 'ADMIN') {
+      where.ownerId = userId;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.activity.findMany({
+        where,
+        skip,
+        take: pageSize,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+          customer: { select: { id: true, companyName: true } },
+        },
+      }),
+      this.prisma.activity.count({ where }),
+    ]);
+
+    return {
+      items,
+      total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+    };
+  }
+
   async findByCustomerId(
     customerId: string,
     userId: string,

@@ -17,7 +17,7 @@ export class EmailsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async sendEmail(userId: string, dto: SendEmailDto) {
+  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },
     });
@@ -72,6 +72,13 @@ export class EmailsService {
       }
     }
 
+    // Auto-match customer by recipient domain if not manually specified
+    let customerId = dto.customerId || null;
+    if (!customerId) {
+      const matched = await this.autoMatchCustomer(dto.toAddr);
+      if (matched) customerId = matched.id;
+    }
+
     // Create email record first (as DRAFT) to get the ID for tracking pixel
     const emailRecord = await this.prisma.email.create({
       data: {
@@ -83,14 +90,14 @@ export class EmailsService {
         bodyHtml: htmlBody,
         direction: 'OUTBOUND',
         status: 'DRAFT',
-        customerId: dto.customerId || null,
+        customerId,
         senderId: userId,
         threadId: threadId || null,
       },
     });
 
     // Embed tracking pixel in HTML body
-    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || '';
+    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
     const trackingPixel = appUrl
       ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
       : '';
@@ -126,6 +133,18 @@ export class EmailsService {
           customer: true,
         },
       });
+
+      // Create activity on customer timeline
+      if (email.customerId) {
+        await this.prisma.activity.create({
+          data: {
+            type: 'EMAIL',
+            content: `发送邮件 - 收件人: ${dto.toAddr}，主题: ${dto.subject}`,
+            customerId: email.customerId,
+            ownerId: userId,
+          },
+        }).catch(() => {});
+      }
 
       return email;
     } catch (error) {
@@ -402,11 +421,8 @@ export class EmailsService {
           return resolve(0);
         }
 
-        // Fetch emails from last 7 days
-        const since = new Date();
-        since.setDate(since.getDate() - 7);
-
-        imap.search(['ALL', ['SINCE', since]], (searchErr: any, results: number[]) => {
+        // Fetch ALL emails in the folder (no date limit)
+        imap.search(['ALL'], (searchErr: any, results: number[]) => {
           if (searchErr) {
             this.logger.warn(
               `Search failed in ${folderName}: ${searchErr.message}`,
@@ -418,8 +434,8 @@ export class EmailsService {
             return resolve(0);
           }
 
-          // Take last 50 messages max
-          const toFetch = results.slice(-50);
+          // Fetch all messages (no cap)
+          const toFetch = results;
           const fetch = imap.fetch(toFetch, {
             bodies: '',
             struct: true,
@@ -455,6 +471,10 @@ export class EmailsService {
                   ? await this.autoMatchCustomer(matchEmail)
                   : null;
 
+                // Get sender display name
+                const fromName =
+                  parsed.from?.value?.[0]?.name || '';
+
                 // Determine status
                 const status =
                   direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
@@ -476,6 +496,25 @@ export class EmailsService {
                     senderId: userId,
                   },
                 });
+
+                // Create activity record on customer timeline when auto-matched
+                if (customer) {
+                  const senderLabel = fromName
+                    ? `${fromName} (${fromAddr})`
+                    : fromAddr;
+                  const actContent = direction === 'INBOUND'
+                    ? `收到邮件 - 发件人: ${senderLabel}，主题: ${parsed.subject || '(无主题)'}`
+                    : `发送邮件 - 收件人: ${toAddr}，主题: ${parsed.subject || '(无主题)'}`;
+
+                  await this.prisma.activity.create({
+                    data: {
+                      type: 'EMAIL',
+                      content: actContent,
+                      customerId: customer.id,
+                      ownerId: userId,
+                    },
+                  }).catch(() => {});
+                }
 
                 fetchedCount++;
               });
@@ -522,25 +561,57 @@ export class EmailsService {
           return resolve(null);
         }
 
-        // Check top-level folders for \Sent attribute or common names
+        // Comprehensive list of sent folder names across providers
         const sentNames = [
+          // Standard
+          'Sent', 'SENT', 'sent',
+          'Sent Items', 'Sent Messages', 'Sent Mail',
+          // INBOX-prefixed (common on many providers)
+          'INBOX.Sent', 'INBOX.Sent Messages', 'INBOX.Sent Items', 'INBOX.Sent Mail',
+          // Chinese (QQ Mail, 163/网易企业邮箱, Foxmail, etc.)
+          '已发送', '已发邮件', '已发送邮件',
+          'INBOX.已发送', 'INBOX.已发邮件',
+          '&XfJT0ZAB-', // UTF-7 encoded 已发送
+          'INBOX.&XfJT0ZAB-',
+          '&XfJSIJZk;', // UTF-7 variant for 已发邮件
+          // Hostinger
+          'INBOX.Sent', 'Sent',
+          // Outlook / Exchange
+          'Sent Items', 'SentItems',
+          // Yahoo
           'Sent',
-          'Sent Messages',
-          'Sent Items',
-          'INBOX.Sent',
-          'INBOX.Sent Messages',
-          '已发送',
-          '已发邮件',
+          // German
+          'Gesendete Objekte', 'Gesendet',
+          // French
+          'Messages envoy\u00e9s', 'Envoy\u00e9s',
+          // Spanish
+          'Enviados', 'Mensajes enviados',
         ];
 
-        // First: check for special-use \Sent attribute at top level
-        for (const [name, box] of Object.entries(boxes)) {
-          const attribs = (box as any).attribs || [];
+        // Helper: recursively flatten all folders into { path, attribs } list
+        const flattenBoxes = (boxTree: any, prefix = ''): Array<{ path: string; attribs: string[] }> => {
+          const result: Array<{ path: string; attribs: string[] }> = [];
+          for (const [name, box] of Object.entries(boxTree)) {
+            const path = prefix ? `${prefix}/${name}` : name;
+            const attribs = (box as any).attribs || [];
+            result.push({ path, attribs });
+            if ((box as any).children) {
+              result.push(...flattenBoxes((box as any).children, path));
+            }
+          }
+          return result;
+        };
+
+        const allFolders = flattenBoxes(boxes);
+
+        // First: check ALL folders for \Sent attribute (most reliable)
+        for (let i = 0; i < allFolders.length; i++) {
+          const folder = allFolders[i];
           if (
-            attribs.includes('\\Sent') ||
-            attribs.includes('\\sent')
+            folder.attribs.includes('\\Sent') ||
+            folder.attribs.includes('\\sent')
           ) {
-            return resolve(name);
+            return resolve(folder.path);
           }
         }
 
@@ -558,22 +629,8 @@ export class EmailsService {
           ) || null;
         if (gmailKey && (boxes[gmailKey] as any).children) {
           const children = (boxes[gmailKey] as any).children;
-          // Check for \Sent attribute in children
-          for (const [childName, childBox] of Object.entries(children)) {
-            const attribs = (childBox as any).attribs || [];
-            if (
-              attribs.includes('\\Sent') ||
-              attribs.includes('\\sent')
-            ) {
-              return resolve(`${gmailKey}/${childName}`);
-            }
-          }
-          // Fallback: common Gmail sent names
           const gmailSentNames = [
-            'Sent Mail',
-            '已发送邮件',
-            'Sent',
-            'Sent Messages',
+            'Sent Mail', '已发送邮件', 'Sent', 'Sent Messages',
           ];
           for (const name of gmailSentNames) {
             if (children[name]) {
@@ -582,31 +639,42 @@ export class EmailsService {
           }
         }
 
-        // Fourth: check Namespaces or nested INBOX children
+        // Fourth: check INBOX children
         if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
           const inboxChildren = (boxes['INBOX'] as any).children;
-          for (const [childName, childBox] of Object.entries(inboxChildren)) {
-            const attribs = (childBox as any).attribs || [];
-            if (
-              attribs.includes('\\Sent') ||
-              attribs.includes('\\sent')
-            ) {
-              return resolve(`INBOX/${childName}`);
+          const inboxSentNames = ['Sent', 'Sent Messages', 'Sent Items', 'Sent Mail', '已发送', '已发邮件'];
+          for (const name of inboxSentNames) {
+            if (inboxChildren[name]) {
+              return resolve(`INBOX/${name}`);
             }
           }
-          // Common nested names
-          if (inboxChildren['Sent']) return resolve('INBOX/Sent');
-          if (inboxChildren['Sent Messages'])
-            return resolve('INBOX/Sent Messages');
         }
 
+        // Fifth (fallback): scan all folders for name containing "sent" or "已发"
+        const skipPatterns = /^(INBOX|Drafts|Trash|Junk|Spam|Archive|Deleted|Deleted Items|Deleted Messages|Notes|Outbox)$/i;
+        for (let i = 0; i < allFolders.length; i++) {
+          const folder = allFolders[i];
+          const baseName = folder.path.split('/').pop() || '';
+          if (skipPatterns.test(baseName)) continue;
+          if (
+            /sent/i.test(baseName) ||
+            /已发/.test(baseName) ||
+            /envoy/i.test(baseName) ||
+            /enviados/i.test(baseName) ||
+            /gesendet/i.test(baseName)
+          ) {
+            return resolve(folder.path);
+          }
+        }
+
+        this.logger.warn('Could not find Sent folder after exhaustive search');
         resolve(null);
       });
     });
   }
 
   private async autoMatchCustomer(emailAddress: string) {
-    // Match by contact email
+    // 1. Match by contact email (exact match)
     const contact = await this.prisma.contact.findFirst({
       where: { email: emailAddress },
       include: { customer: true },
@@ -614,6 +682,38 @@ export class EmailsService {
 
     if (contact) {
       return contact.customer;
+    }
+
+    // 2. Match by customer website domain
+    const domain = emailAddress.split('@')[1]?.toLowerCase();
+    if (domain && domain !== 'gmail.com' && domain !== 'yahoo.com' &&
+        domain !== 'hotmail.com' && domain !== 'outlook.com' &&
+        domain !== 'qq.com' && domain !== '163.com' && domain !== '126.com' &&
+        domain !== 'foxmail.com' && domain !== 'icloud.com' &&
+        domain !== 'live.com' && domain !== 'msn.com' &&
+        domain !== 'aol.com' && domain !== 'mail.com' &&
+        domain !== 'protonmail.com' && domain !== 'zoho.com') {
+      // Search customers whose website contains this domain
+      const customers = await this.prisma.customer.findMany({
+        where: {
+          website: { not: null },
+        },
+        select: { id: true, website: true, companyName: true },
+      });
+
+      for (let i = 0; i < customers.length; i++) {
+        const c = customers[i];
+        if (!c.website) continue;
+        // Extract domain from website: "https://www.example.com/path" → "example.com"
+        const websiteDomain = c.website
+          .replace(/^https?:\/\//i, '')
+          .replace(/^www\./i, '')
+          .split('/')[0]
+          .toLowerCase();
+        if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
+          return c;
+        }
+      }
     }
 
     return null;

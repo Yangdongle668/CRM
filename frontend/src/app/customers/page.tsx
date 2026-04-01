@@ -10,14 +10,8 @@ import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
 import { customersApi } from '@/lib/api';
-import { CUSTOMER_STATUS_MAP, CUSTOMER_SOURCES, INDUSTRIES } from '@/lib/constants';
+import { CUSTOMER_STATUS_MAP, CUSTOMER_SOURCES, INDUSTRIES, COUNTRIES } from '@/lib/constants';
 import type { Customer, CustomerStatus, PaginatedData } from '@/types';
-
-const COUNTRIES = [
-  '中国', '美国', '英国', '德国', '法国', '日本', '韩国', '澳大利亚',
-  '加拿大', '巴西', '印度', '俄罗斯', '新加坡', '马来西亚', '泰国',
-  '越南', '印度尼西亚', '菲律宾', '阿联酋', '沙特阿拉伯', '其他',
-];
 
 const initialForm = {
   companyName: '',
