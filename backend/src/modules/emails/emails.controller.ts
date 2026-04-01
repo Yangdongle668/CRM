@@ -8,10 +8,11 @@ import {
   Body,
   Param,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -55,8 +56,12 @@ export class EmailsController {
   async sendEmail(
     @CurrentUser() user: any,
     @Body() dto: SendEmailDto,
+    @Req() req: Request,
   ) {
-    return this.emailsService.sendEmail(user.id, dto);
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
+    const origin = `${protocol}://${host}`;
+    return this.emailsService.sendEmail(user.id, dto, origin);
   }
 
   @Get('unread-count')

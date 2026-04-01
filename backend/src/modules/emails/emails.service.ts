@@ -17,7 +17,7 @@ export class EmailsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async sendEmail(userId: string, dto: SendEmailDto) {
+  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },
     });
@@ -90,7 +90,7 @@ export class EmailsService {
     });
 
     // Embed tracking pixel in HTML body
-    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || '';
+    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
     const trackingPixel = appUrl
       ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
       : '';
