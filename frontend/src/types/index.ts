@@ -107,6 +107,18 @@ export interface Email {
   customer?: Customer;
   senderId?: string;
   createdAt: string;
+  thread?: {
+    id: string;
+    subject: string;
+    emails: Email[];
+  };
+}
+
+export interface EmailThreadItem {
+  threadId: string | null;
+  threadSubject: string;
+  emailCount: number;
+  latestEmail: Email;
 }
 
 export interface EmailTemplate {

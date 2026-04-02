@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import type { Email, EmailTemplate, Customer, PaginatedData, EmailDirection } from '@/types';
+import type { Email, EmailTemplate, EmailThreadItem, Customer, PaginatedData, EmailDirection } from '@/types';
 import toast from 'react-hot-toast';
 
 type TabType = 'INBOUND' | 'OUTBOUND' | 'TEMPLATES';
@@ -58,6 +58,7 @@ export default function EmailsPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>('INBOUND');
   const [emails, setEmails] = useState<Email[]>([]);
+  const [threads, setThreads] = useState<EmailThreadItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
@@ -67,6 +68,8 @@ export default function EmailsPage() {
 
   // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
+  const [threadEmails, setThreadEmails] = useState<Email[]>([]);
+  const [viewingThreadEmailId, setViewingThreadEmailId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Reply state
@@ -88,7 +91,7 @@ export default function EmailsPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
 
-  // Fetch emails
+  // Fetch emails (threaded mode)
   const fetchEmails = useCallback(async () => {
     if (activeTab === 'TEMPLATES') return;
     setLoading(true);
@@ -97,10 +100,14 @@ export default function EmailsPage() {
         page,
         pageSize,
         direction: activeTab as EmailDirection,
+        grouped: 'true',
       };
       const res: any = await emailsApi.list(params);
-      const data: PaginatedData<Email> = res.data;
-      setEmails(Array.isArray(data.items) ? data.items : []);
+      const data = res.data;
+      const items = Array.isArray(data.items) ? data.items : [];
+      setThreads(items);
+      // Also keep flat emails list for backwards compat
+      setEmails(items.map((t: EmailThreadItem) => t.latestEmail).filter(Boolean));
       setTotal(data.total || 0);
     } catch {
       // handled by interceptor
@@ -190,23 +197,47 @@ export default function EmailsPage() {
     return () => clearInterval(interval);
   }, [fetchUnreadCount, activeTab, fetchEmails]);
 
-  // View email detail
-  const handleViewEmail = async (email: Email) => {
+  // View email detail (with thread loading)
+  const handleViewEmail = async (email: Email, threadId?: string | null) => {
     setDetailLoading(true);
     setReplyOpen(false);
+    setThreadEmails([]);
+    setViewingThreadEmailId(null);
     try {
       const res: any = await emailsApi.getById(email.id);
-      setSelectedEmail(res.data);
+      const emailData = res.data;
+      setSelectedEmail(emailData);
+      setViewingThreadEmailId(emailData.id);
+
+      // Load thread emails if this email belongs to a thread
+      const tId = threadId || emailData.threadId;
+      if (tId) {
+        try {
+          const threadRes: any = await emailsApi.getThreadEmails(tId);
+          const tEmails = Array.isArray(threadRes.data) ? threadRes.data : [];
+          setThreadEmails(tEmails);
+        } catch {
+          // thread load failed, ignore
+        }
+      }
+
       // Mark as read if inbound and unread
       if (email.direction === 'INBOUND' && email.status === 'RECEIVED') {
         await emailsApi.markAsRead(email.id);
-        // Update local list
+        // Update local thread list
+        setThreads((prev) =>
+          prev.map((t) => {
+            if (t.latestEmail?.id === email.id) {
+              return { ...t, latestEmail: { ...t.latestEmail, status: 'READ' as const } };
+            }
+            return t;
+          })
+        );
         setEmails((prev) =>
           prev.map((e) =>
             e.id === email.id ? { ...e, status: 'READ' as const } : e
           )
         );
-        // Update unread count
         setUnreadCount((prev) => Math.max(0, prev - 1));
         prevUnreadRef.current = Math.max(0, prevUnreadRef.current - 1);
       }
@@ -214,6 +245,17 @@ export default function EmailsPage() {
       setSelectedEmail(email);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  // Switch to a different email within a thread
+  const handleViewThreadEmail = async (email: Email) => {
+    setViewingThreadEmailId(email.id);
+    try {
+      const res: any = await emailsApi.getById(email.id);
+      setSelectedEmail(res.data);
+    } catch {
+      setSelectedEmail(email);
     }
   };
 
@@ -386,8 +428,10 @@ export default function EmailsPage() {
     { key: 'TEMPLATES', label: '邮件模板' },
   ];
 
-  // ==================== Email List Item ====================
-  const renderEmailListItem = (email: Email) => {
+  // ==================== Thread List Item ====================
+  const renderThreadListItem = (thread: EmailThreadItem) => {
+    const email = thread.latestEmail;
+    if (!email) return null;
     const isSelected = selectedEmail?.id === email.id;
     const isUnread = email.status === 'RECEIVED';
     const addr = activeTab === 'INBOUND' ? email.fromAddr : email.toAddr;
@@ -395,8 +439,8 @@ export default function EmailsPage() {
 
     return (
       <div
-        key={email.id}
-        onClick={() => handleViewEmail(email)}
+        key={thread.threadId || email.id}
+        onClick={() => handleViewEmail(email, thread.threadId)}
         className={`px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
           isSelected
             ? 'bg-blue-50 border-l-2 border-l-blue-600'
@@ -407,10 +451,17 @@ export default function EmailsPage() {
           <span className={`text-sm truncate max-w-[200px] ${isUnread ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
             {addr}
           </span>
-          <span className="text-xs text-gray-400 flex-shrink-0 ml-2">{formatShortTime(time)}</span>
+          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+            {thread.emailCount > 1 && (
+              <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full min-w-[20px]">
+                {thread.emailCount}
+              </span>
+            )}
+            <span className="text-xs text-gray-400">{formatShortTime(time)}</span>
+          </div>
         </div>
         <div className={`text-sm truncate ${isUnread ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
-          {email.subject || '(无主题)'}
+          {thread.threadSubject || email.subject || '(无主题)'}
         </div>
         <div className="flex items-center justify-between mt-1">
           <span className="text-xs text-gray-400 truncate max-w-[180px]">
@@ -558,8 +609,47 @@ export default function EmailsPage() {
           </div>
         </div>
 
-        {/* Email body - scrollable */}
+        {/* Email body - scrollable, with thread conversation */}
         <div className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50">
+          {/* Thread conversation list */}
+          {threadEmails.length > 1 && (
+            <div className="mb-4">
+              <div className="text-xs font-medium text-gray-500 mb-2">
+                此会话共 {threadEmails.length} 封邮件
+              </div>
+              <div className="space-y-1">
+                {threadEmails.map((te) => {
+                  const isViewing = viewingThreadEmailId === te.id;
+                  const teTime = te.sentAt || te.receivedAt || te.createdAt;
+                  const isInbound = te.direction === 'INBOUND';
+                  return (
+                    <div
+                      key={te.id}
+                      onClick={() => handleViewThreadEmail(te)}
+                      className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
+                        isViewing
+                          ? 'bg-blue-50 border border-blue-200'
+                          : 'bg-white border border-gray-100 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${isInbound ? 'bg-blue-400' : 'bg-green-400'}`} />
+                      <span className={`truncate flex-1 ${isViewing ? 'font-medium text-gray-900' : 'text-gray-600'}`}>
+                        {isInbound ? te.fromAddr : te.toAddr}
+                      </span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {formatShortTime(teTime)}
+                      </span>
+                      {te.status === 'RECEIVED' && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 flex-shrink-0" />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Current email body */}
           <div className="bg-white rounded-lg border p-6 min-h-[300px]">
             {selectedEmail.bodyHtml ? (
               <div
@@ -976,19 +1066,19 @@ export default function EmailsPage() {
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
                     加载中...
                   </div>
-                ) : emails.length === 0 ? (
+                ) : threads.length === 0 ? (
                   <div className="text-center py-12 text-gray-400 text-sm">
                     暂无邮件
                   </div>
                 ) : (
-                  emails.map((email) => renderEmailListItem(email))
+                  threads.map((thread) => renderThreadListItem(thread))
                 )}
               </div>
 
               {/* Pagination */}
               {total > pageSize && (
                 <div className="flex items-center justify-between px-3 py-2 border-t text-xs flex-shrink-0">
-                  <span className="text-gray-500">共 {total} 封</span>
+                  <span className="text-gray-500">共 {total} 个会话</span>
                   <div className="flex gap-1">
                     <button
                       onClick={() => setPage((p) => Math.max(1, p - 1))}

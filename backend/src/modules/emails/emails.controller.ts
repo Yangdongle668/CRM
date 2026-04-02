@@ -81,12 +81,14 @@ export class EmailsController {
     @Query('direction') direction?: string,
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
+    @Query('grouped') grouped?: string,
   ) {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
       direction,
       page,
       pageSize,
+      grouped,
     });
   }
 
@@ -111,6 +113,14 @@ export class EmailsController {
   @Delete('templates/:id')
   async deleteTemplate(@Param('id') id: string) {
     return this.emailsService.deleteTemplate(id);
+  }
+
+  @Get('threads/:threadId')
+  async findThreadEmails(
+    @CurrentUser() user: any,
+    @Param('threadId') threadId: string,
+  ) {
+    return this.emailsService.findThreadEmails(threadId, user.id, user.role);
   }
 
   @Get(':id')

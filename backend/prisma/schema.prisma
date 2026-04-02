@@ -204,6 +204,7 @@ model EmailThread {
 
   emails Email[]
 
+  @@index([subject])
   @@map("email_threads")
 }
 
