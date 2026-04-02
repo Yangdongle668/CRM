@@ -127,6 +127,9 @@ export default function PIDetailPage() {
         portOfDischarge: formData.portOfDischarge,
         placeOfDelivery: formData.placeOfDelivery,
         paymentMethod: formData.paymentMethod,
+        countryOfOrigin: (formData as any).countryOfOrigin,
+        termsOfDelivery: (formData as any).termsOfDelivery,
+        notes: (formData as any).notes,
         validityPeriod: formData.validityPeriod,
         shippingCharge: Number(formData.shippingCharge),
         other: Number(formData.other),
@@ -467,6 +470,32 @@ export default function PIDetailPage() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    原产国
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).countryOfOrigin || ''}
+                    onChange={(e) => handleFieldChange('countryOfOrigin', e.target.value)}
+                    disabled={!canEdit}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
+                    placeholder="China"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    交货条款 (Terms of Delivery)
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).termsOfDelivery || ''}
+                    onChange={(e) => handleFieldChange('termsOfDelivery', e.target.value)}
+                    disabled={!canEdit}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
+                    placeholder="Only after full payment is received"
+                  />
+                </div>
               </div>
             </div>
 
@@ -598,6 +627,18 @@ export default function PIDetailPage() {
                     type="number"
                     value={formData.other || 0}
                     onChange={(e) => handleFieldChange('other', Number(e.target.value))}
+                    disabled={!canEdit}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    备注 (Notes，如 Sample only — No commercial value)
+                  </label>
+                  <input
+                    type="text"
+                    value={(formData as any).notes || ''}
+                    onChange={(e) => handleFieldChange('notes', e.target.value)}
                     disabled={!canEdit}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
                   />

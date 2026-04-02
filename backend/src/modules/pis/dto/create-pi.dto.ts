@@ -82,6 +82,18 @@ export class CreatePIDto {
   paymentMethod?: string;
 
   @IsOptional()
+  @IsString()
+  countryOfOrigin?: string;
+
+  @IsOptional()
+  @IsString()
+  termsOfDelivery?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
   @IsNumber()
   validityPeriod?: number;
 
