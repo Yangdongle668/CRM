@@ -70,6 +70,9 @@ export class PIsService {
         portOfDischarge: dto.portOfDischarge,
         placeOfDelivery: dto.placeOfDelivery,
         paymentMethod: dto.paymentMethod,
+        countryOfOrigin: dto.countryOfOrigin,
+        termsOfDelivery: dto.termsOfDelivery,
+        notes: dto.notes,
         validityPeriod: dto.validityPeriod || 7,
         subtotal,
         shippingCharge,
@@ -181,6 +184,9 @@ export class PIsService {
     if (dto.portOfDischarge !== undefined) updateData.portOfDischarge = dto.portOfDischarge;
     if (dto.placeOfDelivery !== undefined) updateData.placeOfDelivery = dto.placeOfDelivery;
     if (dto.paymentMethod !== undefined) updateData.paymentMethod = dto.paymentMethod;
+    if (dto.countryOfOrigin !== undefined) updateData.countryOfOrigin = dto.countryOfOrigin;
+    if (dto.termsOfDelivery !== undefined) updateData.termsOfDelivery = dto.termsOfDelivery;
+    if (dto.notes !== undefined) updateData.notes = dto.notes;
     if (dto.validityPeriod !== undefined) updateData.validityPeriod = dto.validityPeriod;
 
     if (dto.items !== undefined) {
@@ -344,247 +350,383 @@ export class PIsService {
   async generatePdf(id: string, userId: string, role: string): Promise<Buffer> {
     const pi = await this.findOne(id, userId, role);
 
-    // Only admins can generate PDF from any status, non-admins can only generate from APPROVED
     if (role !== 'ADMIN' && pi.status !== 'APPROVED') {
-      throw new ForbiddenException(
-        'Cannot generate PDF for unapproved PIs',
-      );
+      throw new ForbiddenException('Cannot generate PDF for unapproved PIs');
     }
 
-    // Get bank info from settings
-    const bankInfo = await this.settingsService.getBankInfo();
+    const [bankInfo, logoUrl] = await Promise.all([
+      this.settingsService.getBankInfo(),
+      this.settingsService.getLogoUrl(),
+    ]);
 
     return new Promise((resolve, reject) => {
       try {
-        const doc = new PDFDocument({ size: 'A4', margin: 40 });
+        const doc = new PDFDocument({ size: 'A4', margin: 0 });
         const buffers: Buffer[] = [];
-
         doc.on('data', (chunk: Buffer) => buffers.push(chunk));
         doc.on('end', () => resolve(Buffer.concat(buffers)));
         doc.on('error', reject);
 
-        // Register font for Chinese characters
-        const fontPaths = [
-          '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
-          '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-          '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
-        ];
+        // ── Layout constants ────────────────────────────────────
+        const L = 35;          // left margin
+        const T = 30;          // top margin
+        const PW = 595;        // page width (A4)
+        const CW = PW - L * 2; // content width = 525
+        const leftColW = 218;  // seller / consignee column
+        const rCW = CW - leftColW; // right section width = 307
+        const rHalfW = rCW / 2;    // each right sub-column = 153.5
+        const midX = L + leftColW;
+        const rH = 30;         // info-grid row height
+        const BLUE = '#1155CC';
+        const DARK = '#222222';
+        const GRAY = '#666666';
+        const LINE = '#AAAAAA';
+        const TABLE_STRIPE = '#F5F5F5';
 
-        let fontRegistered = false;
-        for (const fontPath of fontPaths) {
-          if (fs.existsSync(fontPath)) {
-            doc.registerFont('Chinese', fontPath);
-            doc.font('Chinese');
-            fontRegistered = true;
-            break;
+        // ── Font helper ─────────────────────────────────────────
+        const setFont = (bold: boolean, size: number) => {
+          doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size);
+        };
+
+        // ── Draw a bordered cell ─────────────────────────────────
+        const border = (x: number, y: number, w: number, h: number) =>
+          doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.5).stroke();
+
+        // ── Label (top-left inside cell) ─────────────────────────
+        const label = (txt: string, x: number, y: number, w: number) => {
+          setFont(false, 7);
+          doc.fillColor(DARK).text(txt, x + 3, y + 3, { width: w - 6, lineBreak: false });
+        };
+
+        // ── Centered blue value inside cell ──────────────────────
+        const value = (txt: string, x: number, y: number, w: number, h: number) => {
+          if (!txt) return;
+          setFont(false, 9);
+          doc.fillColor(BLUE).text(txt, x + 4, y + h / 2 - 4, {
+            width: w - 8, align: 'center', lineBreak: false,
+          });
+        };
+
+        // ── Left-aligned blue value (for multi-line cells) ───────
+        const valueLeft = (txt: string, x: number, y: number, w: number) => {
+          if (!txt) return;
+          setFont(false, 9);
+          doc.fillColor(BLUE).text(txt, x + 4, y + 13, { width: w - 8 });
+        };
+
+        let cy = T;
+
+        // ════════════════════════════════════════════════════════
+        // 1.  PAGE HEADER  "PAGE 1/1"
+        // ════════════════════════════════════════════════════════
+        setFont(false, 8);
+        doc.fillColor(GRAY).text('PAGE 1/1', 0, T, { width: PW - 20, align: 'right' });
+        cy += 18;
+
+        // ════════════════════════════════════════════════════════
+        // 2.  TITLE ROW  "Proforma Invoice"  +  logo top-right
+        // ════════════════════════════════════════════════════════
+        setFont(true, 20);
+        doc.fillColor(DARK).text('Proforma Invoice', L, cy, { width: CW * 0.55 });
+
+        // Logo (top-right of title row)
+        if (logoUrl) {
+          const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
+          if (fs.existsSync(absPath)) {
+            try {
+              doc.image(absPath, PW - L - 110, cy - 4, { fit: [108, 46] });
+            } catch { /* skip bad image */ }
           }
         }
 
-        if (!fontRegistered) {
-          doc.font('Helvetica');
-        }
+        cy += 38;
+        // thin rule under title
+        doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(LINE).lineWidth(0.5).stroke();
+        cy += 1;
 
-        // Helper function to draw borders
-        const drawRect = (x: number, y: number, w: number, h: number) => {
-          doc.rect(x, y, w, h).stroke();
-        };
+        // ════════════════════════════════════════════════════════
+        // 3.  INFO GRID
+        // ════════════════════════════════════════════════════════
 
-        let currentY = 50;
-
-        // Header: PI title and logo
-        doc.fontSize(16).font('Helvetica-Bold').text('Proforma Invoice', 50, currentY, { align: 'center' });
-        doc.fontSize(10).font('Helvetica').text(`PI No: ${pi.piNo}`, 50, currentY + 25, { align: 'center' });
-        currentY += 50;
-
-        // Section 1: Seller info and basic details
-        const col1Width = 280;
-        const col2Width = 210;
-        const colSpacing = 20;
-
-        // Section 1a: Seller info (left)
-        doc.fontSize(10).font('Helvetica-Bold').text('1. SELLER / EXPORTER', 50, currentY);
-        currentY += 15;
-        drawRect(50, currentY, col1Width, 80);
-        doc.fontSize(9).font('Helvetica');
-        const sellerName = pi.sellerId || 'Company Name';
-        doc.text(sellerName, 55, currentY + 5, { width: col1Width - 10 });
+        // ── Seller block  (left col, 3 rows) ────────────────────
+        const sellerH = rH * 3;
+        border(L, cy, leftColW, sellerH);
+        label('1. SELLER / EXPORTER', L, cy, leftColW);
+        valueLeft(pi.sellerId || '', L, cy, leftColW);
+        // address below name
         if (pi.sellerAddress) {
-          doc.text(pi.sellerAddress, 55, currentY + 25, { width: col1Width - 10 });
+          const afterName = doc.y;
+          setFont(false, 8);
+          doc.fillColor(BLUE).text(pi.sellerAddress, L + 4, afterName, { width: leftColW - 8 });
         }
-        currentY += 85;
 
-        // Section 1b: Basic details (right)
-        const detailsX = 50 + col1Width + colSpacing;
-        doc.fontSize(10).font('Helvetica-Bold').text('3. INVOICE NO.', detailsX, currentY - 35);
-        drawRect(detailsX, currentY - 20, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.piNo, detailsX + 5, currentY - 17, { width: col2Width - 10 });
+        // Row A right: INVOICE NO + DATE
+        border(midX, cy, rHalfW, rH);
+        label('3. INVOICE NO.', midX, cy, rHalfW);
+        value(pi.piNo, midX, cy, rHalfW, rH);
 
-        doc.fontSize(10).font('Helvetica-Bold').text('4. DATE', detailsX + col2Width / 2, currentY - 35);
-        drawRect(detailsX + col2Width / 2, currentY - 20, col2Width / 2, 20);
-        const dateStr = pi.createdAt.toISOString().split('T')[0];
-        doc.fontSize(9).font('Helvetica').text(dateStr, detailsX + col2Width / 2 + 5, currentY - 17);
+        border(midX + rHalfW, cy, rHalfW, rH);
+        label('4. DATE', midX + rHalfW, cy, rHalfW);
+        const dateOpts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
+        value(pi.createdAt.toLocaleDateString('en-US', dateOpts), midX + rHalfW, cy, rHalfW, rH);
 
-        doc.fontSize(10).font('Helvetica-Bold').text('5. PO NO.', detailsX, currentY - 15);
-        drawRect(detailsX, currentY, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.poNo || '', detailsX + 5, currentY + 3, { width: col2Width - 10 });
+        // Row B right: PO NO + CURRENCY
+        border(midX, cy + rH, rHalfW, rH);
+        label('5. PO NO.', midX, cy + rH, rHalfW);
+        value(pi.poNo || '', midX, cy + rH, rHalfW, rH);
 
-        doc.fontSize(10).font('Helvetica-Bold').text('6. CURRENCY', detailsX + col2Width / 2, currentY - 15);
-        drawRect(detailsX + col2Width / 2, currentY, col2Width / 2, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.currency, detailsX + col2Width / 2 + 5, currentY + 3);
+        border(midX + rHalfW, cy + rH, rHalfW, rH);
+        label('6. CURRENCY', midX + rHalfW, cy + rH, rHalfW);
+        value(pi.currency, midX + rHalfW, cy + rH, rHalfW, rH);
 
-        currentY += 25;
+        // Row C right: SHIPPING METHOD + PORT OF LOADING
+        border(midX, cy + rH * 2, rHalfW, rH);
+        label('7. SHIPPING METHOD', midX, cy + rH * 2, rHalfW);
+        value(pi.shippingMethod || '', midX, cy + rH * 2, rHalfW, rH);
 
-        // Section 2: Consignee info
-        doc.fontSize(10).font('Helvetica-Bold').text('2. CONSIGNEE AND ADDRESS', 50, currentY);
-        currentY += 15;
-        drawRect(50, currentY, col1Width, 80);
-        doc.fontSize(9).font('Helvetica');
-        doc.text(pi.consigneeName || 'Consignee Name', 55, currentY + 5, { width: col1Width - 10 });
+        border(midX + rHalfW, cy + rH * 2, rHalfW, rH);
+        label('8. PORT OF LOADING', midX + rHalfW, cy + rH * 2, rHalfW);
+        value(pi.portOfLoading || '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
+
+        cy += sellerH;
+
+        // ── Consignee block  (left col, 3 rows) ─────────────────
+        const consigneeH = rH * 3;
+        border(L, cy, leftColW, consigneeH);
+        label('2. CONSIGNEE AND ADDRESS', L, cy, leftColW);
+        valueLeft(pi.consigneeName || '', L, cy, leftColW);
         if (pi.consigneeAddress) {
-          doc.text(pi.consigneeAddress, 55, currentY + 25, { width: col1Width - 10 });
+          const afterName2 = doc.y;
+          setFont(false, 8);
+          doc.fillColor(BLUE).text(pi.consigneeAddress, L + 4, afterName2, { width: leftColW - 8 });
         }
 
-        // Shipping details (right)
-        doc.fontSize(10).font('Helvetica-Bold').text('7. SHIPPING METHOD', detailsX, currentY);
-        drawRect(detailsX, currentY + 15, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.shippingMethod || '', detailsX + 5, currentY + 18, { width: col2Width - 10 });
+        // Row D right: PORT OF DISCHARGE + PLACE OF DELIVERY
+        border(midX, cy, rHalfW, rH);
+        label('9. PORT OF DISCHARGE', midX, cy, rHalfW);
+        value(pi.portOfDischarge || '', midX, cy, rHalfW, rH);
 
-        doc.fontSize(10).font('Helvetica-Bold').text('8. PORT OF LOADING', detailsX, currentY + 40);
-        drawRect(detailsX, currentY + 55, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.portOfLoading || '', detailsX + 5, currentY + 58, { width: col2Width - 10 });
+        border(midX + rHalfW, cy, rHalfW, rH);
+        label('10. PLACE OF DELIVERY', midX + rHalfW, cy, rHalfW);
+        value(pi.placeOfDelivery || '', midX + rHalfW, cy, rHalfW, rH);
 
-        currentY += 85;
+        // Row E right: PAYMENT METHOD + TRADE TERM
+        border(midX, cy + rH, rHalfW, rH);
+        label('11. PAYMENT METHOD', midX, cy + rH, rHalfW);
+        value(pi.paymentMethod || '', midX, cy + rH, rHalfW, rH);
 
-        // More shipping details
-        doc.fontSize(10).font('Helvetica-Bold').text('9. PORT OF DISCHARGE', 50, currentY);
-        drawRect(50, currentY + 15, col1Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.portOfDischarge || '', 55, currentY + 18, { width: col1Width - 10 });
+        border(midX + rHalfW, cy + rH, rHalfW, rH);
+        label('12. TRADE TERM:', midX + rHalfW, cy + rH, rHalfW);
+        value(pi.tradeTerm || '', midX + rHalfW, cy + rH, rHalfW, rH);
 
-        doc.fontSize(10).font('Helvetica-Bold').text('10. PLACE OF DELIVERY', detailsX, currentY);
-        drawRect(detailsX, currentY + 15, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.placeOfDelivery || '', detailsX + 5, currentY + 18, { width: col2Width - 10 });
+        // Row F right: Country of Origin + PAYMENT TERM
+        border(midX, cy + rH * 2, rHalfW, rH);
+        label('13. Country of Origin', midX, cy + rH * 2, rHalfW);
+        value(pi.countryOfOrigin || '', midX, cy + rH * 2, rHalfW, rH);
 
-        currentY += 40;
-
-        // Payment details
-        doc.fontSize(10).font('Helvetica-Bold').text('11. PAYMENT METHOD', 50, currentY);
-        drawRect(50, currentY + 15, col1Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.paymentMethod || '', 55, currentY + 18, { width: col1Width - 10 });
-
-        doc.fontSize(10).font('Helvetica-Bold').text('12. TRADE TERM', detailsX, currentY);
-        drawRect(detailsX, currentY + 15, col2Width, 20);
-        doc.fontSize(9).font('Helvetica').text(pi.tradeTerm || '', detailsX + 5, currentY + 18, { width: col2Width - 10 });
-
-        currentY += 40;
-
-        doc.fontSize(10).font('Helvetica-Bold').text('13. PAYMENT TERM', 50, currentY);
-        drawRect(50, currentY + 15, 540, 20);
-        const paymentTermMap: Record<string, string> = {
-          T_30: '30% T/T in Advance',
-          T_50: '50% T/T in Advance',
-          T_70: '70% T/T in Advance',
-          T_100: 'T/T 100% in Advance',
+        border(midX + rHalfW, cy + rH * 2, rHalfW, rH);
+        label('13. PAYMENT TERM', midX + rHalfW, cy + rH * 2, rHalfW);
+        const ptMap: Record<string, string> = {
+          T_30: '30% Advance', T_50: '50% Advance',
+          T_70: '70% Advance', T_100: '100% Advance',
         };
-        const paymentTermText = pi.paymentTerm ? paymentTermMap[pi.paymentTerm] : '';
-        doc.fontSize(9).font('Helvetica').text(paymentTermText, 55, currentY + 18, { width: 530 });
+        value(pi.paymentTerm ? ptMap[pi.paymentTerm] : '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
 
-        currentY += 40;
+        cy += consigneeH;
 
-        // Items table
-        doc.fontSize(9).font('Helvetica-Bold').text('14. MARKS/NOS', 50, currentY);
-        doc.fontSize(9).text('15. DESCRIPTION OF GOODS', 120, currentY);
-        doc.fontSize(9).text('HSN', 320, currentY);
-        doc.fontSize(9).text('16. QUANTITY', 360, currentY);
-        doc.fontSize(9).text('17. UNIT PRICE', 420, currentY);
-        doc.fontSize(9).text('18. AMOUNT', 490, currentY);
+        // ── Full-width: TERMS OF DELIVERY ────────────────────────
+        const termsH = rH;
+        border(L, cy, CW, termsH);
+        label('14. TERMS OF DELIVERY', L, cy, CW);
+        value(pi.termsOfDelivery || '', L, cy, CW, termsH);
 
-        currentY += 15;
+        cy += termsH + 6;
 
-        // Items
-        const tableColWidths = [70, 200, 40, 60, 70, 60];
-        const tableColX = [50, 120, 320, 360, 420, 490];
+        // ════════════════════════════════════════════════════════
+        // 4.  TRANSACTION NOTICE
+        // ════════════════════════════════════════════════════════
+        setFont(false, 7);
+        doc.fillColor(GRAY).text(
+          'THE FOLLOWING SIGNING PARTIES AGREE TO MAKE THE TRANSACTION ON THE TERMS AND CONDITIONS STATED BELOW:',
+          L, cy, { width: CW, align: 'center' },
+        );
+        cy += 14;
 
-        pi.items.forEach((item, index) => {
-          if (currentY > 700) {
-            doc.addPage();
-            currentY = 50;
-          }
+        // ════════════════════════════════════════════════════════
+        // 5.  ITEMS TABLE
+        // ════════════════════════════════════════════════════════
+        // Column x-positions and widths (total = CW = 525)
+        //  0: MARKS  50   1: DESC  165   2: HSN 50  3: QTY 60  4: PRICE 90  5: AMT 110
+        const TC = [L, L+50, L+215, L+265, L+325, L+415]; // col starts
+        const TW = [50, 165, 50, 60, 90, 110];              // col widths
+        const TH = 20; // item row height
 
-          drawRect(50, currentY, 540, 20);
-          doc.fontSize(8).font('Helvetica');
-          doc.text(item.hsn || 'N/M', tableColX[2] + 2, currentY + 5);
-          doc.text(String(item.quantity), tableColX[3] + 2, currentY + 5);
-          doc.text(`${pi.currency} ${Number(item.unitPrice).toFixed(2)}`, tableColX[4] + 2, currentY + 5);
-          doc.text(`${pi.currency} ${Number(item.totalPrice).toFixed(2)}`, tableColX[5] + 2, currentY + 5);
+        // Header row
+        doc.rect(TC[0], cy, CW, TH).fill(TABLE_STRIPE);
+        border(TC[0], cy, CW, TH);
+        // vertical dividers in header
+        for (let c = 1; c < 6; c++) {
+          doc.moveTo(TC[c], cy).lineTo(TC[c], cy + TH).strokeColor(LINE).lineWidth(0.5).stroke();
+        }
+        const hLabels = [
+          '15. MARKS/NO\'S.', '16. DESCRIPTION OF GOODS', '17.HSN',
+          '18. QUANTITY', '19. UNIT PRICE', '20. AMOUNT',
+        ];
+        setFont(true, 7.5);
+        doc.fillColor(DARK);
+        hLabels.forEach((hl, i) => {
+          doc.text(hl, TC[i] + 2, cy + 6, { width: TW[i] - 4, align: 'center', lineBreak: false });
+        });
+        cy += TH;
 
-          doc.fontSize(8).font('Helvetica');
-          doc.text(item.productName, tableColX[1] + 2, currentY + 5, { width: 180 });
+        // Item rows — show actual items then pad to at least 5 rows
+        const minRows = 5;
+        const totalRows = Math.max(pi.items.length, minRows);
 
-          currentY += 20;
+        // MARKS / N/M — spans all item rows in col 0
+        border(TC[0], cy, TW[0], TH * totalRows);
+        setFont(false, 9);
+        doc.fillColor(DARK).text('N/M', TC[0] + 2, cy + TH * totalRows / 2 - 6, {
+          width: TW[0] - 4, align: 'center', lineBreak: false,
         });
 
-        // Totals
-        drawRect(50, currentY, 540, 20);
-        doc.fontSize(9).font('Helvetica-Bold').text('SUBTOTAL', 420, currentY + 5);
-        doc.text(`${pi.currency} ${Number(pi.subtotal).toFixed(2)}`, 490, currentY + 5);
+        for (let r = 0; r < totalRows; r++) {
+          const ry = cy + r * TH;
+          const item = pi.items[r];
 
-        currentY += 20;
+          // Draw col borders for cols 1-5
+          for (let c = 1; c < 6; c++) {
+            border(TC[c], ry, TW[c], TH);
+          }
 
-        drawRect(50, currentY, 540, 20);
-        doc.fontSize(9).font('Helvetica-Bold').text('SHIPPING CHARGE', 420, currentY + 5);
-        doc.text(`${pi.currency} ${Number(pi.shippingCharge).toFixed(2)}`, 490, currentY + 5);
+          if (item) {
+            // Description
+            setFont(false, 9);
+            doc.fillColor(BLUE).text(item.productName, TC[1] + 3, ry + 5, {
+              width: TW[1] - 6, lineBreak: false,
+            });
 
-        currentY += 20;
+            // HSN
+            setFont(false, 8.5);
+            doc.fillColor(BLUE).text(item.hsn || '', TC[2] + 2, ry + 6, {
+              width: TW[2] - 4, align: 'center', lineBreak: false,
+            });
 
-        if (Number(pi.other) > 0) {
-          drawRect(50, currentY, 540, 20);
-          doc.fontSize(9).font('Helvetica-Bold').text('OTHER', 420, currentY + 5);
-          doc.text(`${pi.currency} ${Number(pi.other).toFixed(2)}`, 490, currentY + 5);
-          currentY += 20;
+            // Qty  e.g. "10 PCS"
+            const qtyText = `${item.quantity} ${item.unit || 'PCS'}`;
+            doc.text(qtyText, TC[3] + 2, ry + 6, {
+              width: TW[3] - 4, align: 'center', lineBreak: false,
+            });
+
+            // Unit price  "$4.50"
+            doc.text(`$${Number(item.unitPrice).toFixed(2)}`, TC[4] + 2, ry + 6, {
+              width: TW[4] - 4, align: 'center', lineBreak: false,
+            });
+
+            // Amount  "$ 45.00" (dollar sign left, amount right-ish)
+            doc.text('$', TC[5] + 4, ry + 6, { lineBreak: false });
+            doc.text(Number(item.totalPrice).toFixed(2), TC[5] + 4, ry + 6, {
+              width: TW[5] - 8, align: 'right', lineBreak: false,
+            });
+          }
         }
 
-        drawRect(50, currentY, 540, 25);
-        doc.fontSize(10).font('Helvetica-Bold').text('TOTAL VALUE', 420, currentY + 7);
-        doc.text(`${pi.currency} ${Number(pi.totalAmount).toFixed(2)}`, 490, currentY + 7);
+        cy += TH * totalRows;
 
-        currentY += 30;
+        // ── Totals block ─────────────────────────────────────────
+        // Cols 0-3 merged (no border); cols 4-5 bordered
+        const totRows: { lbl: string; val: string | null }[] = [
+          { lbl: 'SUBTOTAL',        val: Number(pi.subtotal).toFixed(2) },
+          { lbl: 'SHIPPING CHARGE', val: Number(pi.shippingCharge) > 0 ? Number(pi.shippingCharge).toFixed(2) : null },
+          { lbl: 'OTHER',           val: Number(pi.other) > 0 ? Number(pi.other).toFixed(2) : null },
+          { lbl: 'TOTAL VALUE',     val: Number(pi.totalAmount).toFixed(2) },
+        ];
 
-        // Validity period
-        doc.fontSize(10).font('Helvetica-Bold').text(`Validity Period: ${pi.validityPeriod} DAYS`, 50, currentY);
+        const lblColX = TC[3] + TW[3]; // x of the "label" column for totals
+        const lblColW = TC[4] + TW[4] - lblColX; // but the image shows label IS col4
+        const amtColX = TC[5];
+        const amtColW = TW[5];
+        const dolColW = 14;
 
-        currentY += 30;
+        totRows.forEach((tr) => {
+          const isTotalValue = tr.lbl === 'TOTAL VALUE';
+          const trH = TH;
 
-        // Bank info
-        if (bankInfo) {
-          doc.fontSize(10).font('Helvetica-Bold').text('BANK INFORMATION', 50, currentY);
-          currentY += 15;
+          // Left merged region — no fill
+          border(TC[0], cy, TC[4] - TC[0], trH);
 
-          const bankDetails = [
-            `Account Number: ${bankInfo.accountNumber || ''}`,
-            `Holder Name: ${bankInfo.holderName || ''}`,
-            `Support Currency: ${bankInfo.currency || ''}`,
-            `Bank Name: ${bankInfo.bankName || ''}`,
-            `Country: ${bankInfo.country || ''}`,
-            `Bank Address: ${bankInfo.bankAddress || ''}`,
-            `Account Type: ${bankInfo.accountType || ''}`,
-            `Swift/BIC: ${bankInfo.swiftBic || ''}`,
-            bankInfo.routingNumber ? `Routing Number: ${bankInfo.routingNumber}` : '',
-          ];
-
-          doc.fontSize(8).font('Helvetica');
-          bankDetails.forEach((detail) => {
-            if (detail) {
-              doc.text(detail, 50, currentY);
-              currentY += 12;
-            }
+          setFont(isTotalValue, 8.5);
+          doc.fillColor(DARK).text(tr.lbl, TC[4] - 110, cy + trH / 2 - 5, {
+            width: 100, align: 'right', lineBreak: false,
           });
 
-          if (bankInfo.paymentMemo) {
-            currentY += 10;
-            doc.fontSize(8).font('Helvetica-Bold').text('Payment Instructions:', 50, currentY);
-            currentY += 12;
-            doc.fontSize(8).font('Helvetica').text(bankInfo.paymentMemo, 50, currentY, { width: 490 });
+          // Dollar sign cell (narrow)
+          border(TC[4], cy, dolColW, trH);
+          if (tr.val !== null) {
+            setFont(false, 9);
+            doc.fillColor(BLUE).text('$', TC[4] + 2, cy + trH / 2 - 5, {
+              width: dolColW - 4, align: 'center', lineBreak: false,
+            });
           }
+
+          // Amount cell
+          border(TC[4] + dolColW, cy, amtColW - dolColW, trH);
+          if (tr.val !== null) {
+            setFont(isTotalValue, 9);
+            doc.fillColor(BLUE).text(tr.val, TC[4] + dolColW + 2, cy + trH / 2 - 5, {
+              width: amtColW - dolColW - 4, align: 'right', lineBreak: false,
+            });
+          }
+          cy += trH;
+        });
+
+        cy += 8;
+
+        // ════════════════════════════════════════════════════════
+        // 6.  FOOTER TEXT
+        // ════════════════════════════════════════════════════════
+        setFont(false, 9);
+        doc.fillColor(DARK).text(`Validity Period: ${pi.validityPeriod} DAYS`, L, cy);
+        cy += 14;
+
+        if (pi.notes) {
+          setFont(false, 9);
+          doc.fillColor(DARK).text(pi.notes, L, cy, { width: CW });
+          cy = doc.y + 4;
+        }
+
+        // separator line
+        cy += 2;
+        doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(DARK).lineWidth(0.8).stroke();
+        cy += 8;
+
+        // ════════════════════════════════════════════════════════
+        // 7.  BANK INFORMATION
+        // ════════════════════════════════════════════════════════
+        if (bankInfo) {
+          const bankLines: string[] = [];
+          if (bankInfo.accountNumber) bankLines.push(`Account number：${bankInfo.accountNumber}`);
+          if (bankInfo.holderName)    bankLines.push(`Account name：${bankInfo.holderName}`);
+          if (bankInfo.swiftBic)      bankLines.push(`SWIFT/BIC code：${bankInfo.swiftBic}`);
+          if (bankInfo.routingNumber) bankLines.push(`Routing Number：${bankInfo.routingNumber}`);
+          if (bankInfo.bankName)      bankLines.push(`Bank name：${bankInfo.bankName}`);
+          if (bankInfo.country)       bankLines.push(`Country/region：${bankInfo.country}`);
+          if (bankInfo.bankAddress)   bankLines.push(`Bank address：${bankInfo.bankAddress}`);
+          if (bankInfo.accountType)   bankLines.push(`Account type：${bankInfo.accountType}`);
+          if (bankInfo.currency)      bankLines.push(`Payment method：For the payment of goods, please make a ${bankInfo.currency} Payment`);
+          if (bankInfo.paymentMemo)   bankLines.push(`Notes：${bankInfo.paymentMemo}`);
+
+          setFont(true, 8.5);
+          doc.fillColor(DARK);
+          bankLines.forEach((line) => {
+            if (cy > 800) { doc.addPage(); cy = T; }
+            doc.text(line, L, cy, { width: CW });
+            cy = doc.y + 1;
+          });
+
+          // bottom separator
+          cy += 4;
+          doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(DARK).lineWidth(0.8).stroke();
         }
 
         doc.end();

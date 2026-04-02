@@ -209,7 +209,12 @@ export class EmailsService {
     const where: any = {};
 
     if (role !== 'ADMIN') {
-      where.senderId = userId;
+      // OUTBOUND: user sent these emails — filter by senderId
+      // INBOUND: emails received from external senders — no senderId filter
+      // (all non-admin users share the same inbox)
+      if (query.direction === 'OUTBOUND') {
+        where.senderId = userId;
+      }
     }
 
     if (query.customerId) {
@@ -255,11 +260,8 @@ export class EmailsService {
     return { items, total, page, pageSize };
   }
 
-  async findOne(id: string, userId: string, role: string) {
+  async findOne(id: string, _userId: string, _role: string) {
     const where: any = { id };
-    if (role !== 'ADMIN') {
-      where.senderId = userId;
-    }
 
     const email = await this.prisma.email.findFirst({
       where,
@@ -410,11 +412,8 @@ export class EmailsService {
   /**
    * Get all emails in a specific thread, sorted chronologically
    */
-  async findThreadEmails(threadId: string, userId: string, role: string) {
+  async findThreadEmails(threadId: string, _userId: string, _role: string) {
     const where: any = { threadId };
-    if (role !== 'ADMIN') {
-      where.senderId = userId;
-    }
 
     return this.prisma.email.findMany({
       where,

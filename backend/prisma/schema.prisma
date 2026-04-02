@@ -318,6 +318,9 @@ model ProformaInvoice {
   portOfDischarge    String?         @map("port_of_discharge")
   placeOfDelivery    String?         @map("place_of_delivery")
   paymentMethod      String?         @map("payment_method")
+  countryOfOrigin    String?         @map("country_of_origin")
+  termsOfDelivery    String?         @map("terms_of_delivery")
+  notes              String?
   validityPeriod     Int             @default(7) @map("validity_period")
   subtotal           Decimal         @default(0) @db.Decimal(12, 2)
   shippingCharge     Decimal         @default(0) @map("shipping_charge") @db.Decimal(12, 2)
