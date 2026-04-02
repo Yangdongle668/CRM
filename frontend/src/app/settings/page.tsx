@@ -68,6 +68,11 @@ export default function SettingsPage() {
   const [systemSaving, setSystemSaving] = useState(false);
   const [newSettingKey, setNewSettingKey] = useState('');
   const [newSettingValue, setNewSettingValue] = useState('');
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [bankInfo, setBankInfo] = useState<any>({});
+  const [bankInfoLoading, setBankInfoLoading] = useState(false);
+  const [bankInfoSaving, setBankInfoSaving] = useState(false);
 
   // ==================== Backup tab ====================
   const [backupExporting, setBackupExporting] = useState(false);
@@ -304,9 +309,57 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchLogo = useCallback(async () => {
+    try {
+      const res: any = await settingsApi.getLogo();
+      setLogoUrl(res.data?.logoUrl || null);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const fetchBankInfo = useCallback(async () => {
+    setBankInfoLoading(true);
+    try {
+      const res: any = await settingsApi.getBankInfo();
+      setBankInfo(res.data || {});
+    } catch {
+      // ignore
+    } finally {
+      setBankInfoLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (isAdmin && activeTab === 'system') fetchSystemSettings();
-  }, [isAdmin, activeTab, fetchSystemSettings]);
+    if (isAdmin && activeTab === 'system') {
+      fetchSystemSettings();
+      fetchLogo();
+      fetchBankInfo();
+    }
+  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo, fetchBankInfo]);
+
+  const handleLogoUpload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      setLogoUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append('logo', file);
+        const res: any = await settingsApi.uploadLogo(formData);
+        setLogoUrl(res.data?.logoUrl || null);
+        toast.success('Logo上传成功');
+      } catch {
+        toast.error('Logo上传失败');
+      } finally {
+        setLogoUploading(false);
+      }
+    };
+    input.click();
+  };
 
   const handleSystemSave = async () => {
     setSystemSaving(true);
@@ -317,6 +370,18 @@ export default function SettingsPage() {
       // error handled by interceptor
     } finally {
       setSystemSaving(false);
+    }
+  };
+
+  const handleBankInfoSave = async () => {
+    setBankInfoSaving(true);
+    try {
+      await settingsApi.updateBankInfo(bankInfo);
+      toast.success('银行信息已保存');
+    } catch {
+      toast.error('保存失败');
+    } finally {
+      setBankInfoSaving(false);
     }
   };
 
@@ -616,7 +681,148 @@ export default function SettingsPage() {
 
         {/* ==================== System Settings Tab ==================== */}
         {activeTab === 'system' && (
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <div className="space-y-6">
+            {/* Logo Upload Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">公司Logo</h3>
+              <div className="flex items-center gap-6">
+                <div className="flex h-20 w-20 items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-gray-50 overflow-hidden">
+                  {logoUrl ? (
+                    <img src={logoUrl} alt="公司Logo" className="h-full w-full object-contain" />
+                  ) : (
+                    <span className="text-sm text-gray-400">无Logo</span>
+                  )}
+                </div>
+                <div>
+                  <button
+                    onClick={handleLogoUpload}
+                    disabled={logoUploading}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {logoUploading ? '上传中...' : '上传Logo'}
+                  </button>
+                  <p className="mt-2 text-xs text-gray-500">支持 JPG、PNG 格式，最大 5MB</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Bank Info Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">银行信息</h3>
+              {bankInfoLoading ? (
+                <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">账户号</label>
+                      <input
+                        type="text"
+                        value={bankInfo.accountNumber || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, accountNumber: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">账户名</label>
+                      <input
+                        type="text"
+                        value={bankInfo.holderName || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, holderName: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">银行名称</label>
+                      <input
+                        type="text"
+                        value={bankInfo.bankName || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, bankName: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">支持币种</label>
+                      <input
+                        type="text"
+                        value={bankInfo.currency || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, currency: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="USD, CNY 等"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">账户类型</label>
+                      <input
+                        type="text"
+                        value={bankInfo.accountType || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, accountType: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="Checking, Savings 等"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">国家/地区</label>
+                      <input
+                        type="text"
+                        value={bankInfo.country || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, country: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">银行地址</label>
+                      <textarea
+                        value={bankInfo.bankAddress || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, bankAddress: e.target.value })}
+                        rows={2}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Swift / BIC</label>
+                      <input
+                        type="text"
+                        value={bankInfo.swiftBic || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, swiftBic: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Routing Number</label>
+                      <input
+                        type="text"
+                        value={bankInfo.routingNumber || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, routingNumber: e.target.value })}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">付款备忘/说明</label>
+                      <textarea
+                        value={bankInfo.paymentMemo || ''}
+                        onChange={(e) => setBankInfo({ ...bankInfo, paymentMemo: e.target.value })}
+                        rows={3}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="付款时请注明收款人、发票号等信息"
+                      />
+                    </div>
+                  </div>
+                  <div className="border-t pt-4">
+                    <button
+                      onClick={handleBankInfoSave}
+                      disabled={bankInfoSaving}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {bankInfoSaving ? '保存中...' : '保存银行信息'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* System Parameters Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
             {systemLoading ? (
               <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
             ) : (
@@ -691,6 +897,7 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
+            </div>
           </div>
         )}
         {/* ==================== Backup Tab ==================== */}

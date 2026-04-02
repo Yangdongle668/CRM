@@ -4,7 +4,7 @@ import React, { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/auth-context';
-import { authApi } from '@/lib/api';
+import { authApi, settingsApi } from '@/lib/api';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -13,12 +13,20 @@ export default function LoginPage() {
   const [isSetupMode, setIsSetupMode] = useState(false);
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    settingsApi.getLogo().then((res: any) => {
+      const url = res?.data?.logoUrl || res?.logoUrl;
+      if (url) setLogoUrl(url);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     authApi
@@ -88,13 +96,52 @@ export default function LoginPage() {
     }`;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#f5f5f7]">
-      <div className="w-full max-w-[400px] mx-4">
+    <div className="min-h-screen flex items-center justify-center relative">
+      <style jsx>{`
+        @keyframes gradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0) translateX(0); }
+          25% { transform: translateY(-20px) translateX(10px); }
+          50% { transform: translateY(-10px) translateX(-15px); }
+          75% { transform: translateY(-30px) translateX(5px); }
+        }
+        .animated-gradient {
+          background: linear-gradient(-45deg, #e0e7ff, #dbeafe, #f3e8ff, #fce7f3, #dbeafe);
+          background-size: 400% 400%;
+          animation: gradient 15s ease infinite;
+        }
+        .floating-orb {
+          position: absolute;
+          border-radius: 50%;
+          background: rgba(0, 122, 255, 0.15);
+          filter: blur(40px);
+        }
+      `}</style>
+
+      {/* Animated background */}
+      <div className="fixed inset-0 overflow-hidden animated-gradient">
+        <div className="floating-orb" style={{ width: '300px', height: '300px', top: '10%', left: '15%', opacity: 0.2, animation: 'float 8s ease-in-out infinite' }} />
+        <div className="floating-orb" style={{ width: '200px', height: '200px', top: '60%', right: '10%', opacity: 0.15, background: 'rgba(139, 92, 246, 0.15)', animation: 'float 12s ease-in-out infinite 1s' }} />
+        <div className="floating-orb" style={{ width: '250px', height: '250px', bottom: '15%', left: '5%', opacity: 0.1, background: 'rgba(236, 72, 153, 0.15)', animation: 'float 10s ease-in-out infinite 2s' }} />
+        <div className="floating-orb" style={{ width: '180px', height: '180px', top: '5%', right: '25%', opacity: 0.25, background: 'rgba(59, 130, 246, 0.15)', animation: 'float 14s ease-in-out infinite 3s' }} />
+        <div className="floating-orb" style={{ width: '220px', height: '220px', top: '40%', left: '50%', opacity: 0.12, background: 'rgba(99, 102, 241, 0.15)', animation: 'float 11s ease-in-out infinite 4s' }} />
+        <div className="floating-orb" style={{ width: '160px', height: '160px', bottom: '5%', right: '30%', opacity: 0.18, background: 'rgba(0, 122, 255, 0.2)', animation: 'float 9s ease-in-out infinite 2.5s' }} />
+      </div>
+
+      <div className="w-full max-w-[400px] mx-4 relative z-10">
         {/* Logo & Title */}
         <div className="text-center mb-8">
-          <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500 text-xl font-bold text-white shadow-apple-md mb-4">
-            CRM
-          </div>
+          {logoUrl ? (
+            <img src={logoUrl} alt="Logo" className="h-16 w-16 rounded-2xl object-cover shadow-apple-md mb-4 inline-block" />
+          ) : (
+            <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500 text-xl font-bold text-white shadow-apple-md mb-4">
+              CRM
+            </div>
+          )}
           <h1 className="text-[28px] font-bold tracking-tight text-gray-900">外贸CRM</h1>
           <p className="text-[15px] text-gray-500 mt-1">
             {isSetupMode ? '首次使用，请设置管理员账户' : '请登录您的账户'}
@@ -102,7 +149,7 @@ export default function LoginPage() {
         </div>
 
         {/* Card */}
-        <div className="bg-white/80 backdrop-blur-xl rounded-2xl shadow-apple-lg border border-gray-200/60 p-8">
+        <div className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-apple-lg border border-white/60 p-8">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             {isSetupMode && (
               <div>

@@ -107,6 +107,18 @@ export interface Email {
   customer?: Customer;
   senderId?: string;
   createdAt: string;
+  thread?: {
+    id: string;
+    subject: string;
+    emails: Email[];
+  };
+}
+
+export interface EmailThreadItem {
+  threadId: string | null;
+  threadSubject: string;
+  emailCount: number;
+  latestEmail: Email;
 }
 
 export interface EmailTemplate {
@@ -238,6 +250,18 @@ export interface Document {
   createdAt: string;
 }
 
+// ==================== 备忘录 ====================
+export interface Memo {
+  id: string;
+  title: string;
+  content?: string;
+  color?: string;
+  date: string;
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ==================== 仪表盘 ====================
 export interface DashboardStats {
   totalCustomers: number;
@@ -281,4 +305,69 @@ export interface EmailConfig {
   imapSecure: boolean;
   fromName?: string;
   signature?: string;
+}
+
+// ==================== 形式发票 (PI) ====================
+export type PIStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type TradeTermType = 'EXW' | 'FOB' | 'CIF' | 'CIP' | 'DPU' | 'DDP' | 'FCA' | 'FAS' | 'CFR';
+export type PaymentTermType = 'T_30' | 'T_50' | 'T_70' | 'T_100';
+
+export interface ProformaInvoiceItem {
+  id?: string;
+  productName: string;
+  description?: string;
+  hsn?: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  sortOrder?: number;
+}
+
+export interface ProformaInvoice {
+  id: string;
+  piNo: string;
+  customerId: string;
+  customer?: Customer;
+  ownerId: string;
+  owner?: User;
+  status: PIStatus;
+  sellerId?: string;
+  sellerAddress?: string;
+  consigneeName?: string;
+  consigneeAddress?: string;
+  poNo?: string;
+  currency: string;
+  tradeTerm?: TradeTermType;
+  paymentTerm?: PaymentTermType;
+  shippingMethod?: string;
+  portOfLoading?: string;
+  portOfDischarge?: string;
+  placeOfDelivery?: string;
+  paymentMethod?: string;
+  validityPeriod: number;
+  subtotal: number;
+  shippingCharge: number;
+  other: number;
+  totalAmount: number;
+  approverId?: string;
+  approver?: User;
+  approvedAt?: string;
+  rejectionReason?: string;
+  items: ProformaInvoiceItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BankInfo {
+  accountNumber?: string;
+  holderName?: string;
+  currency?: string;
+  bankName?: string;
+  bankAddress?: string;
+  accountType?: string;
+  swiftBic?: string;
+  routingNumber?: string;
+  country?: string;
+  paymentMemo?: string;
 }

@@ -17,6 +17,32 @@ export class EmailsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Normalize email subject by stripping Re:/Fwd:/Fw:/回复:/转发: prefixes
+   */
+  private normalizeSubject(subject: string): string {
+    return subject
+      .replace(/^(re|fwd|fw|回复|转发)\s*[:：]\s*/gi, '')
+      .replace(/^(re|fwd|fw|回复|转发)\s*[:：]\s*/gi, '')
+      .trim() || '(No Subject)';
+  }
+
+  /**
+   * Find or create an EmailThread for the given subject
+   */
+  private async findOrCreateThread(subject: string): Promise<string> {
+    const normalized = this.normalizeSubject(subject);
+    const existing = await this.prisma.emailThread.findFirst({
+      where: { subject: normalized },
+    });
+    if (existing) return existing.id;
+
+    const thread = await this.prisma.emailThread.create({
+      data: { subject: normalized },
+    });
+    return thread.id;
+  }
+
   async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },
@@ -72,6 +98,11 @@ export class EmailsService {
       }
     }
 
+    // Auto-assign thread if not already set from reply
+    if (!threadId) {
+      threadId = await this.findOrCreateThread(dto.subject);
+    }
+
     // Auto-match customer by recipient domain if not manually specified
     let customerId = dto.customerId || null;
     if (!customerId) {
@@ -121,13 +152,13 @@ export class EmailsService {
       const info = await transporter.sendMail(mailOptions);
 
       // Update email record to SENT with messageId
+      // Store original HTML without tracking pixel to avoid self-read when viewing in CRM
       const email = await this.prisma.email.update({
         where: { id: emailRecord.id },
         data: {
           messageId: info.messageId,
           status: 'SENT',
           sentAt: new Date(),
-          bodyHtml: htmlWithTracking,
         },
         include: {
           customer: true,
@@ -168,6 +199,7 @@ export class EmailsService {
       direction?: string;
       page?: number;
       pageSize?: number;
+      grouped?: string;
     },
   ) {
     const page = query.page || 1;
@@ -188,6 +220,24 @@ export class EmailsService {
       where.direction = query.direction;
     }
 
+    // Direction-aware sorting: use actual email timestamp
+    let orderBy: any;
+    if (query.direction === 'INBOUND') {
+      orderBy = [{ receivedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
+    } else if (query.direction === 'OUTBOUND') {
+      orderBy = [{ sentAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
+    } else {
+      orderBy = [
+        { sentAt: { sort: 'desc', nulls: 'last' } },
+        { receivedAt: { sort: 'desc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ];
+    }
+
+    if (query.grouped === 'true') {
+      return this.findAllThreaded(where, orderBy, page, pageSize, query.direction);
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.email.findMany({
         where,
@@ -195,7 +245,7 @@ export class EmailsService {
           customer: { select: { id: true, companyName: true } },
           sender: { select: { id: true, name: true, email: true } },
         },
-        orderBy: { createdAt: 'desc' },
+        orderBy,
         skip,
         take: pageSize,
       }),
@@ -219,9 +269,14 @@ export class EmailsService {
         thread: {
           include: {
             emails: {
-              orderBy: { createdAt: 'asc' },
+              orderBy: [
+                { receivedAt: { sort: 'asc', nulls: 'last' } },
+                { sentAt: { sort: 'asc', nulls: 'last' } },
+                { createdAt: 'asc' },
+              ],
               include: {
                 sender: { select: { id: true, name: true, email: true } },
+                customer: { select: { id: true, companyName: true } },
               },
             },
           },
@@ -234,6 +289,145 @@ export class EmailsService {
     }
 
     return email;
+  }
+
+  /**
+   * Thread-grouped email listing: returns one entry per thread, with latest email and count
+   */
+  private async findAllThreaded(
+    where: any,
+    _orderBy: any,
+    page: number,
+    pageSize: number,
+    direction?: string,
+  ) {
+    const skip = (page - 1) * pageSize;
+
+    // Build WHERE clause fragments for raw SQL
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let paramIdx = 1;
+
+    if (where.senderId) {
+      conditions.push(`e.sender_id = $${paramIdx++}`);
+      params.push(where.senderId);
+    }
+    if (where.customerId) {
+      conditions.push(`e.customer_id = $${paramIdx++}`);
+      params.push(where.customerId);
+    }
+    if (where.direction) {
+      conditions.push(`e.direction = $${paramIdx++}`);
+      params.push(where.direction);
+    }
+
+    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    // Count distinct threads
+    const countResult: any[] = await this.prisma.$queryRawUnsafe(
+      `SELECT COUNT(DISTINCT COALESCE(e.thread_id, e.id)) as cnt FROM emails e ${whereClause}`,
+      ...params,
+    );
+    const total = Number(countResult[0]?.cnt || 0);
+
+    // Get thread groups with latest date, ordered by latest email date
+    const dateExpr = direction === 'INBOUND'
+      ? 'COALESCE(e.received_at, e.created_at)'
+      : direction === 'OUTBOUND'
+      ? 'COALESCE(e.sent_at, e.created_at)'
+      : 'COALESCE(e.sent_at, e.received_at, e.created_at)';
+
+    const threadRows: any[] = await this.prisma.$queryRawUnsafe(
+      `SELECT
+        COALESCE(e.thread_id, e.id) as group_id,
+        COUNT(*) as email_count,
+        MAX(${dateExpr}) as latest_date
+      FROM emails e
+      ${whereClause}
+      GROUP BY COALESCE(e.thread_id, e.id)
+      ORDER BY latest_date DESC
+      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+      ...params, pageSize, skip,
+    );
+
+    if (threadRows.length === 0) {
+      return { items: [], total, page, pageSize };
+    }
+
+    // For each thread group, get the latest email
+    const items: any[] = [];
+    for (const row of threadRows) {
+      const groupId = row.group_id;
+      const emailCount = Number(row.email_count);
+
+      // Determine if this is a real thread or a standalone email
+      const isThread = await this.prisma.emailThread.findUnique({ where: { id: groupId } });
+
+      let latestEmail: any;
+      if (isThread) {
+        // Real thread — get the latest email in this thread
+        const threadWhere: any = { ...where, threadId: groupId };
+        delete threadWhere.senderId; // already filtered in raw SQL
+        delete threadWhere.customerId;
+        delete threadWhere.direction;
+
+        latestEmail = await this.prisma.email.findFirst({
+          where: { threadId: groupId },
+          include: {
+            customer: { select: { id: true, companyName: true } },
+            sender: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: [
+            { sentAt: { sort: 'desc', nulls: 'last' } },
+            { receivedAt: { sort: 'desc', nulls: 'last' } },
+            { createdAt: 'desc' },
+          ],
+        });
+      } else {
+        // Standalone email (no thread) — the groupId IS the email id
+        latestEmail = await this.prisma.email.findUnique({
+          where: { id: groupId },
+          include: {
+            customer: { select: { id: true, companyName: true } },
+            sender: { select: { id: true, name: true, email: true } },
+          },
+        });
+      }
+
+      if (latestEmail) {
+        items.push({
+          threadId: isThread ? groupId : null,
+          threadSubject: isThread ? isThread.subject : latestEmail.subject,
+          emailCount,
+          latestEmail,
+        });
+      }
+    }
+
+    return { items, total, page, pageSize };
+  }
+
+  /**
+   * Get all emails in a specific thread, sorted chronologically
+   */
+  async findThreadEmails(threadId: string, userId: string, role: string) {
+    const where: any = { threadId };
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    return this.prisma.email.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, companyName: true } },
+        sender: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: [
+        { receivedAt: { sort: 'asc', nulls: 'last' } },
+        { sentAt: { sort: 'asc', nulls: 'last' } },
+        { createdAt: 'asc' },
+      ],
+    });
   }
 
   async getUnreadCount(userId: string, role: string) {
@@ -344,6 +538,8 @@ export class EmailsService {
       port: config.imapPort,
       tls: config.imapSecure,
       tlsOptions: { rejectUnauthorized: false },
+      authTimeout: 30000,
+      connTimeout: 30000,
     });
 
     return new Promise((resolve, reject) => {
@@ -443,6 +639,8 @@ export class EmailsService {
 
           let fetchedCount = 0;
           const emailPromises: Promise<void>[] = [];
+          // Thread cache to avoid duplicate thread creation within a single fetch batch
+          const threadCache = new Map<string, string>(); // normalizedSubject -> threadId
 
           fetch.on('message', (msg: any) => {
             msg.on('body', (stream: any) => {
@@ -479,13 +677,22 @@ export class EmailsService {
                 const status =
                   direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
 
+                // Thread assignment: find or create thread by normalized subject
+                const rawSubject = parsed.subject || '(No Subject)';
+                const normalizedSubject = this.normalizeSubject(rawSubject);
+                let threadId: string | null = threadCache.get(normalizedSubject) || null;
+                if (!threadId) {
+                  threadId = await this.findOrCreateThread(rawSubject);
+                  threadCache.set(normalizedSubject, threadId);
+                }
+
                 await this.prisma.email.create({
                   data: {
                     messageId,
                     fromAddr,
                     toAddr,
                     cc: ccAddr,
-                    subject: parsed.subject || '(No Subject)',
+                    subject: rawSubject,
                     bodyHtml: parsed.html || null,
                     bodyText: parsed.text || null,
                     direction,
@@ -494,6 +701,7 @@ export class EmailsService {
                     receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
                     customerId: customer?.id || null,
                     senderId: userId,
+                    threadId,
                   },
                 });
 
@@ -667,7 +875,9 @@ export class EmailsService {
           }
         }
 
-        this.logger.warn('Could not find Sent folder after exhaustive search');
+        // Log all available folders for debugging
+        const folderPaths = allFolders.map(f => `${f.path} [${f.attribs.join(',')}]`);
+        this.logger.warn(`Could not find Sent folder. Available folders: ${folderPaths.join('; ')}`);
         resolve(null);
       });
     });

@@ -99,6 +99,7 @@ export const emailsApi = {
   getUnreadCount: () => api.get('/emails/unread-count'),
   markAsRead: (id: string) => api.patch(`/emails/${id}/read`),
   getRecentlyViewed: () => api.get('/emails/recently-viewed'),
+  getThreadEmails: (threadId: string) => api.get(`/emails/threads/${threadId}`),
 };
 
 // ==================== Quotations API ====================
@@ -167,6 +168,16 @@ export const backupApi = {
   import: (data: any) => api.post('/backup/import', data),
 };
 
+// ==================== Memos API ====================
+export const memosApi = {
+  list: (params?: any) => api.get('/memos', { params }),
+  getByRange: (startDate: string, endDate: string) =>
+    api.get('/memos/range', { params: { startDate, endDate } }),
+  create: (data: any) => api.post('/memos', data),
+  update: (id: string, data: any) => api.patch(`/memos/${id}`, data),
+  delete: (id: string) => api.delete(`/memos/${id}`),
+};
+
 // ==================== Settings API ====================
 export const settingsApi = {
   getAll: () => api.get('/settings'),
@@ -174,4 +185,25 @@ export const settingsApi = {
   getEmailConfig: () => api.get('/settings/email-config'),
   updateEmailConfig: (data: any) => api.put('/settings/email-config', data),
   testEmailConfig: (data: any) => api.post('/settings/email-config/test', data),
+  uploadLogo: (formData: FormData) =>
+    api.post('/settings/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
+  getLogo: () => api.get('/settings/logo'),
+  getBankInfo: () => api.get('/settings/bank-info'),
+  updateBankInfo: (data: any) => api.put('/settings/bank-info', data),
+};
+
+// ==================== Proforma Invoice (PI) API ====================
+export const pisApi = {
+  list: (params?: any) => api.get('/pis', { params }),
+  getById: (id: string) => api.get(`/pis/${id}`),
+  create: (data: any) => api.post('/pis', data),
+  update: (id: string, data: any) => api.patch(`/pis/${id}`, data),
+  delete: (id: string) => api.delete(`/pis/${id}`),
+  submitForApproval: (id: string) => api.post(`/pis/${id}/submit-approval`, {}),
+  approve: (id: string) => api.post(`/pis/${id}/approve`, {}),
+  reject: (id: string, reason: string) => api.post(`/pis/${id}/reject`, { reason }),
+  generatePdf: (id: string) => api.post(`/pis/${id}/pdf`, {}),
+  downloadPdf: (id: string) => api.get(`/pis/${id}/download`, { responseType: 'blob' }),
 };
