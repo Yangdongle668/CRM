@@ -190,4 +190,20 @@ export const settingsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   getLogo: () => api.get('/settings/logo'),
+  getBankInfo: () => api.get('/settings/bank-info'),
+  updateBankInfo: (data: any) => api.put('/settings/bank-info', data),
+};
+
+// ==================== Proforma Invoice (PI) API ====================
+export const pisApi = {
+  list: (params?: any) => api.get('/pis', { params }),
+  getById: (id: string) => api.get(`/pis/${id}`),
+  create: (data: any) => api.post('/pis', data),
+  update: (id: string, data: any) => api.patch(`/pis/${id}`, data),
+  delete: (id: string) => api.delete(`/pis/${id}`),
+  submitForApproval: (id: string) => api.post(`/pis/${id}/submit-approval`, {}),
+  approve: (id: string) => api.post(`/pis/${id}/approve`, {}),
+  reject: (id: string, reason: string) => api.post(`/pis/${id}/reject`, { reason }),
+  generatePdf: (id: string) => api.post(`/pis/${id}/pdf`, {}),
+  downloadPdf: (id: string) => api.get(`/pis/${id}/download`, { responseType: 'blob' }),
 };

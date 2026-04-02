@@ -17,6 +17,7 @@ import * as path from 'path';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { EmailConfigDto } from './dto/email-config.dto';
+import { BankInfoDto } from './dto/bank-info.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles, Public } from '../../common/decorators/roles.decorator';
@@ -97,5 +98,17 @@ export class SettingsController {
   @Post('email-config/test')
   testEmailConnection(@CurrentUser() user: any) {
     return this.settingsService.testEmailConnection(user.id);
+  }
+
+  @Get('bank-info')
+  @Roles('ADMIN')
+  getBankInfo() {
+    return this.settingsService.getBankInfo();
+  }
+
+  @Put('bank-info')
+  @Roles('ADMIN')
+  updateBankInfo(@Body() dto: BankInfoDto) {
+    return this.settingsService.updateBankInfo(dto);
   }
 }

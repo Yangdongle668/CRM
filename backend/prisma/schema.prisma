@@ -27,16 +27,18 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // 关联
-  customers    Customer[]
-  leads        Lead[]
-  quotations   Quotation[]
-  orders       Order[]
-  tasks        Task[]
-  activities   Activity[]
-  documents    Document[]
-  emailsSent   Email[]        @relation("SentEmails")
-  emailConfig  EmailConfig?
-  memos        Memo[]
+  customers       Customer[]
+  leads           Lead[]
+  quotations      Quotation[]
+  orders          Order[]
+  tasks           Task[]
+  activities      Activity[]
+  documents       Document[]
+  emailsSent      Email[]        @relation("SentEmails")
+  emailConfig     EmailConfig?
+  memos           Memo[]
+  pisOwned        ProformaInvoice[] @relation("PIsOwned")
+  pisApproved     ProformaInvoice[] @relation("PIsApproved")
 
   @@map("users")
 }
@@ -89,14 +91,15 @@ model Customer {
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
   // 关联
-  owner      User         @relation(fields: [ownerId], references: [id])
-  contacts   Contact[]
-  leads      Lead[]
-  quotations Quotation[]
-  orders     Order[]
-  activities Activity[]
-  documents  Document[]
-  emails     Email[]
+  owner              User                @relation(fields: [ownerId], references: [id])
+  contacts           Contact[]
+  leads              Lead[]
+  quotations         Quotation[]
+  orders             Order[]
+  activities         Activity[]
+  documents          Document[]
+  emails             Email[]
+  proformaInvoices   ProformaInvoice[]
 
   @@map("customers")
 }
@@ -267,6 +270,92 @@ model QuotationItem {
   quotation Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
 
   @@map("quotation_items")
+}
+
+// ==================== 形式发票 (PI) ====================
+enum PIStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+}
+
+enum TradeTermType {
+  EXW
+  FOB
+  CIF
+  CIP
+  DPU
+  DDP
+  FCA
+  FAS
+  CFR
+}
+
+enum PaymentTermType {
+  T_30
+  T_50
+  T_70
+  T_100
+}
+
+model ProformaInvoice {
+  id                 String          @id @default(uuid())
+  piNo               String          @unique @map("pi_no")
+  customerId         String          @map("customer_id")
+  ownerId            String          @map("owner_id")
+  status             PIStatus        @default(DRAFT)
+  sellerId           String?         @map("seller_id")
+  sellerAddress      String?         @map("seller_address")
+  consigneeName      String?         @map("consignee_name")
+  consigneeAddress   String?         @map("consignee_address")
+  poNo               String?         @map("po_no")
+  currency           String          @default("USD")
+  tradeTerm          TradeTermType?  @map("trade_term")
+  paymentTerm        PaymentTermType? @map("payment_term")
+  shippingMethod     String?         @map("shipping_method")
+  portOfLoading      String?         @map("port_of_loading")
+  portOfDischarge    String?         @map("port_of_discharge")
+  placeOfDelivery    String?         @map("place_of_delivery")
+  paymentMethod      String?         @map("payment_method")
+  validityPeriod     Int             @default(7) @map("validity_period")
+  subtotal           Decimal         @default(0) @db.Decimal(12, 2)
+  shippingCharge     Decimal         @default(0) @map("shipping_charge") @db.Decimal(12, 2)
+  other              Decimal         @default(0) @db.Decimal(12, 2)
+  totalAmount        Decimal         @default(0) @map("total_amount") @db.Decimal(12, 2)
+  approverId         String?         @map("approver_id")
+  approvedAt         DateTime?       @map("approved_at")
+  rejectionReason    String?         @map("rejection_reason")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+
+  customer   Customer                @relation(fields: [customerId], references: [id])
+  owner      User                    @relation("PIsOwned", fields: [ownerId], references: [id])
+  approver   User?                   @relation("PIsApproved", fields: [approverId], references: [id])
+  items      ProformaInvoiceItem[]
+
+  @@index([piNo])
+  @@index([customerId])
+  @@index([ownerId])
+  @@index([status])
+  @@map("proforma_invoices")
+}
+
+model ProformaInvoiceItem {
+  id          String  @id @default(uuid())
+  piId        String  @map("pi_id")
+  productName String  @map("product_name")
+  description String?
+  hsn         String?
+  unit        String  @default("PCS")
+  quantity    Int
+  unitPrice   Decimal @map("unit_price") @db.Decimal(12, 2)
+  totalPrice  Decimal @map("total_price") @db.Decimal(12, 2)
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  pi ProformaInvoice @relation(fields: [piId], references: [id], onDelete: Cascade)
+
+  @@map("proforma_invoice_items")
 }
 
 // ==================== 订单 ====================

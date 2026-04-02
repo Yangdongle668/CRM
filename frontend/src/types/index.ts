@@ -306,3 +306,68 @@ export interface EmailConfig {
   fromName?: string;
   signature?: string;
 }
+
+// ==================== 形式发票 (PI) ====================
+export type PIStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+export type TradeTermType = 'EXW' | 'FOB' | 'CIF' | 'CIP' | 'DPU' | 'DDP' | 'FCA' | 'FAS' | 'CFR';
+export type PaymentTermType = 'T_30' | 'T_50' | 'T_70' | 'T_100';
+
+export interface ProformaInvoiceItem {
+  id?: string;
+  productName: string;
+  description?: string;
+  hsn?: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  sortOrder?: number;
+}
+
+export interface ProformaInvoice {
+  id: string;
+  piNo: string;
+  customerId: string;
+  customer?: Customer;
+  ownerId: string;
+  owner?: User;
+  status: PIStatus;
+  sellerId?: string;
+  sellerAddress?: string;
+  consigneeName?: string;
+  consigneeAddress?: string;
+  poNo?: string;
+  currency: string;
+  tradeTerm?: TradeTermType;
+  paymentTerm?: PaymentTermType;
+  shippingMethod?: string;
+  portOfLoading?: string;
+  portOfDischarge?: string;
+  placeOfDelivery?: string;
+  paymentMethod?: string;
+  validityPeriod: number;
+  subtotal: number;
+  shippingCharge: number;
+  other: number;
+  totalAmount: number;
+  approverId?: string;
+  approver?: User;
+  approvedAt?: string;
+  rejectionReason?: string;
+  items: ProformaInvoiceItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BankInfo {
+  accountNumber?: string;
+  holderName?: string;
+  currency?: string;
+  bankName?: string;
+  bankAddress?: string;
+  accountType?: string;
+  swiftBic?: string;
+  routingNumber?: string;
+  country?: string;
+  paymentMemo?: string;
+}
