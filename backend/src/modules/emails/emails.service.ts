@@ -319,7 +319,7 @@ export class EmailsService {
       params.push(where.customerId);
     }
     if (where.direction) {
-      conditions.push(`e.direction = $${paramIdx++}`);
+      conditions.push(`e.direction::text = $${paramIdx++}`);
       params.push(where.direction);
     }
 
