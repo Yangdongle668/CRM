@@ -18,6 +18,14 @@ export class EmailsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Strip tracking pixel images from HTML to prevent self-triggering read receipts
+   */
+  private stripTrackingPixel(html: string | null): string | null {
+    if (!html) return html;
+    return html.replace(/<img[^>]*\/api\/emails\/track\/[^>]*>/gi, '');
+  }
+
+  /**
    * Normalize email subject by stripping Re:/Fwd:/Fw:/回复:/转发: prefixes
    */
   private normalizeSubject(subject: string): string {
@@ -197,6 +205,7 @@ export class EmailsService {
     query: {
       customerId?: string;
       direction?: string;
+      status?: string;
       page?: number;
       pageSize?: number;
       grouped?: string;
@@ -223,6 +232,10 @@ export class EmailsService {
 
     if (query.direction) {
       where.direction = query.direction;
+    }
+
+    if (query.status) {
+      where.status = query.status;
     }
 
     // Direction-aware sorting: use actual email timestamp
@@ -290,7 +303,17 @@ export class EmailsService {
       throw new NotFoundException('Email not found');
     }
 
-    return email;
+    // Strip tracking pixels to prevent self-triggering read receipts
+    const result: any = { ...email };
+    result.bodyHtml = this.stripTrackingPixel(email.bodyHtml);
+    if (result.thread?.emails) {
+      result.thread.emails = result.thread.emails.map((e: any) => ({
+        ...e,
+        bodyHtml: this.stripTrackingPixel(e.bodyHtml),
+      }));
+    }
+
+    return result;
   }
 
   /**
@@ -321,6 +344,10 @@ export class EmailsService {
     if (where.direction) {
       conditions.push(`e.direction::text = $${paramIdx++}`);
       params.push(where.direction);
+    }
+    if (where.status) {
+      conditions.push(`e.status::text = $${paramIdx++}`);
+      params.push(where.status);
     }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -372,6 +399,7 @@ export class EmailsService {
         delete threadWhere.senderId; // already filtered in raw SQL
         delete threadWhere.customerId;
         delete threadWhere.direction;
+        delete threadWhere.status;
 
         latestEmail = await this.prisma.email.findFirst({
           where: { threadId: groupId },
@@ -415,7 +443,7 @@ export class EmailsService {
   async findThreadEmails(threadId: string, _userId: string, _role: string) {
     const where: any = { threadId };
 
-    return this.prisma.email.findMany({
+    const emails = await this.prisma.email.findMany({
       where,
       include: {
         customer: { select: { id: true, companyName: true } },
@@ -427,6 +455,8 @@ export class EmailsService {
         { createdAt: 'asc' },
       ],
     });
+
+    return emails.map((e) => ({ ...e, bodyHtml: this.stripTrackingPixel(e.bodyHtml) }));
   }
 
   async getUnreadCount(userId: string, role: string) {
@@ -519,7 +549,7 @@ export class EmailsService {
     return { items };
   }
 
-  async fetchEmails(userId: string): Promise<{ fetched: number }> {
+  async fetchEmails(userId: string): Promise<{ fetched: number; inboxFetched?: number; sentFetched?: number; sentFolder?: string | null }> {
     const config = await this.prisma.emailConfig.findUnique({
       where: { userId },
     });
@@ -557,10 +587,11 @@ export class EmailsService {
           totalFetched += inboxCount;
 
           // 2. Find and fetch from Sent folder (outbound emails)
+          let sentCount = 0;
           const sentFolder = await this.findSentFolder(imap);
           if (sentFolder) {
             this.logger.log(`Found sent folder: ${sentFolder}`);
-            const sentCount = await this.fetchFromFolder(
+            sentCount = await this.fetchFromFolder(
               imap,
               userId,
               config.smtpUser,
@@ -573,7 +604,12 @@ export class EmailsService {
           }
 
           imap.end();
-          resolve({ fetched: totalFetched });
+          resolve({
+            fetched: totalFetched,
+            inboxFetched: inboxCount,
+            sentFetched: sentCount,
+            sentFolder: sentFolder || null,
+          });
         } catch (error) {
           imap.end();
           reject(
@@ -796,10 +832,12 @@ export class EmailsService {
         ];
 
         // Helper: recursively flatten all folders into { path, attribs } list
+        // Uses each box's delimiter property (e.g. '.' for 163/QQ, '/' for Gmail)
         const flattenBoxes = (boxTree: any, prefix = ''): Array<{ path: string; attribs: string[] }> => {
           const result: Array<{ path: string; attribs: string[] }> = [];
           for (const [name, box] of Object.entries(boxTree)) {
-            const path = prefix ? `${prefix}/${name}` : name;
+            const delimiter = (box as any).delimiter || '/';
+            const path = prefix ? `${prefix}${delimiter}${name}` : name;
             const attribs = (box as any).attribs || [];
             result.push({ path, attribs });
             if ((box as any).children) {
@@ -836,12 +874,13 @@ export class EmailsService {
           ) || null;
         if (gmailKey && (boxes[gmailKey] as any).children) {
           const children = (boxes[gmailKey] as any).children;
+          const gmailDelim = (boxes[gmailKey] as any).delimiter || '/';
           const gmailSentNames = [
             'Sent Mail', '已发送邮件', 'Sent', 'Sent Messages',
           ];
           for (const name of gmailSentNames) {
             if (children[name]) {
-              return resolve(`${gmailKey}/${name}`);
+              return resolve(`${gmailKey}${gmailDelim}${name}`);
             }
           }
         }
@@ -849,10 +888,11 @@ export class EmailsService {
         // Fourth: check INBOX children
         if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
           const inboxChildren = (boxes['INBOX'] as any).children;
+          const inboxDelim = (boxes['INBOX'] as any).delimiter || '/';
           const inboxSentNames = ['Sent', 'Sent Messages', 'Sent Items', 'Sent Mail', '已发送', '已发邮件'];
           for (const name of inboxSentNames) {
             if (inboxChildren[name]) {
-              return resolve(`INBOX/${name}`);
+              return resolve(`INBOX${inboxDelim}${name}`);
             }
           }
         }

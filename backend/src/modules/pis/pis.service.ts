@@ -402,7 +402,7 @@ export class PIsService {
         const value = (txt: string, x: number, y: number, w: number, h: number) => {
           if (!txt) return;
           setFont(false, 9);
-          doc.fillColor(BLUE).text(txt, x + 4, y + h / 2 - 4, {
+          doc.fillColor(BLUE).text(txt, x + 4, y + 14, {
             width: w - 8, align: 'center', lineBreak: false,
           });
         };
@@ -490,8 +490,8 @@ export class PIsService {
 
         cy += sellerH;
 
-        // ── Consignee block  (left col, 3 rows) ─────────────────
-        const consigneeH = rH * 3;
+        // ── Consignee block  (left col, 4 rows including TERMS OF DELIVERY) ──
+        const consigneeH = rH * 4;
         border(L, cy, leftColW, consigneeH);
         label('2. CONSIGNEE AND ADDRESS', L, cy, leftColW);
         valueLeft(pi.consigneeName || '', L, cy, leftColW);
@@ -532,15 +532,12 @@ export class PIsService {
         };
         value(pi.paymentTerm ? ptMap[pi.paymentTerm] : '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
 
-        cy += consigneeH;
+        // Row G right (4th row of consignee block): TERMS OF DELIVERY — spans both right sub-columns
+        border(midX, cy + rH * 3, rCW, rH);
+        label('14. TERMS OF DELIVERY', midX, cy + rH * 3, rCW);
+        value(pi.termsOfDelivery || '', midX, cy + rH * 3, rCW, rH);
 
-        // ── Full-width: TERMS OF DELIVERY ────────────────────────
-        const termsH = rH;
-        border(L, cy, CW, termsH);
-        label('14. TERMS OF DELIVERY', L, cy, CW);
-        value(pi.termsOfDelivery || '', L, cy, CW, termsH);
-
-        cy += termsH + 6;
+        cy += consigneeH + 6;
 
         // ════════════════════════════════════════════════════════
         // 4.  TRANSACTION NOTICE
@@ -652,9 +649,7 @@ export class PIsService {
           const isTotalValue = tr.lbl === 'TOTAL VALUE';
           const trH = TH;
 
-          // Left merged region — no fill
-          border(TC[0], cy, TC[4] - TC[0], trH);
-
+          // Label text only (no border on left region)
           setFont(isTotalValue, 8.5);
           doc.fillColor(DARK).text(tr.lbl, TC[4] - 110, cy + trH / 2 - 5, {
             width: 100, align: 'right', lineBreak: false,

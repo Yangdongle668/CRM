@@ -4,12 +4,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
-import { emailsApi, customersApi } from '@/lib/api';
+import { emailsApi, customersApi, settingsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import type { Email, EmailTemplate, EmailThreadItem, Customer, PaginatedData, EmailDirection } from '@/types';
+import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
 
-type TabType = 'INBOUND' | 'OUTBOUND' | 'TEMPLATES';
+type FolderType = 'inbox' | 'unread' | 'sent' | 'templates';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
@@ -56,7 +56,7 @@ const emptyTemplateForm: TemplateForm = {
 
 export default function EmailsPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<TabType>('INBOUND');
+  const [activeFolder, setActiveFolder] = useState<FolderType>('inbox');
   const [emails, setEmails] = useState<Email[]>([]);
   const [threads, setThreads] = useState<EmailThreadItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -65,6 +65,7 @@ export default function EmailsPage() {
   const [loading, setLoading] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [signature, setSignature] = useState<string>('');
 
   // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -91,22 +92,34 @@ export default function EmailsPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
 
-  // Fetch emails (threaded mode)
+  // Fetch emails (threaded mode) based on active folder
   const fetchEmails = useCallback(async () => {
-    if (activeTab === 'TEMPLATES') return;
+    if (activeFolder === 'templates') return;
     setLoading(true);
     try {
       const params: Record<string, any> = {
         page,
         pageSize,
-        direction: activeTab as EmailDirection,
         grouped: 'true',
       };
+
+      switch (activeFolder) {
+        case 'inbox':
+          params.direction = 'INBOUND';
+          break;
+        case 'unread':
+          params.direction = 'INBOUND';
+          params.status = 'RECEIVED';
+          break;
+        case 'sent':
+          params.direction = 'OUTBOUND';
+          break;
+      }
+
       const res: any = await emailsApi.list(params);
       const data = res.data;
       const items = Array.isArray(data.items) ? data.items : [];
       setThreads(items);
-      // Also keep flat emails list for backwards compat
       setEmails(items.map((t: EmailThreadItem) => t.latestEmail).filter(Boolean));
       setTotal(data.total || 0);
     } catch {
@@ -114,7 +127,7 @@ export default function EmailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeTab, page, pageSize]);
+  }, [activeFolder, page, pageSize]);
 
   const fetchTemplates = useCallback(async () => {
     try {
@@ -147,12 +160,20 @@ export default function EmailsPage() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 'TEMPLATES') {
+    if (activeFolder === 'templates') {
       fetchTemplates();
     } else {
       fetchEmails();
     }
-  }, [activeTab, fetchEmails, fetchTemplates]);
+  }, [activeFolder, fetchEmails, fetchTemplates]);
+
+  // Fetch email config for signature
+  useEffect(() => {
+    settingsApi.getEmailConfig().then((res: any) => {
+      const config = res.data;
+      if (config?.signature) setSignature(config.signature);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchCustomers();
@@ -187,7 +208,7 @@ export default function EmailsPage() {
           }
         );
         // Auto-refresh inbox if currently viewing
-        if (activeTab === 'INBOUND') {
+        if (activeFolder === 'inbox' || activeFolder === 'unread') {
           fetchEmails();
         }
       }
@@ -195,7 +216,7 @@ export default function EmailsPage() {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [fetchUnreadCount, activeTab, fetchEmails]);
+  }, [fetchUnreadCount, activeFolder, fetchEmails]);
 
   // View email detail (with thread loading)
   const handleViewEmail = async (email: Email, threadId?: string | null) => {
@@ -276,12 +297,13 @@ export default function EmailsPage() {
   ${selectedEmail.bodyHtml || `<pre>${selectedEmail.bodyText || ''}</pre>`}
 </div>`;
 
+    const sigBlock = signature ? `<br/><br/>--<br/>${signature}` : '';
     setReplyForm({
       toAddr: replyTo,
       cc: '',
       bcc: '',
       subject,
-      bodyHtml: '',
+      bodyHtml: sigBlock,
       customerId: selectedEmail.customerId || '',
       inReplyTo: selectedEmail.id,
     });
@@ -318,7 +340,7 @@ export default function EmailsPage() {
       setReplyOpen(false);
       setReplyForm(emptyComposeForm);
       // Refresh if on outbound
-      if (activeTab === 'OUTBOUND') {
+      if (activeFolder === 'sent') {
         fetchEmails();
       }
     } catch {
@@ -354,7 +376,7 @@ export default function EmailsPage() {
       toast.success('邮件已发送');
       setComposeOpen(false);
       setComposeForm(emptyComposeForm);
-      if (activeTab === 'OUTBOUND') {
+      if (activeFolder === 'sent') {
         fetchEmails();
       }
     } catch {
@@ -368,11 +390,14 @@ export default function EmailsPage() {
   const handleFetchImap = async () => {
     try {
       toast.loading('正在收取邮件...', { id: 'fetch-email' });
-      await emailsApi.fetch();
-      toast.success('邮件收取完成', { id: 'fetch-email' });
-      if (activeTab === 'INBOUND') {
-        fetchEmails();
+      const res: any = await emailsApi.fetch();
+      const data = res.data;
+      if (data?.sentFolder) {
+        toast.success(`邮件收取完成 (收件箱: ${data.inboxFetched || 0}, 已发送: ${data.sentFetched || 0})`, { id: 'fetch-email' });
+      } else {
+        toast.success(`收件箱收取完成 (${data?.inboxFetched || 0} 封)，未找到已发送文件夹`, { id: 'fetch-email' });
       }
+      fetchEmails();
       fetchUnreadCount();
     } catch {
       toast.error('邮件收取失败', { id: 'fetch-email' });
@@ -421,12 +446,36 @@ export default function EmailsPage() {
     return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
   };
 
-  // ==================== Tabs ====================
-  const tabs: { key: TabType; label: string; badge?: number }[] = [
-    { key: 'INBOUND', label: '收件箱', badge: unreadCount > 0 ? unreadCount : undefined },
-    { key: 'OUTBOUND', label: '已发送' },
-    { key: 'TEMPLATES', label: '邮件模板' },
+  // ==================== Sidebar Folders ====================
+  const folders: { key: FolderType; label: string; icon: string; badge?: number }[] = [
+    { key: 'inbox', label: '收件箱', icon: 'inbox', badge: unreadCount > 0 ? unreadCount : undefined },
+    { key: 'unread', label: '未读邮件', icon: 'unread' },
+    { key: 'sent', label: '已发送', icon: 'sent' },
+    { key: 'templates', label: '邮件模板', icon: 'templates' },
   ];
+
+  const folderIcons: Record<string, React.ReactNode> = {
+    inbox: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
+      </svg>
+    ),
+    unread: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+      </svg>
+    ),
+    sent: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+    templates: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+  };
 
   // ==================== Thread List Item ====================
   const renderThreadListItem = (thread: EmailThreadItem) => {
@@ -434,7 +483,7 @@ export default function EmailsPage() {
     if (!email) return null;
     const isSelected = selectedEmail?.id === email.id;
     const isUnread = email.status === 'RECEIVED';
-    const addr = activeTab === 'INBOUND' ? email.fromAddr : email.toAddr;
+    const addr = (activeFolder === 'inbox' || activeFolder === 'unread') ? email.fromAddr : email.toAddr;
     const time = email.sentAt || email.receivedAt || email.createdAt;
 
     return (
@@ -995,7 +1044,8 @@ export default function EmailsPage() {
             </button>
             <button
               onClick={() => {
-                setComposeForm(emptyComposeForm);
+                const body = signature ? `<br/><br/>--<br/>${signature}` : '';
+                setComposeForm({ ...emptyComposeForm, bodyHtml: body });
                 setComposeOpen(true);
               }}
               className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
@@ -1005,109 +1055,107 @@ export default function EmailsPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200 flex-shrink-0">
-          <nav className="flex -mb-px space-x-6">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => {
-                  setActiveTab(tab.key);
-                  setPage(1);
-                  setSelectedEmail(null);
-                  setReplyOpen(false);
-                }}
-                className={`pb-3 px-1 text-sm font-medium border-b-2 transition-colors relative ${
-                  activeTab === tab.key
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
-              >
-                {tab.label}
-                {tab.badge && (
-                  <span className="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold text-white bg-red-500 rounded-full min-w-[18px]">
-                    {tab.badge > 99 ? '99+' : tab.badge}
-                  </span>
-                )}
-              </button>
-            ))}
-          </nav>
-        </div>
+        {/* Main 3-column layout: sidebar | email list | detail */}
+        <div className="flex flex-1 bg-white rounded-lg shadow overflow-hidden border">
+          {/* Folder sidebar */}
+          <aside className="w-[200px] bg-gray-50 border-r flex-shrink-0 flex flex-col">
+            <nav className="py-2 flex-1">
+              {folders.map((folder) => (
+                <button
+                  key={folder.key}
+                  onClick={() => {
+                    setActiveFolder(folder.key);
+                    setPage(1);
+                    setSelectedEmail(null);
+                    setReplyOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                    activeFolder === folder.key
+                      ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-600'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className="flex-shrink-0">{folderIcons[folder.icon]}</span>
+                  <span className="flex-1 text-left truncate">{folder.label}</span>
+                  {folder.badge && folder.badge > 0 && (
+                    <span className="text-[11px] bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-bold">
+                      {folder.badge > 99 ? '99+' : folder.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          </aside>
 
-        {/* Template actions */}
-        {activeTab === 'TEMPLATES' && (
-          <div className="flex justify-end py-3 flex-shrink-0">
-            <button
-              onClick={() => {
-                setTemplateForm(emptyTemplateForm);
-                setTemplateModalOpen(true);
-              }}
-              className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-            >
-              + 新建模板
-            </button>
-          </div>
-        )}
+          {/* Content area */}
+          {activeFolder === 'templates' ? (
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="flex justify-end mb-3">
+                <button
+                  onClick={() => {
+                    setTemplateForm(emptyTemplateForm);
+                    setTemplateModalOpen(true);
+                  }}
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                >
+                  + 新建模板
+                </button>
+              </div>
+              {renderTemplates()}
+            </div>
+          ) : (
+            <>
+              {/* Email list panel */}
+              <div className="w-[350px] flex flex-col border-r bg-white flex-shrink-0">
+                <div className="flex-1 overflow-y-auto">
+                  {loading ? (
+                    <div className="text-center py-12 text-gray-400">
+                      <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
+                      加载中...
+                    </div>
+                  ) : threads.length === 0 ? (
+                    <div className="text-center py-12 text-gray-400 text-sm">
+                      暂无邮件
+                    </div>
+                  ) : (
+                    threads.map((thread) => renderThreadListItem(thread))
+                  )}
+                </div>
 
-        {/* Content */}
-        {activeTab === 'TEMPLATES' ? (
-          <div className="flex-1 overflow-y-auto py-2">
-            {renderTemplates()}
-          </div>
-        ) : (
-          /* Split pane layout for inbox/outbound */
-          <div className="flex flex-1 mt-3 bg-white rounded-lg shadow overflow-hidden border">
-            {/* Left panel: email list */}
-            <div className="w-[380px] flex flex-col border-r bg-white flex-shrink-0">
-              {/* List */}
-              <div className="flex-1 overflow-y-auto">
-                {loading ? (
-                  <div className="text-center py-12 text-gray-400">
-                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
-                    加载中...
+                {/* Pagination */}
+                {total > pageSize && (
+                  <div className="flex items-center justify-between px-3 py-2 border-t text-xs flex-shrink-0">
+                    <span className="text-gray-500">共 {total} 个会话</span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={page <= 1}
+                        className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        上一页
+                      </button>
+                      <span className="px-2 py-1 text-gray-500">
+                        {page}/{Math.ceil(total / pageSize)}
+                      </span>
+                      <button
+                        onClick={() => setPage((p) => p + 1)}
+                        disabled={page * pageSize >= total}
+                        className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        下一页
+                      </button>
+                    </div>
                   </div>
-                ) : threads.length === 0 ? (
-                  <div className="text-center py-12 text-gray-400 text-sm">
-                    暂无邮件
-                  </div>
-                ) : (
-                  threads.map((thread) => renderThreadListItem(thread))
                 )}
               </div>
 
-              {/* Pagination */}
-              {total > pageSize && (
-                <div className="flex items-center justify-between px-3 py-2 border-t text-xs flex-shrink-0">
-                  <span className="text-gray-500">共 {total} 个会话</span>
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page <= 1}
-                      className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      上一页
-                    </button>
-                    <span className="px-2 py-1 text-gray-500">
-                      {page}/{Math.ceil(total / pageSize)}
-                    </span>
-                    <button
-                      onClick={() => setPage((p) => p + 1)}
-                      disabled={page * pageSize >= total}
-                      className="px-2 py-1 border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      下一页
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Right panel: email detail */}
-            <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
-              {renderDetailPanel()}
-            </div>
-          </div>
-        )}
+              {/* Detail panel */}
+              <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
+                {renderDetailPanel()}
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Modals */}
         {renderComposeModal()}
