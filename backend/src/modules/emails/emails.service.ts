@@ -473,6 +473,24 @@ export class EmailsService {
     return { count };
   }
 
+  async markAllAsRead(userId: string, role: string) {
+    const where: any = {
+      direction: 'INBOUND',
+      status: 'RECEIVED',
+    };
+
+    if (role !== 'ADMIN') {
+      where.senderId = userId;
+    }
+
+    const result = await this.prisma.email.updateMany({
+      where,
+      data: { status: 'READ' },
+    });
+
+    return { updated: result.count };
+  }
+
   async markAsRead(id: string, userId: string, role: string) {
     const where: any = { id };
     if (role !== 'ADMIN') {

@@ -404,6 +404,19 @@ export default function EmailsPage() {
     }
   };
 
+  // Mark all as read
+  const handleMarkAllRead = async () => {
+    try {
+      await emailsApi.markAllAsRead();
+      toast.success('已全部标记为已读');
+      setUnreadCount(0);
+      prevUnreadRef.current = 0;
+      fetchEmails();
+    } catch {
+      toast.error('操作失败');
+    }
+  };
+
   // Create template
   const handleCreateTemplate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1107,6 +1120,20 @@ export default function EmailsPage() {
             <>
               {/* Email list panel */}
               <div className="w-[350px] flex flex-col border-r bg-white flex-shrink-0">
+                {/* List header with mark-all-read */}
+                {(activeFolder === 'inbox' || activeFolder === 'unread') && unreadCount > 0 && (
+                  <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
+                    <button
+                      onClick={handleMarkAllRead}
+                      className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      全部标记已读
+                    </button>
+                  </div>
+                )}
                 <div className="flex-1 overflow-y-auto">
                   {loading ? (
                     <div className="text-center py-12 text-gray-400">

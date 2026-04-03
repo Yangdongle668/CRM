@@ -98,6 +98,7 @@ export const emailsApi = {
   createTemplate: (data: any) => api.post('/emails/templates', data),
   getUnreadCount: () => api.get('/emails/unread-count'),
   markAsRead: (id: string) => api.patch(`/emails/${id}/read`),
+  markAllAsRead: () => api.patch('/emails/mark-all-read'),
   getRecentlyViewed: () => api.get('/emails/recently-viewed'),
   getThreadEmails: (threadId: string) => api.get(`/emails/threads/${threadId}`),
 };
