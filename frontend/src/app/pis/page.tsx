@@ -325,17 +325,15 @@ export default function PIsPage() {
                           </button>
                         </>
                       )}
-                      {pi.status === 'DRAFT' && (
-                        <button
-                          onClick={() => {
-                            setDeletingId(pi.id);
-                            setDeleteModalOpen(true);
-                          }}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          删除
-                        </button>
-                      )}
+                      <button
+                        onClick={() => {
+                          setDeletingId(pi.id);
+                          setDeleteModalOpen(true);
+                        }}
+                        className="text-red-600 hover:text-red-800"
+                      >
+                        删除
+                      </button>
                     </td>
                   </tr>
                 ))

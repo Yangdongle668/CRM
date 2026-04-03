@@ -130,6 +130,11 @@ export class EmailsController {
     return this.emailsService.findOne(id, user.id, user.role);
   }
 
+  @Patch('mark-all-read')
+  async markAllAsRead(@CurrentUser() user: any) {
+    return this.emailsService.markAllAsRead(user.id, user.role);
+  }
+
   @Patch(':id/read')
   async markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
     return this.emailsService.markAsRead(id, user.id, user.role);
