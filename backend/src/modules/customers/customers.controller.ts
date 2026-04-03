@@ -56,6 +56,14 @@ export class CustomersController {
     return this.customersService.update(id, dto, user.id, user.role);
   }
 
+  @Post(':id/sync-emails')
+  syncEmails(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: string },
+  ) {
+    return this.customersService.syncEmailsByDomain(id, user.id, user.role);
+  }
+
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
