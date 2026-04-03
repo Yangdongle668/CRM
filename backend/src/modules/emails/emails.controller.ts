@@ -79,6 +79,7 @@ export class EmailsController {
     @CurrentUser() user: any,
     @Query('customerId') customerId?: string,
     @Query('direction') direction?: string,
+    @Query('status') status?: string,
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
     @Query('grouped') grouped?: string,
@@ -86,6 +87,7 @@ export class EmailsController {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
       direction,
+      status,
       page,
       pageSize,
       grouped,
