@@ -162,13 +162,6 @@ export class PIsService {
   async update(id: string, userId: string, role: string, dto: UpdatePIDto) {
     const existing = await this.findOne(id, userId, role);
 
-    // Only allow editing DRAFT PIs
-    if (existing.status !== 'DRAFT') {
-      throw new BadRequestException(
-        'Can only edit PIs in DRAFT status',
-      );
-    }
-
     const updateData: any = {};
 
     if (dto.sellerId !== undefined) updateData.sellerId = dto.sellerId;
@@ -250,13 +243,8 @@ export class PIsService {
   async remove(id: string, userId: string, role: string) {
     const pi = await this.findOne(id, userId, role);
 
-    // Only allow deleting DRAFT PIs
-    if (pi.status !== 'DRAFT') {
-      throw new BadRequestException(
-        'Can only delete PIs in DRAFT status',
-      );
-    }
-
+    // Delete items first, then the PI
+    await this.prisma.proformaInvoiceItem.deleteMany({ where: { piId: id } });
     return this.prisma.proformaInvoice.delete({ where: { id } });
   }
 

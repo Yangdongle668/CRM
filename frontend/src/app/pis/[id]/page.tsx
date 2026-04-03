@@ -196,7 +196,7 @@ export default function PIDetailPage() {
   };
 
   const totals = calculateTotals();
-  const canEdit = isNew || formData.status === 'DRAFT' || (isAdmin && formData.status !== 'APPROVED');
+  const canEdit = true; // All PIs can be edited
   const canSubmit = formData.status === 'DRAFT' && !isAdmin;
   const canDownload = formData.status === 'APPROVED' || (isAdmin && formData.status !== 'DRAFT');
 
