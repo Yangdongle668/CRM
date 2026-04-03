@@ -5,6 +5,8 @@ import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import * as express from 'express';
+import * as path from 'path';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -13,6 +15,9 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port', 3000);
   const apiPrefix = configService.get<string>('apiPrefix', 'api');
+
+  // Serve uploaded files statically (before API prefix)
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
   // Global prefix
   app.setGlobalPrefix(apiPrefix);

@@ -526,9 +526,19 @@ export class PIsService {
 
         border(midX + rHalfW, cy + rH * 2, rHalfW, rH);
         label('13. PAYMENT TERM', midX + rHalfW, cy + rH * 2, rHalfW);
+        // Currency symbol helper
+        const currencySymbol: Record<string, string> = {
+          USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥',
+          AUD: 'A$', CAD: 'C$', CHF: 'CHF', HKD: 'HK$', SGD: 'S$',
+          KRW: '₩', INR: '₹', THB: '฿', RUB: '₽', BRL: 'R$',
+        };
+        const cSym = currencySymbol[pi.currency] || pi.currency;
+
         const ptMap: Record<string, string> = {
-          T_30: '30% Advance', T_50: '50% Advance',
-          T_70: '70% Advance', T_100: '100% Advance',
+          T_30: '30% in advance, 70% before dispatch',
+          T_50: '50% in advance, 50% before dispatch',
+          T_70: '70% in advance, 30% before dispatch',
+          T_100: '100% in advance',
         };
         value(pi.paymentTerm ? ptMap[pi.paymentTerm] : '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
 
@@ -552,10 +562,11 @@ export class PIsService {
         // ════════════════════════════════════════════════════════
         // 5.  ITEMS TABLE
         // ════════════════════════════════════════════════════════
-        // Column x-positions and widths (total = CW = 525)
-        //  0: MARKS  50   1: DESC  165   2: HSN 50  3: QTY 60  4: PRICE 90  5: AMT 110
-        const TC = [L, L+50, L+215, L+265, L+325, L+415]; // col starts
-        const TW = [50, 165, 50, 60, 90, 110];              // col widths
+        // Column widths (total = CW = 525)
+        //  0: MARKS 60  1: DESC 155  2: HSN 70  3: QTY 65  4: PRICE 85  5: AMT 90
+        const TW = [60, 155, 70, 65, 85, 90];
+        const TC = [L, L + TW[0], L + TW[0] + TW[1], L + TW[0] + TW[1] + TW[2],
+          L + TW[0] + TW[1] + TW[2] + TW[3], L + TW[0] + TW[1] + TW[2] + TW[3] + TW[4]];
         const TH = 20; // item row height
 
         // Header row
@@ -569,7 +580,7 @@ export class PIsService {
           '15. MARKS/NO\'S.', '16. DESCRIPTION OF GOODS', '17.HSN',
           '18. QUANTITY', '19. UNIT PRICE', '20. AMOUNT',
         ];
-        setFont(true, 7.5);
+        setFont(true, 7);
         doc.fillColor(DARK);
         hLabels.forEach((hl, i) => {
           doc.text(hl, TC[i] + 2, cy + 6, { width: TW[i] - 4, align: 'center', lineBreak: false });
@@ -615,13 +626,13 @@ export class PIsService {
               width: TW[3] - 4, align: 'center', lineBreak: false,
             });
 
-            // Unit price  "$4.50"
-            doc.text(`$${Number(item.unitPrice).toFixed(2)}`, TC[4] + 2, ry + 6, {
+            // Unit price
+            doc.text(`${cSym}${Number(item.unitPrice).toFixed(2)}`, TC[4] + 2, ry + 6, {
               width: TW[4] - 4, align: 'center', lineBreak: false,
             });
 
-            // Amount  "$ 45.00" (dollar sign left, amount right-ish)
-            doc.text('$', TC[5] + 4, ry + 6, { lineBreak: false });
+            // Amount  "$ 600.00"
+            doc.text(cSym, TC[5] + 4, ry + 6, { lineBreak: false });
             doc.text(Number(item.totalPrice).toFixed(2), TC[5] + 4, ry + 6, {
               width: TW[5] - 8, align: 'right', lineBreak: false,
             });
@@ -631,7 +642,7 @@ export class PIsService {
         cy += TH * totalRows;
 
         // ── Totals block ─────────────────────────────────────────
-        // Cols 0-3 merged (no border); cols 4-5 bordered
+        // Aligned with items table: dollar sign in UNIT PRICE col, amount in AMOUNT col
         const totRows: { lbl: string; val: string | null }[] = [
           { lbl: 'SUBTOTAL',        val: Number(pi.subtotal).toFixed(2) },
           { lbl: 'SHIPPING CHARGE', val: Number(pi.shippingCharge) > 0 ? Number(pi.shippingCharge).toFixed(2) : null },
@@ -639,37 +650,37 @@ export class PIsService {
           { lbl: 'TOTAL VALUE',     val: Number(pi.totalAmount).toFixed(2) },
         ];
 
-        const lblColX = TC[3] + TW[3]; // x of the "label" column for totals
-        const lblColW = TC[4] + TW[4] - lblColX; // but the image shows label IS col4
+        // dolCol aligns with TC[4] (UNIT PRICE start), amtCol aligns with TC[5] (AMOUNT start)
+        const dolColX = TC[4];
+        const dolColW = TW[4]; // full UNIT PRICE width for the $ symbol
         const amtColX = TC[5];
         const amtColW = TW[5];
-        const dolColW = 14;
 
         totRows.forEach((tr) => {
           const isTotalValue = tr.lbl === 'TOTAL VALUE';
           const trH = TH;
 
-          // Label text only (no border on left region)
+          // Label text right-aligned before the dollar column
           setFont(isTotalValue, 8.5);
-          doc.fillColor(DARK).text(tr.lbl, TC[4] - 110, cy + trH / 2 - 5, {
-            width: 100, align: 'right', lineBreak: false,
+          doc.fillColor(DARK).text(tr.lbl, dolColX - 130, cy + trH / 2 - 5, {
+            width: 125, align: 'right', lineBreak: false,
           });
 
-          // Dollar sign cell (narrow)
-          border(TC[4], cy, dolColW, trH);
+          // Dollar sign cell (aligned with UNIT PRICE column)
+          border(dolColX, cy, dolColW, trH);
           if (tr.val !== null) {
             setFont(false, 9);
-            doc.fillColor(BLUE).text('$', TC[4] + 2, cy + trH / 2 - 5, {
-              width: dolColW - 4, align: 'center', lineBreak: false,
+            doc.fillColor(BLUE).text(cSym, dolColX + 4, cy + trH / 2 - 5, {
+              width: dolColW - 8, align: 'left', lineBreak: false,
             });
           }
 
-          // Amount cell
-          border(TC[4] + dolColW, cy, amtColW - dolColW, trH);
+          // Amount cell (aligned with AMOUNT column)
+          border(amtColX, cy, amtColW, trH);
           if (tr.val !== null) {
             setFont(isTotalValue, 9);
-            doc.fillColor(BLUE).text(tr.val, TC[4] + dolColW + 2, cy + trH / 2 - 5, {
-              width: amtColW - dolColW - 4, align: 'right', lineBreak: false,
+            doc.fillColor(BLUE).text(tr.val, amtColX + 4, cy + trH / 2 - 5, {
+              width: amtColW - 8, align: 'right', lineBreak: false,
             });
           }
           cy += trH;
