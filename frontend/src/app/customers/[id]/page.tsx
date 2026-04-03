@@ -109,6 +109,8 @@ export default function CustomerDetailPage() {
 
   const fetchActivities = useCallback(async () => {
     try {
+      // Sync unlinked emails to activities first
+      await customersApi.syncEmails(customerId).catch(() => {});
       const res: any = await activitiesApi.list({ customerId });
       setActivities(res.data?.items || res.data || []);
     } catch {
