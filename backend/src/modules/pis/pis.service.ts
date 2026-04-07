@@ -697,22 +697,12 @@ export class PIsService {
         // ════════════════════════════════════════════════════════
         // 7.  BANK INFORMATION
         // ════════════════════════════════════════════════════════
-        if (bankInfo) {
-          const bankLines: string[] = [];
-          if (bankInfo.accountNumber) bankLines.push(`Account number：${bankInfo.accountNumber}`);
-          if (bankInfo.holderName)    bankLines.push(`Account name：${bankInfo.holderName}`);
-          if (bankInfo.swiftBic)      bankLines.push(`SWIFT/BIC code：${bankInfo.swiftBic}`);
-          if (bankInfo.routingNumber) bankLines.push(`Routing Number：${bankInfo.routingNumber}`);
-          if (bankInfo.bankName)      bankLines.push(`Bank name：${bankInfo.bankName}`);
-          if (bankInfo.country)       bankLines.push(`Country/region：${bankInfo.country}`);
-          if (bankInfo.bankAddress)   bankLines.push(`Bank address：${bankInfo.bankAddress}`);
-          if (bankInfo.accountType)   bankLines.push(`Account type：${bankInfo.accountType}`);
-          if (bankInfo.currency)      bankLines.push(`Payment method：For the payment of goods, please make a ${bankInfo.currency} Payment`);
-          if (bankInfo.paymentMemo)   bankLines.push(`Notes：${bankInfo.paymentMemo}`);
+        if (bankInfo && bankInfo.bankInfoText) {
+          const bankLines = bankInfo.bankInfoText.split('\n').filter((l: string) => l.trim());
 
           setFont(true, 8.5);
           doc.fillColor(DARK);
-          bankLines.forEach((line) => {
+          bankLines.forEach((line: string) => {
             if (cy > 800) { doc.addPage(); cy = T; }
             doc.text(line, L, cy, { width: CW });
             cy = doc.y + 1;

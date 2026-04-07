@@ -41,7 +41,20 @@ export default function PIDetailPage() {
         if (piRes) {
           const pi = (piRes as any).data || piRes;
           setPI(pi);
-          setFormData(pi);
+          // Ensure numeric fields are proper numbers (Prisma Decimal comes as string)
+          setFormData({
+            ...pi,
+            shippingCharge: Number(pi.shippingCharge || 0),
+            other: Number(pi.other || 0),
+            subtotal: Number(pi.subtotal || 0),
+            totalAmount: Number(pi.totalAmount || 0),
+            items: (pi.items || []).map((item: any) => ({
+              ...item,
+              quantity: Number(item.quantity || 0),
+              unitPrice: Number(item.unitPrice || 0),
+              totalPrice: Number(item.totalPrice || 0),
+            })),
+          });
         }
       } catch {
         toast.error('加载数据失败');
@@ -67,7 +80,7 @@ export default function PIDetailPage() {
 
     // Recalculate totals
     if (field === 'quantity' || field === 'unitPrice') {
-      newItems[index].totalPrice = newItems[index].quantity * newItems[index].unitPrice;
+      newItems[index].totalPrice = Number(newItems[index].quantity || 0) * Number(newItems[index].unitPrice || 0);
     }
 
     setFormData((prev) => ({ ...prev, items: newItems }));
@@ -91,9 +104,9 @@ export default function PIDetailPage() {
   };
 
   const calculateTotals = () => {
-    const subtotal = (formData.items || []).reduce((sum, item) => sum + (item.totalPrice || 0), 0);
-    const shippingCharge = formData.shippingCharge || 0;
-    const other = formData.other || 0;
+    const subtotal = (formData.items || []).reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+    const shippingCharge = Number(formData.shippingCharge || 0);
+    const other = Number(formData.other || 0);
     return {
       subtotal,
       total: subtotal + shippingCharge + other,

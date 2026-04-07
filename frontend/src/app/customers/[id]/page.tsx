@@ -510,16 +510,30 @@ export default function CustomerDetailPage() {
                   <div className="absolute left-5 top-0 bottom-0 w-px bg-gray-200" />
                   {activities.map((activity) => {
                     const typeInfo = ACTIVITY_TYPE_MAP[activity.type];
+                    const isEmail = activity.type === 'EMAIL';
+                    const isInbound = isEmail && activity.content.startsWith('收到邮件');
+                    const emailBorderColor = isEmail
+                      ? isInbound ? 'border-blue-300' : 'border-green-300'
+                      : 'border-gray-200';
+                    const emailIconBorder = isEmail
+                      ? isInbound ? 'border-blue-400' : 'border-green-400'
+                      : 'border-gray-200';
                     return (
                       <div key={activity.id} className="relative flex gap-4 pb-6">
-                        <div className="relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white border-2 border-gray-200 text-lg">
-                          {typeInfo?.icon || '📌'}
+                        <div className={`relative z-10 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white border-2 ${emailIconBorder} text-lg`}>
+                          {isEmail ? (isInbound ? '📥' : '📤') : (typeInfo?.icon || '📌')}
                         </div>
-                        <div className="flex-1 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        <div className={`flex-1 rounded-lg border ${emailBorderColor} bg-gray-50 p-4`}>
                           <div className="mb-1 flex items-center gap-2">
-                            <Badge className="bg-blue-100 text-blue-800">
-                              {typeInfo?.label || activity.type}
-                            </Badge>
+                            {isEmail ? (
+                              <Badge className={isInbound ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}>
+                                {isInbound ? '收件' : '发件'}
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-blue-100 text-blue-800">
+                                {typeInfo?.label || activity.type}
+                              </Badge>
+                            )}
                             <span className="text-xs text-gray-500">
                               {activity.owner?.name} &middot;{' '}
                               {new Date(activity.createdAt).toLocaleString('zh-CN')}

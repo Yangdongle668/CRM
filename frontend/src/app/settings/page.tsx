@@ -713,100 +713,16 @@ export default function SettingsPage() {
                 <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">账户号</label>
-                      <input
-                        type="text"
-                        value={bankInfo.accountNumber || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, accountNumber: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">账户名</label>
-                      <input
-                        type="text"
-                        value={bankInfo.holderName || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, holderName: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">银行名称</label>
-                      <input
-                        type="text"
-                        value={bankInfo.bankName || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, bankName: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">支持币种</label>
-                      <input
-                        type="text"
-                        value={bankInfo.currency || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, currency: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="USD, CNY 等"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">账户类型</label>
-                      <input
-                        type="text"
-                        value={bankInfo.accountType || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, accountType: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="Checking, Savings 等"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">国家/地区</label>
-                      <input
-                        type="text"
-                        value={bankInfo.country || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, country: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">银行地址</label>
-                      <textarea
-                        value={bankInfo.bankAddress || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, bankAddress: e.target.value })}
-                        rows={2}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Swift / BIC</label>
-                      <input
-                        type="text"
-                        value={bankInfo.swiftBic || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, swiftBic: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Routing Number</label>
-                      <input
-                        type="text"
-                        value={bankInfo.routingNumber || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, routingNumber: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">付款备忘/说明</label>
-                      <textarea
-                        value={bankInfo.paymentMemo || ''}
-                        onChange={(e) => setBankInfo({ ...bankInfo, paymentMemo: e.target.value })}
-                        rows={3}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="付款时请注明收款人、发票号等信息"
-                      />
-                    </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">银行信息</label>
+                    <p className="text-xs text-gray-500 mb-2">请输入完整的银行信息，每行一条，将直接显示在形式发票（PI）的PDF中</p>
+                    <textarea
+                      value={bankInfo.bankInfoText || ''}
+                      onChange={(e) => setBankInfo({ ...bankInfo, bankInfoText: e.target.value })}
+                      rows={10}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      placeholder={`Account number：123456789\nAccount name：Company Name\nSWIFT/BIC code：ABCDEFGH\nBank name：Bank of Example\nBank address：123 Main St\nCountry/region：China\nFor the payment of goods, please make a USD Payment`}
+                    />
                   </div>
                   <div className="border-t pt-4">
                     <button
