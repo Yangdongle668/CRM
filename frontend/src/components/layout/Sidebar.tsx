@@ -35,7 +35,6 @@ const navItems: NavItem[] = [
   { label: '联系人', href: '/contacts', icon: HiOutlineUsers },
   { label: '销售线索', href: '/leads', icon: HiOutlineFunnel },
   { label: '邮件中心', href: '/emails', icon: HiOutlineEnvelope },
-  { label: '报价管理', href: '/quotations', icon: HiOutlineDocumentText },
   { label: '形式发票', href: '/pis', icon: HiOutlineDocumentText },
   { label: '订单管理', href: '/orders', icon: HiOutlineClipboardDocumentList },
   { label: '任务管理', href: '/tasks', icon: HiOutlineCheckCircle },

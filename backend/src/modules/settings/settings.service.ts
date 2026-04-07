@@ -148,192 +148,30 @@ export class SettingsService {
   }
 
   async getBankInfo(): Promise<any | null> {
-    const [
-      accountNumber,
-      holderName,
-      currency,
-      bankName,
-      bankAddress,
-      accountType,
-      swiftBic,
-      routingNumber,
-      country,
-      paymentMemo,
-    ] = await Promise.all<any>([
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_account_number' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_holder_name' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_currency' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_name' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_address' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_account_type' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_swift_bic' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_routing_number' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_country' },
-      }),
-      this.prisma.systemSetting.findUnique({
-        where: { key: 'bank_payment_memo' },
-      }),
-    ]);
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: 'bank_info_text' },
+    });
 
-    // Return null if no bank info is set
-    if (
-      !accountNumber &&
-      !holderName &&
-      !bankName
-    ) {
+    if (!setting) {
       return null;
     }
 
     return {
-      accountNumber: accountNumber?.value,
-      holderName: holderName?.value,
-      currency: currency?.value,
-      bankName: bankName?.value,
-      bankAddress: bankAddress?.value,
-      accountType: accountType?.value,
-      swiftBic: swiftBic?.value,
-      routingNumber: routingNumber?.value,
-      country: country?.value,
-      paymentMemo: paymentMemo?.value,
+      bankInfoText: setting.value,
     };
   }
 
-  async updateBankInfo(data: {
-    accountNumber?: string;
-    holderName?: string;
-    currency?: string;
-    bankName?: string;
-    bankAddress?: string;
-    accountType?: string;
-    swiftBic?: string;
-    routingNumber?: string;
-    country?: string;
-    paymentMemo?: string;
-  }) {
-    const updates: Promise<any>[] = [];
-
-    if (data.accountNumber !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_account_number' },
-          update: { value: data.accountNumber },
-          create: { key: 'bank_account_number', value: data.accountNumber },
-        }),
-      );
-    }
-
-    if (data.holderName !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_holder_name' },
-          update: { value: data.holderName },
-          create: { key: 'bank_holder_name', value: data.holderName },
-        }),
-      );
-    }
-
-    if (data.currency !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_currency' },
-          update: { value: data.currency },
-          create: { key: 'bank_currency', value: data.currency },
-        }),
-      );
-    }
-
-    if (data.bankName !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_name' },
-          update: { value: data.bankName },
-          create: { key: 'bank_name', value: data.bankName },
-        }),
-      );
-    }
-
-    if (data.bankAddress !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_address' },
-          update: { value: data.bankAddress },
-          create: { key: 'bank_address', value: data.bankAddress },
-        }),
-      );
-    }
-
-    if (data.accountType !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_account_type' },
-          update: { value: data.accountType },
-          create: { key: 'bank_account_type', value: data.accountType },
-        }),
-      );
-    }
-
-    if (data.swiftBic !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_swift_bic' },
-          update: { value: data.swiftBic },
-          create: { key: 'bank_swift_bic', value: data.swiftBic },
-        }),
-      );
-    }
-
-    if (data.routingNumber !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_routing_number' },
-          update: { value: data.routingNumber },
-          create: { key: 'bank_routing_number', value: data.routingNumber },
-        }),
-      );
-    }
-
-    if (data.country !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_country' },
-          update: { value: data.country },
-          create: { key: 'bank_country', value: data.country },
-        }),
-      );
-    }
-
-    if (data.paymentMemo !== undefined) {
-      updates.push(
-        this.prisma.systemSetting.upsert({
-          where: { key: 'bank_payment_memo' },
-          update: { value: data.paymentMemo },
-          create: { key: 'bank_payment_memo', value: data.paymentMemo },
-        }),
-      );
-    }
-
-    if (updates.length === 0) {
+  async updateBankInfo(data: { bankInfoText?: string }) {
+    if (data.bankInfoText === undefined) {
       return this.getBankInfo();
     }
 
-    await Promise.all(updates);
+    await this.prisma.systemSetting.upsert({
+      where: { key: 'bank_info_text' },
+      update: { value: data.bankInfoText },
+      create: { key: 'bank_info_text', value: data.bankInfoText },
+    });
+
     return this.getBankInfo();
   }
 }
