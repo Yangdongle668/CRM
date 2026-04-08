@@ -1,13 +1,14 @@
 import {
   IsString,
   IsOptional,
-  IsNotEmpty,
   IsEnum,
   IsNumber,
   IsInt,
   IsUUID,
   IsDateString,
+  IsBoolean,
   Min,
+  Max,
 } from 'class-validator';
 
 export enum LeadStage {
@@ -21,9 +22,49 @@ export enum LeadStage {
 }
 
 export class CreateLeadDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  title: string;
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  companyName?: string;
+
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  contactTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  website?: string;
+
+  @IsOptional()
+  @IsString()
+  industry?: string;
+
+  @IsOptional()
+  @IsString()
+  companySize?: string;
 
   @IsOptional()
   @IsString()
@@ -34,6 +75,28 @@ export class CreateLeadDto {
   stage?: LeadStage;
 
   @IsOptional()
+  @IsString()
+  source?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  score?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isPublicPool?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  estimatedValue?: number;
+
+  @IsOptional()
+  @IsString()
+  currency?: string;
+
+  @IsOptional()
   @IsNumber()
   expectedAmount?: number;
 
@@ -42,8 +105,16 @@ export class CreateLeadDto {
   expectedDate?: string;
 
   @IsOptional()
+  @IsDateString()
+  lastContactAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  nextFollowUpAt?: string;
+
+  @IsOptional()
   @IsString()
-  source?: string;
+  notes?: string;
 
   @IsOptional()
   @IsInt()
@@ -53,4 +124,8 @@ export class CreateLeadDto {
   @IsOptional()
   @IsUUID()
   customerId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  ownerId?: string;
 }

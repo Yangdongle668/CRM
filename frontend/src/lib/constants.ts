@@ -8,14 +8,24 @@ export const CUSTOMER_STATUS_MAP: Record<string, { label: string; color: string 
 
 // 线索阶段
 export const LEAD_STAGE_MAP: Record<string, { label: string; color: string }> = {
-  NEW: { label: '新线索', color: 'bg-blue-100 text-blue-800' },
-  CONTACTED: { label: '已联系', color: 'bg-indigo-100 text-indigo-800' },
-  QUALIFIED: { label: '已确认', color: 'bg-purple-100 text-purple-800' },
-  PROPOSAL: { label: '报价中', color: 'bg-yellow-100 text-yellow-800' },
-  NEGOTIATION: { label: '谈判中', color: 'bg-orange-100 text-orange-800' },
-  CLOSED_WON: { label: '成交', color: 'bg-green-100 text-green-800' },
-  CLOSED_LOST: { label: '丢失', color: 'bg-red-100 text-red-800' },
+  NEW: { label: '新线索', color: 'bg-blue-100 text-blue-700' },
+  CONTACTED: { label: '联系中', color: 'bg-indigo-100 text-indigo-700' },
+  QUALIFIED: { label: '已确认', color: 'bg-purple-100 text-purple-700' },
+  PROPOSAL: { label: '已报价', color: 'bg-emerald-100 text-emerald-700' },
+  NEGOTIATION: { label: '谈判中', color: 'bg-orange-100 text-orange-700' },
+  CLOSED_WON: { label: '已转化', color: 'bg-green-100 text-green-700' },
+  CLOSED_LOST: { label: '已关闭', color: 'bg-gray-100 text-gray-700' },
 };
+
+// 线索筛选标签（按图设计）
+export const LEAD_FILTER_TABS: Array<{ key: string; label: string }> = [
+  { key: '', label: '全部' },
+  { key: 'NEW', label: '新线索' },
+  { key: 'CONTACTED', label: '联系中' },
+  { key: 'QUALIFIED', label: '已确认' },
+  { key: 'CLOSED_WON', label: '已转化' },
+  { key: 'POOL', label: '公海' },
+];
 
 // 报价单状态
 export const QUOTATION_STATUS_MAP: Record<string, { label: string; color: string }> = {
