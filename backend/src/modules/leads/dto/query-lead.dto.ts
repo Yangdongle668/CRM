@@ -1,4 +1,12 @@
-import { IsOptional, IsString, IsInt, Min, IsEnum, IsUUID } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  IsInt,
+  Min,
+  IsEnum,
+  IsUUID,
+  IsBooleanString,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { LeadStage } from './create-lead.dto';
 
@@ -26,4 +34,20 @@ export class QueryLeadDto {
   @IsOptional()
   @IsUUID()
   ownerId?: string;
+
+  @IsOptional()
+  @IsBooleanString()
+  isPublicPool?: string;
+
+  @IsOptional()
+  @IsString()
+  scope?: 'mine' | 'pool' | 'all';
+
+  @IsOptional()
+  @IsString()
+  sortBy?: 'updatedAt' | 'createdAt' | 'score';
+
+  @IsOptional()
+  @IsString()
+  sortOrder?: 'asc' | 'desc';
 }

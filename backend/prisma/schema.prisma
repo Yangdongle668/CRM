@@ -39,6 +39,7 @@ model User {
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
+  leadActivities  LeadActivity[]
 
   @@map("users")
 }
@@ -138,21 +139,52 @@ enum LeadStage {
 model Lead {
   id             String    @id @default(uuid())
   title          String
+  companyName    String?   @map("company_name")
+  contactName    String?   @map("contact_name")
+  contactTitle   String?   @map("contact_title")
+  email          String?
+  phone          String?
+  country        String?
+  city           String?
+  website        String?
+  industry       String?
+  companySize    String?   @map("company_size")
   description    String?
   stage          LeadStage @default(NEW)
+  source         String?
+  score          Int       @default(0)
+  isPublicPool   Boolean   @default(false) @map("is_public_pool")
+  estimatedValue Decimal?  @map("estimated_value") @db.Decimal(12, 2)
+  currency       String?   @default("USD")
   expectedAmount Decimal?  @map("expected_amount") @db.Decimal(12, 2)
   expectedDate   DateTime? @map("expected_date")
-  source         String?
+  lastContactAt  DateTime? @map("last_contact_at")
+  nextFollowUpAt DateTime? @map("next_follow_up_at")
+  notes          String?
   priority       Int       @default(0)
   customerId     String?   @map("customer_id")
-  ownerId        String    @map("owner_id")
+  ownerId        String?   @map("owner_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  owner    User      @relation(fields: [ownerId], references: [id])
-  customer Customer? @relation(fields: [customerId], references: [id])
+  owner      User?          @relation(fields: [ownerId], references: [id])
+  customer   Customer?      @relation(fields: [customerId], references: [id])
+  activities LeadActivity[]
 
   @@map("leads")
+}
+
+model LeadActivity {
+  id        String   @id @default(uuid())
+  content   String
+  leadId    String   @map("lead_id")
+  ownerId   String   @map("owner_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  lead  Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  owner User @relation(fields: [ownerId], references: [id])
+
+  @@map("lead_activities")
 }
 
 // ==================== 邮件 ====================

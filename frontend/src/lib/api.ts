@@ -87,6 +87,22 @@ export const leadsApi = {
   updateStage: (id: string, stage: string) =>
     api.patch(`/leads/${id}/stage`, { stage }),
   delete: (id: string) => api.delete(`/leads/${id}`),
+  claim: (id: string) => api.post(`/leads/${id}/claim`, {}),
+  release: (id: string) => api.post(`/leads/${id}/release`, {}),
+  assign: (id: string, ownerId: string) =>
+    api.post(`/leads/${id}/assign`, { ownerId }),
+  convert: (id: string) => api.post(`/leads/${id}/convert`, {}),
+  batchAssign: (ids: string[], ownerId: string) =>
+    api.post('/leads/batch-assign', { ids, ownerId }),
+  batchRelease: (ids: string[]) => api.post('/leads/batch-release', { ids }),
+  batchDelete: (ids: string[]) => api.post('/leads/batch-delete', { ids }),
+  listActivities: (id: string) => api.get(`/leads/${id}/activities`),
+  addActivity: (id: string, content: string) =>
+    api.post(`/leads/${id}/activities`, { content }),
+  exportCsvUrl: (params?: any) => {
+    const qs = new URLSearchParams(params || {}).toString();
+    return `/api/leads/export/csv${qs ? `?${qs}` : ''}`;
+  },
 };
 
 // ==================== Emails API ====================
@@ -161,6 +177,13 @@ export const dashboardApi = {
   getSalesTrend: () => api.get('/dashboard/sales-trend'),
   getFunnel: () => api.get('/dashboard/funnel'),
   getRankings: () => api.get('/dashboard/rankings'),
+  getAdminOverview: (period?: string) =>
+    api.get('/dashboard/admin/overview', { params: { period } }),
+  getSalespersonStats: (period?: string) =>
+    api.get('/dashboard/admin/salesperson-stats', { params: { period } }),
+  getFollowUpProgress: () => api.get('/dashboard/admin/follow-up-progress'),
+  getAdminTrend: (granularity?: 'day' | 'month', days?: number) =>
+    api.get('/dashboard/admin/trend', { params: { granularity, days } }),
 };
 
 // ==================== Backup API ====================

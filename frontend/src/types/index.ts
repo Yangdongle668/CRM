@@ -65,19 +65,46 @@ export interface Contact {
 // ==================== 销售线索 ====================
 export type LeadStage = 'NEW' | 'CONTACTED' | 'QUALIFIED' | 'PROPOSAL' | 'NEGOTIATION' | 'CLOSED_WON' | 'CLOSED_LOST';
 
+export interface LeadActivity {
+  id: string;
+  content: string;
+  leadId: string;
+  ownerId: string;
+  owner?: { id: string; name: string };
+  createdAt: string;
+}
+
 export interface Lead {
   id: string;
   title: string;
+  companyName?: string;
+  contactName?: string;
+  contactTitle?: string;
+  email?: string;
+  phone?: string;
+  country?: string;
+  city?: string;
+  website?: string;
+  industry?: string;
+  companySize?: string;
   description?: string;
   stage: LeadStage;
+  source?: string;
+  score?: number;
+  isPublicPool?: boolean;
+  estimatedValue?: number;
+  currency?: string;
   expectedAmount?: number;
   expectedDate?: string;
-  source?: string;
+  lastContactAt?: string;
+  nextFollowUpAt?: string;
+  notes?: string;
   priority: number;
   customerId?: string;
   customer?: Customer;
-  ownerId: string;
+  ownerId?: string | null;
   owner?: User;
+  activities?: LeadActivity[];
   createdAt: string;
   updatedAt: string;
 }
