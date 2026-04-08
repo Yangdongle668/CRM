@@ -20,6 +20,7 @@ import {
   HiOutlineChevronRight,
   HiOutlineArrowRightOnRectangle,
   HiOutlineBookOpen,
+  HiOutlineChartBar,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -40,6 +41,7 @@ const navItems: NavItem[] = [
   { label: '任务管理', href: '/tasks', icon: HiOutlineCheckCircle },
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
   { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
+  { label: '管理中心', href: '/admin', icon: HiOutlineChartBar, adminOnly: true },
   { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth, adminOnly: true },
 ];
 
