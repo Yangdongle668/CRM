@@ -10,6 +10,10 @@ import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP } from '@/lib/constants';
 import type { Lead, Customer, PaginatedData, LeadStage } from '@/types';
 import toast from 'react-hot-toast';
+import { HiOutlineLockClosed } from 'react-icons/hi2';
+
+/** Returns true when the lead's owner is an ADMIN — blocks transfer operations */
+const isAdminOwned = (lead: Lead): boolean => lead.owner?.role === 'ADMIN';
 
 const STAGES: LeadStage[] = [
   'NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL', 'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST',
@@ -271,7 +275,14 @@ export default function LeadsPage() {
                       {lead.expectedDate && ` | ${formatDate(lead.expectedDate)}`}
                     </p>
                     {lead.owner && (
-                      <p className="text-xs text-gray-400 mb-2">{lead.owner.name}</p>
+                      <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                        {lead.owner.name}
+                        {isAdminOwned(lead) && (
+                          <span title="Admin-owned leads are locked — cannot be transferred">
+                            <HiOutlineLockClosed className="h-3 w-3 text-amber-500" />
+                          </span>
+                        )}
+                      </p>
                     )}
                     <div className="flex gap-1">
                       {prevStage && (
@@ -376,7 +387,14 @@ export default function LeadsPage() {
                   </Badge>
                 </td>
                 <td className="px-4 py-3 text-sm text-gray-500">
-                  {lead.owner?.name || '-'}
+                  <span className="flex items-center gap-1">
+                    {lead.owner?.name || '-'}
+                    {isAdminOwned(lead) && (
+                      <span title="Admin-owned leads are locked — cannot be transferred">
+                        <HiOutlineLockClosed className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                      </span>
+                    )}
+                  </span>
                 </td>
                 <td className="px-4 py-3 text-sm space-x-2">
                   <button
