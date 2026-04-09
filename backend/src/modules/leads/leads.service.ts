@@ -10,9 +10,21 @@ import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { Prisma } from '@prisma/client';
 
+const OWNER_SELECT = { id: true, name: true, email: true, role: true } as const;
+
 @Injectable()
 export class LeadsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Throws ForbiddenException if the lead's current owner is an ADMIN.
+   * Pass an already-fetched lead (with owner.role) to avoid an extra DB call.
+   */
+  private assertNotAdminOwned(lead: any): void {
+    if (lead?.owner?.role === 'ADMIN') {
+      throw new ForbiddenException('Admin-owned leads cannot be transferred');
+    }
+  }
 
   async findAll(query: QueryLeadDto, userId: string, role: string) {
     const {
@@ -87,7 +99,7 @@ export class LeadsService {
         take: pageSize,
         orderBy,
         include: {
-          owner: { select: { id: true, name: true, email: true } },
+          owner: { select: OWNER_SELECT },
           customer: { select: { id: true, companyName: true } },
         },
       }),
@@ -101,7 +113,7 @@ export class LeadsService {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
         activities: {
           orderBy: { createdAt: 'desc' },
@@ -170,7 +182,7 @@ export class LeadsService {
     return this.prisma.lead.create({
       data,
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
@@ -182,7 +194,10 @@ export class LeadsService {
     userId: string,
     role: string,
   ) {
-    const lead = await this.prisma.lead.findUnique({ where: { id } });
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { owner: { select: { role: true } } },
+    });
 
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${id}" not found`);
@@ -226,8 +241,9 @@ export class LeadsService {
         : { disconnect: true };
     }
 
-    // Only admin can reassign
+    // Only admin can reassign; block reassignment of admin-owned leads
     if (ownerId !== undefined && role === 'ADMIN') {
+      this.assertNotAdminOwned(lead);
       data.owner = ownerId
         ? { connect: { id: ownerId } }
         : { disconnect: true };
@@ -237,7 +253,7 @@ export class LeadsService {
       where: { id },
       data,
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
@@ -269,7 +285,7 @@ export class LeadsService {
       where: { id },
       data: { stage: stage as any },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
@@ -309,20 +325,24 @@ export class LeadsService {
         isPublicPool: false,
       },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
   }
 
   async releaseLead(id: string, userId: string, role: string) {
-    const lead = await this.prisma.lead.findUnique({ where: { id } });
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { owner: { select: { role: true } } },
+    });
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${id}" not found`);
     }
     if (role === 'SALESPERSON' && lead.ownerId !== userId) {
       throw new ForbiddenException('无权释放该线索');
     }
+    this.assertNotAdminOwned(lead);
 
     return this.prisma.lead.update({
       where: { id },
@@ -331,7 +351,7 @@ export class LeadsService {
         ownerId: null,
       },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
@@ -345,10 +365,15 @@ export class LeadsService {
     if (role !== 'ADMIN') {
       throw new ForbiddenException('仅管理员可分配线索');
     }
-    const lead = await this.prisma.lead.findUnique({ where: { id } });
+    const lead = await this.prisma.lead.findUnique({
+      where: { id },
+      include: { owner: { select: { role: true } } },
+    });
     if (!lead) {
       throw new NotFoundException(`Lead with ID "${id}" not found`);
     }
+    this.assertNotAdminOwned(lead);
+
     const target = await this.prisma.user.findUnique({
       where: { id: targetOwnerId },
     });
@@ -363,7 +388,7 @@ export class LeadsService {
         isPublicPool: false,
       },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
+        owner: { select: OWNER_SELECT },
         customer: { select: { id: true, companyName: true } },
       },
     });
@@ -377,15 +402,33 @@ export class LeadsService {
     if (role !== 'ADMIN') {
       throw new ForbiddenException('仅管理员可批量分配');
     }
+    // Exclude admin-owned leads — they cannot be transferred
+    const adminOwned = await this.prisma.lead.findMany({
+      where: { id: { in: ids }, owner: { role: 'ADMIN' } },
+      select: { id: true },
+    });
+    const adminOwnedIds = new Set(adminOwned.map((l) => l.id));
+    const transferableIds = ids.filter((id) => !adminOwnedIds.has(id));
+    if (transferableIds.length === 0) {
+      throw new ForbiddenException('Admin-owned leads cannot be transferred');
+    }
     const result = await this.prisma.lead.updateMany({
-      where: { id: { in: ids } },
+      where: { id: { in: transferableIds } },
       data: { ownerId: targetOwnerId, isPublicPool: false },
     });
-    return { updated: result.count };
+    return { updated: result.count, skipped: adminOwnedIds.size };
   }
 
   async batchRelease(ids: string[], userId: string, role: string) {
-    const where: Prisma.LeadWhereInput = { id: { in: ids } };
+    // Exclude admin-owned leads — they cannot be moved to the pool
+    const adminOwned = await this.prisma.lead.findMany({
+      where: { id: { in: ids }, owner: { role: 'ADMIN' } },
+      select: { id: true },
+    });
+    const adminOwnedIds = new Set(adminOwned.map((l) => l.id));
+    const transferableIds = ids.filter((id) => !adminOwnedIds.has(id));
+
+    const where: Prisma.LeadWhereInput = { id: { in: transferableIds } };
     if (role !== 'ADMIN') {
       where.ownerId = userId;
     }
@@ -393,7 +436,7 @@ export class LeadsService {
       where,
       data: { isPublicPool: true, ownerId: null },
     });
-    return { released: result.count };
+    return { released: result.count, skipped: adminOwnedIds.size };
   }
 
   async batchDelete(ids: string[], userId: string, role: string) {
