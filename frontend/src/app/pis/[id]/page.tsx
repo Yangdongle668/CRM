@@ -267,7 +267,22 @@ export default function PIDetailPage() {
                   </label>
                   <select
                     value={formData.customerId || ''}
-                    onChange={(e) => handleFieldChange('customerId', e.target.value)}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      handleFieldChange('customerId', selectedId);
+                      // Auto-fill consignee info from customer
+                      if (selectedId) {
+                        const selected = customers.find((c) => c.id === selectedId);
+                        if (selected) {
+                          setFormData((prev) => ({
+                            ...prev,
+                            customerId: selectedId,
+                            consigneeName: selected.companyName || prev.consigneeName || '',
+                            consigneeAddress: selected.address || prev.consigneeAddress || '',
+                          }));
+                        }
+                      }
+                    }}
                     disabled={!canEdit}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg disabled:bg-gray-100"
                   >
