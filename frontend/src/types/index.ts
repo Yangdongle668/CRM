@@ -80,10 +80,14 @@ export interface Lead {
   companyName?: string;
   contactName?: string;
   contactTitle?: string;
+  contactEmail?: string;
   email?: string;
   phone?: string;
   country?: string;
+  region?: string;
   city?: string;
+  address?: string;
+  postalCode?: string;
   website?: string;
   industry?: string;
   companySize?: string;
@@ -104,6 +108,8 @@ export interface Lead {
   customer?: Customer;
   ownerId?: string | null;
   owner?: User;
+  creatorId?: string | null;
+  creator?: User;
   activities?: LeadActivity[];
   createdAt: string;
   updatedAt: string;

@@ -28,7 +28,8 @@ model User {
 
   // 关联
   customers       Customer[]
-  leads           Lead[]
+  leadsOwned      Lead[]         @relation("LeadsOwned")
+  leadsCreated    Lead[]         @relation("LeadsCreated")
   quotations      Quotation[]
   orders          Order[]
   tasks           Task[]
@@ -142,10 +143,14 @@ model Lead {
   companyName    String?   @map("company_name")
   contactName    String?   @map("contact_name")
   contactTitle   String?   @map("contact_title")
+  contactEmail   String?   @map("contact_email")
   email          String?
   phone          String?
   country        String?
+  region         String?
   city           String?
+  address        String?
+  postalCode     String?   @map("postal_code")
   website        String?
   industry       String?
   companySize    String?   @map("company_size")
@@ -164,10 +169,12 @@ model Lead {
   priority       Int       @default(0)
   customerId     String?   @map("customer_id")
   ownerId        String?   @map("owner_id")
+  creatorId      String?   @map("creator_id")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
-  owner      User?          @relation(fields: [ownerId], references: [id])
+  owner      User?          @relation("LeadsOwned", fields: [ownerId], references: [id])
+  creator    User?          @relation("LeadsCreated", fields: [creatorId], references: [id])
   customer   Customer?      @relation(fields: [customerId], references: [id])
   activities LeadActivity[]
 

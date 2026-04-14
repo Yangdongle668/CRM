@@ -48,11 +48,27 @@ export class CreateLeadDto {
 
   @IsOptional()
   @IsString()
+  contactEmail?: string;
+
+  @IsOptional()
+  @IsString()
   country?: string;
 
   @IsOptional()
   @IsString()
+  region?: string;
+
+  @IsOptional()
+  @IsString()
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
 
   @IsOptional()
   @IsString()
