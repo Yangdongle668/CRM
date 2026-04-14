@@ -6,6 +6,8 @@ import {
   IsArray,
   ValidateNested,
   IsNumber,
+  IsDateString,
+  IsInt,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -30,6 +32,14 @@ export class OrderItemDto {
   @IsNumber()
   @Min(0)
   unitPrice: number;
+
+  @IsNumber()
+  @IsOptional()
+  totalPrice?: number;
+
+  @IsInt()
+  @IsOptional()
+  sortOrder?: number;
 }
 
 export class CreateOrderDto {
@@ -45,9 +55,25 @@ export class CreateOrderDto {
   @IsOptional()
   currency?: string;
 
+  @IsNumber()
+  @IsOptional()
+  totalAmount?: number;
+
   @IsString()
   @IsOptional()
   shippingAddr?: string;
+
+  @IsDateString()
+  @IsOptional()
+  shippingDate?: string;
+
+  @IsDateString()
+  @IsOptional()
+  deliveryDate?: string;
+
+  @IsString()
+  @IsOptional()
+  trackingNo?: string;
 
   @IsString()
   @IsOptional()
