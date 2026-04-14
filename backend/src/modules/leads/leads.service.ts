@@ -32,6 +32,7 @@ export class LeadsService {
       pageSize = 20,
       search,
       stage,
+      source,
       ownerId,
       isPublicPool,
       scope,
@@ -50,8 +51,18 @@ export class LeadsService {
       // My leads: owned by current user, not in pool
       where.ownerId = userId;
       where.isPublicPool = false;
+    } else if (scope === 'all') {
+      // All leads (admin only)
+      if (role !== 'ADMIN') {
+        // Non-admin sees own + pool
+        where.OR = [
+          { ownerId: userId },
+          { isPublicPool: true },
+          { ownerId: null },
+        ];
+      }
     } else {
-      // Default: SALESPERSON sees only own leads + public pool
+      // Default (no scope specified): SALESPERSON sees only own leads + public pool
       if (role === 'SALESPERSON') {
         where.OR = [
           { ownerId: userId },
@@ -82,6 +93,10 @@ export class LeadsService {
 
     if (stage) {
       where.stage = stage;
+    }
+
+    if (source) {
+      where.source = source;
     }
 
     if (isPublicPool === 'true') {

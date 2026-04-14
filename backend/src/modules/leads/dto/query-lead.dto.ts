@@ -32,6 +32,10 @@ export class QueryLeadDto {
   stage?: LeadStage;
 
   @IsOptional()
+  @IsString()
+  source?: string;
+
+  @IsOptional()
   @IsUUID()
   ownerId?: string;
 
