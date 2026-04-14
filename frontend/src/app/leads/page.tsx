@@ -5,16 +5,17 @@ import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
-import { leadsApi, customersApi } from '@/lib/api';
+import { leadsApi, customersApi, usersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP, CUSTOMER_SOURCES } from '@/lib/constants';
-import type { Lead, Customer, PaginatedData, LeadStage } from '@/types';
+import type { Lead, Customer, PaginatedData, LeadStage, User } from '@/types';
 import toast from 'react-hot-toast';
 import {
   HiOutlineEye,
   HiOutlineTrash,
   HiOutlineArrowUpTray,
   HiOutlineLockClosed,
+  HiOutlineUserPlus,
 } from 'react-icons/hi2';
 
 const isAdminOwned = (lead: Lead): boolean => lead.owner?.role === 'ADMIN';
@@ -64,6 +65,13 @@ export default function LeadsPage() {
   const [form, setForm] = useState<LeadFormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
 
+  // Assign modal (admin only)
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignLeadId, setAssignLeadId] = useState<string | null>(null);
+  const [assignUserId, setAssignUserId] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [assigning, setAssigning] = useState(false);
+
   const fetchLeads = useCallback(async () => {
     setLoading(true);
     try {
@@ -83,6 +91,39 @@ export default function LeadsPage() {
   useEffect(() => {
     fetchLeads();
   }, [fetchLeads]);
+
+  // Fetch users for assign dropdown (admin only)
+  useEffect(() => {
+    if (user?.role === 'ADMIN') {
+      usersApi.list().then((res: any) => {
+        setUsers(res.data?.items || res.data || []);
+      }).catch(() => {});
+    }
+  }, [user?.role]);
+
+  const openAssignModal = (leadId: string) => {
+    setAssignLeadId(leadId);
+    setAssignUserId('');
+    setAssignOpen(true);
+  };
+
+  const handleAssign = async () => {
+    if (!assignLeadId || !assignUserId) {
+      toast.error('请选择负责人');
+      return;
+    }
+    setAssigning(true);
+    try {
+      await leadsApi.assign(assignLeadId, assignUserId);
+      toast.success('线索已分配');
+      setAssignOpen(false);
+      fetchLeads();
+    } catch {
+      // handled by interceptor
+    } finally {
+      setAssigning(false);
+    }
+  };
 
   const openCreateModal = () => {
     setEditingLead(null);
@@ -312,6 +353,20 @@ export default function LeadsPage() {
                         >
                           <HiOutlineEye className="h-4 w-4" />
                         </button>
+                        {user?.role === 'ADMIN' && !isAdminOwned(lead) && (
+                          <button
+                            onClick={() => openAssignModal(lead.id)}
+                            className="p-1 text-gray-500 hover:text-green-600"
+                            title="分配"
+                          >
+                            <HiOutlineUserPlus className="h-4 w-4" />
+                          </button>
+                        )}
+                        {isAdminOwned(lead) && (
+                          <span className="p-1 text-amber-500 cursor-not-allowed" title="管理员线索不可转移">
+                            <HiOutlineLockClosed className="h-4 w-4" />
+                          </span>
+                        )}
                         <button
                           onClick={() => handleDelete(lead.id)}
                           className="p-1 text-gray-500 hover:text-red-600"
@@ -491,6 +546,47 @@ export default function LeadsPage() {
               </button>
             </div>
           </form>
+        </Modal>
+
+        {/* Assign Modal (admin only) */}
+        <Modal
+          isOpen={assignOpen}
+          onClose={() => setAssignOpen(false)}
+          title="分配线索"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">选择负责人</label>
+              <select
+                value={assignUserId}
+                onChange={(e) => setAssignUserId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">请选择...</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role === 'ADMIN' ? '管理员' : '业务员'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                onClick={() => setAssignOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleAssign}
+                disabled={assigning || !assignUserId}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {assigning ? '分配中...' : '确认分配'}
+              </button>
+            </div>
+          </div>
         </Modal>
       </div>
     </AppLayout>

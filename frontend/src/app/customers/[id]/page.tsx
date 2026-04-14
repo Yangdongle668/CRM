@@ -81,6 +81,9 @@ export default function CustomerDetailPage() {
 
   // Emails
   const [emails, setEmails] = useState<Email[]>([]);
+  const [emailPage, setEmailPage] = useState(1);
+  const EMAIL_PAGE_SIZE = 10;
+  const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
 
   // Delete contact
   const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
@@ -608,47 +611,155 @@ export default function CustomerDetailPage() {
           )}
 
           {/* Emails Tab */}
-          {activeTab === 'emails' && (
-            <div className="space-y-4">
-              {emails.length === 0 ? (
-                <p className="py-8 text-center text-sm text-gray-500">暂无邮件记录</p>
-              ) : (
-                <div className="divide-y divide-gray-200">
-                  {emails.map((email) => (
-                    <div key={email.id} className="py-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            className={
-                              email.direction === 'INBOUND'
-                                ? 'bg-green-100 text-green-800'
-                                : 'bg-blue-100 text-blue-800'
-                            }
-                          >
-                            {email.direction === 'INBOUND' ? '收件' : '发件'}
-                          </Badge>
-                          <span className="text-sm font-medium text-gray-900">{email.subject}</span>
-                        </div>
-                        <span className="text-xs text-gray-500">
-                          {new Date(email.sentAt || email.receivedAt || email.createdAt).toLocaleString(
-                            'zh-CN'
-                          )}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        <span>发件人: {email.fromAddr}</span>
-                        <span className="mx-2">&rarr;</span>
-                        <span>收件人: {email.toAddr}</span>
-                      </div>
-                      {email.bodyText && (
-                        <p className="mt-2 text-sm text-gray-600 line-clamp-2">{email.bodyText}</p>
-                      )}
+          {activeTab === 'emails' && (() => {
+            // Sort emails by send/receive time (newest first)
+            const sortedEmails = [...emails].sort((a, b) => {
+              const timeA = new Date(a.sentAt || a.receivedAt || a.createdAt).getTime();
+              const timeB = new Date(b.sentAt || b.receivedAt || b.createdAt).getTime();
+              return timeB - timeA;
+            });
+
+            // Group by normalized subject (strip Re:/Fwd:/FW: prefixes)
+            const normalizeSubject = (s: string) =>
+              s.replace(/^(Re|Fwd|FW|Fw|RE|回复|转发)\s*[:：]\s*/gi, '').trim();
+
+            const groupMap = new Map<string, Email[]>();
+            for (const email of sortedEmails) {
+              const key = normalizeSubject(email.subject || '(无主题)');
+              if (!groupMap.has(key)) groupMap.set(key, []);
+              groupMap.get(key)!.push(email);
+            }
+            const groups = Array.from(groupMap.entries()); // [[subject, emails[]], ...]
+
+            // Paginate groups
+            const totalGroups = groups.length;
+            const totalEmailPages = Math.ceil(totalGroups / EMAIL_PAGE_SIZE);
+            const pagedGroups = groups.slice(
+              (emailPage - 1) * EMAIL_PAGE_SIZE,
+              emailPage * EMAIL_PAGE_SIZE
+            );
+
+            const toggleThread = (subject: string) => {
+              setCollapsedThreads((prev) => {
+                const next = new Set(prev);
+                if (next.has(subject)) next.delete(subject);
+                else next.add(subject);
+                return next;
+              });
+            };
+
+            return (
+              <div className="space-y-4">
+                {emails.length === 0 ? (
+                  <p className="py-8 text-center text-sm text-gray-500">暂无邮件记录</p>
+                ) : (
+                  <>
+                    <div className="divide-y divide-gray-200">
+                      {pagedGroups.map(([subject, threadEmails]) => {
+                        const isMulti = threadEmails.length > 1;
+                        const isCollapsed = collapsedThreads.has(subject);
+                        const displayEmails = isMulti && isCollapsed ? [threadEmails[0]] : threadEmails;
+
+                        return (
+                          <div key={subject} className="py-2">
+                            {isMulti && (
+                              <button
+                                onClick={() => toggleThread(subject)}
+                                className="flex items-center gap-2 w-full text-left py-2 px-2 rounded hover:bg-gray-50"
+                              >
+                                <span className="text-xs text-gray-400">
+                                  {isCollapsed ? '▶' : '▼'}
+                                </span>
+                                <span className="text-sm font-medium text-gray-900 truncate">
+                                  {subject}
+                                </span>
+                                <span className="ml-auto flex-shrink-0 text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
+                                  {threadEmails.length} 封
+                                </span>
+                              </button>
+                            )}
+                            <div className={isMulti ? 'ml-6 divide-y divide-gray-100' : ''}>
+                              {displayEmails.map((email) => (
+                                <div key={email.id} className="py-3">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <Badge
+                                        className={
+                                          email.direction === 'INBOUND'
+                                            ? 'bg-green-100 text-green-800'
+                                            : 'bg-blue-100 text-blue-800'
+                                        }
+                                      >
+                                        {email.direction === 'INBOUND' ? '收件' : '发件'}
+                                      </Badge>
+                                      <span className="text-sm font-medium text-gray-900">
+                                        {isMulti ? email.subject : subject}
+                                      </span>
+                                    </div>
+                                    <span className="text-xs text-gray-500 flex-shrink-0 ml-2">
+                                      {new Date(
+                                        email.sentAt || email.receivedAt || email.createdAt
+                                      ).toLocaleString('zh-CN')}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1 text-xs text-gray-500">
+                                    <span>发件人: {email.fromAddr}</span>
+                                    <span className="mx-2">&rarr;</span>
+                                    <span>收件人: {email.toAddr}</span>
+                                  </div>
+                                  {email.bodyText && (
+                                    <p className="mt-2 text-sm text-gray-600 line-clamp-2">
+                                      {email.bodyText}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                              {isMulti && isCollapsed && (
+                                <button
+                                  onClick={() => toggleThread(subject)}
+                                  className="py-1 text-xs text-blue-600 hover:text-blue-800"
+                                >
+                                  展开全部 {threadEmails.length} 封邮件
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+
+                    {/* Pagination */}
+                    {totalEmailPages > 1 && (
+                      <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                        <span className="text-sm text-gray-500">
+                          共 {totalGroups} 组会话，{emails.length} 封邮件
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setEmailPage((p) => Math.max(1, p - 1))}
+                            disabled={emailPage <= 1}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            上一页
+                          </button>
+                          <span className="text-sm text-gray-600">
+                            {emailPage} / {totalEmailPages}
+                          </span>
+                          <button
+                            onClick={() => setEmailPage((p) => Math.min(totalEmailPages, p + 1))}
+                            disabled={emailPage >= totalEmailPages}
+                            className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            下一页
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 
