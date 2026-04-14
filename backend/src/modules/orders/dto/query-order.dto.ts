@@ -19,6 +19,10 @@ export class QueryOrderDto {
   @IsOptional()
   keyword?: string;
 
+  @IsString()
+  @IsOptional()
+  search?: string;
+
   @Type(() => Number)
   @IsNumber()
   @Min(1)

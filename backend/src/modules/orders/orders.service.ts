@@ -39,6 +39,9 @@ export class OrdersService {
         currency: dto.currency || 'USD',
         totalAmount,
         shippingAddr: dto.shippingAddr,
+        shippingDate: dto.shippingDate ? new Date(dto.shippingDate) : undefined,
+        deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : undefined,
+        trackingNo: dto.trackingNo,
         remark: dto.remark,
         items: {
           create: items,
@@ -77,10 +80,11 @@ export class OrdersService {
       where.paymentStatus = query.paymentStatus;
     }
 
-    if (query.keyword) {
+    const keyword = query.keyword || query.search;
+    if (keyword) {
       where.OR = [
-        { orderNo: { contains: query.keyword, mode: 'insensitive' } },
-        { title: { contains: query.keyword, mode: 'insensitive' } },
+        { orderNo: { contains: keyword, mode: 'insensitive' } },
+        { title: { contains: keyword, mode: 'insensitive' } },
       ];
     }
 
