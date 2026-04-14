@@ -8,13 +8,12 @@ import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/contexts/auth-context';
 import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
-import type { User, Role, EmailConfig } from '@/types';
+import type { User, Role } from '@/types';
 
-type TabKey = 'users' | 'email' | 'system' | 'backup';
+type TabKey = 'users' | 'system' | 'backup';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'users', label: '用户管理' },
-  { key: 'email', label: '邮件配置' },
   { key: 'system', label: '系统参数' },
   { key: 'backup', label: '数据备份' },
 ];
@@ -25,21 +24,6 @@ const defaultUserForm = {
   password: '',
   role: 'SALESPERSON' as Role,
   phone: '',
-};
-
-const defaultEmailConfig: EmailConfig = {
-  smtpHost: '',
-  smtpPort: 465,
-  smtpUser: '',
-  smtpPass: '',
-  smtpSecure: true,
-  imapHost: '',
-  imapPort: 993,
-  imapUser: '',
-  imapPass: '',
-  imapSecure: true,
-  fromName: '',
-  signature: '',
 };
 
 export default function SettingsPage() {
@@ -56,11 +40,15 @@ export default function SettingsPage() {
   const [userForm, setUserForm] = useState(defaultUserForm);
   const [userSubmitting, setUserSubmitting] = useState(false);
 
-  // ==================== Email tab ====================
-  const [emailConfig, setEmailConfig] = useState<EmailConfig>(defaultEmailConfig);
-  const [emailLoading, setEmailLoading] = useState(false);
-  const [emailSaving, setEmailSaving] = useState(false);
-  const [emailTesting, setEmailTesting] = useState(false);
+  // ==================== Company Info ====================
+  const [companyInfo, setCompanyInfo] = useState({
+    companyName: '',
+    companyAddress: '',
+    companyPhone: '',
+    companyEmail: '',
+    companyWebsite: '',
+  });
+  const [companyInfoSaving, setCompanyInfoSaving] = useState(false);
 
   // ==================== System tab ====================
   const [systemSettings, setSystemSettings] = useState<Record<string, string>>({});
@@ -231,60 +219,6 @@ export default function SettingsPage() {
     }
   };
 
-  // ==================== Email Config API ====================
-  const fetchEmailConfig = useCallback(async () => {
-    setEmailLoading(true);
-    try {
-      const res: any = await settingsApi.getEmailConfig();
-      if (res.data) {
-        setEmailConfig({ ...defaultEmailConfig, ...res.data });
-      }
-    } catch {
-      // error handled by interceptor
-    } finally {
-      setEmailLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (isAdmin && activeTab === 'email') fetchEmailConfig();
-  }, [isAdmin, activeTab, fetchEmailConfig]);
-
-  const handleEmailSave = async () => {
-    setEmailSaving(true);
-    try {
-      // Auto-sync: IMAP credentials = SMTP credentials
-      const configToSave = {
-        ...emailConfig,
-        imapUser: emailConfig.smtpUser,
-        imapPass: emailConfig.smtpPass,
-      };
-      await settingsApi.updateEmailConfig(configToSave);
-      toast.success('邮件配置已保存');
-    } catch {
-      // error handled by interceptor
-    } finally {
-      setEmailSaving(false);
-    }
-  };
-
-  const handleEmailTest = async () => {
-    setEmailTesting(true);
-    try {
-      const configToTest = {
-        ...emailConfig,
-        imapUser: emailConfig.smtpUser,
-        imapPass: emailConfig.smtpPass,
-      };
-      await settingsApi.testEmailConfig(configToTest);
-      toast.success('连接测试成功');
-    } catch {
-      // error handled by interceptor
-    } finally {
-      setEmailTesting(false);
-    }
-  };
-
   // ==================== System Settings API ====================
   const fetchSystemSettings = useCallback(async () => {
     setSystemLoading(true);
@@ -330,13 +264,35 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchCompanyInfo = useCallback(async () => {
+    try {
+      const res: any = await settingsApi.getCompanyInfo();
+      if (res.data) setCompanyInfo((prev) => ({ ...prev, ...res.data }));
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleCompanyInfoSave = async () => {
+    setCompanyInfoSaving(true);
+    try {
+      await settingsApi.updateCompanyInfo(companyInfo);
+      toast.success('公司信息已保存');
+    } catch {
+      toast.error('保存失败');
+    } finally {
+      setCompanyInfoSaving(false);
+    }
+  };
+
   useEffect(() => {
     if (isAdmin && activeTab === 'system') {
       fetchSystemSettings();
       fetchLogo();
       fetchBankInfo();
+      fetchCompanyInfo();
     }
-  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo, fetchBankInfo]);
+  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo, fetchBankInfo, fetchCompanyInfo]);
 
   const handleLogoUpload = () => {
     const input = document.createElement('input');
@@ -524,164 +480,76 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {/* ==================== Email Config Tab ==================== */}
-        {activeTab === 'email' && (
-          <div className="rounded-lg border border-gray-200 bg-white p-6">
-            {emailLoading ? (
-              <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
-            ) : (
-              <div className="space-y-6">
-                {/* Account credentials - unified */}
-                <div>
-                  <h3 className="mb-4 text-base font-semibold text-gray-900">邮箱账户</h3>
-                  <p className="text-xs text-gray-500 mb-3">
-                    邮箱账号和密码（授权码）将同时用于 SMTP 发件和 IMAP 收件
-                  </p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">邮箱账号</label>
-                      <input
-                        type="text"
-                        value={emailConfig.smtpUser}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, smtpUser: e.target.value, imapUser: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="user@example.com"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">邮箱密码 / 授权码</label>
-                      <input
-                        type="password"
-                        value={emailConfig.smtpPass}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, smtpPass: e.target.value, imapPass: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="密码或授权码"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Server configuration */}
-                <div>
-                  <h3 className="mb-4 text-base font-semibold text-gray-900">服务器配置</h3>
-                  <div className="grid grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">SMTP 服务器</label>
-                      <input
-                        type="text"
-                        value={emailConfig.smtpHost}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, smtpHost: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="smtp.example.com"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">SMTP 端口</label>
-                      <input
-                        type="number"
-                        value={emailConfig.smtpPort}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, smtpPort: Number(e.target.value) })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="flex items-end pb-2">
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={emailConfig.smtpSecure}
-                          onChange={(e) => setEmailConfig({ ...emailConfig, smtpSecure: e.target.checked })}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        SSL/TLS 加密
-                      </label>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">IMAP 服务器</label>
-                      <input
-                        type="text"
-                        value={emailConfig.imapHost}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, imapHost: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="imap.example.com"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">IMAP 端口</label>
-                      <input
-                        type="number"
-                        value={emailConfig.imapPort}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, imapPort: Number(e.target.value) })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="flex items-end pb-2">
-                      <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={emailConfig.imapSecure}
-                          onChange={(e) => setEmailConfig({ ...emailConfig, imapSecure: e.target.checked })}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        SSL/TLS 加密
-                      </label>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Other email settings */}
-                <div>
-                  <h3 className="mb-4 text-base font-semibold text-gray-900">其他设置</h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">发件人名称</label>
-                      <input
-                        type="text"
-                        value={emailConfig.fromName || ''}
-                        onChange={(e) => setEmailConfig({ ...emailConfig, fromName: e.target.value })}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="公司名称"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">邮件签名</label>
-                    <textarea
-                      value={emailConfig.signature || ''}
-                      onChange={(e) => setEmailConfig({ ...emailConfig, signature: e.target.value })}
-                      rows={4}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder="请输入邮件签名内容"
-                    />
-                  </div>
-                </div>
-
-                {/* Buttons */}
-                <div className="flex items-center gap-3 border-t pt-4">
-                  <button
-                    onClick={handleEmailTest}
-                    disabled={emailTesting}
-                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    {emailTesting ? '测试中...' : '测试连接'}
-                  </button>
-                  <button
-                    onClick={handleEmailSave}
-                    disabled={emailSaving}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {emailSaving ? '保存中...' : '保存配置'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* ==================== System Settings Tab ==================== */}
         {activeTab === 'system' && (
           <div className="space-y-6">
+            {/* Company Info Section */}
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h3 className="text-base font-semibold text-gray-900 mb-4">公司信息</h3>
+              <p className="text-xs text-gray-500 mb-4">公司信息将自动同步到形式发票（PI）的卖方信息中</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司名称</label>
+                  <input
+                    type="text"
+                    value={companyInfo.companyName}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, companyName: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="公司名称"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司电话</label>
+                  <input
+                    type="text"
+                    value={companyInfo.companyPhone}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, companyPhone: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="公司电话"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司邮箱</label>
+                  <input
+                    type="text"
+                    value={companyInfo.companyEmail}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, companyEmail: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="公司邮箱"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司网站</label>
+                  <input
+                    type="text"
+                    value={companyInfo.companyWebsite}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, companyWebsite: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="https://www.example.com"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">公司地址</label>
+                  <textarea
+                    value={companyInfo.companyAddress}
+                    onChange={(e) => setCompanyInfo({ ...companyInfo, companyAddress: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="公司详细地址（支持多行）"
+                  />
+                </div>
+              </div>
+              <div className="border-t pt-4 mt-4">
+                <button
+                  onClick={handleCompanyInfoSave}
+                  disabled={companyInfoSaving}
+                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {companyInfoSaving ? '保存中...' : '保存公司信息'}
+                </button>
+              </div>
+            </div>
+
             {/* Logo Upload Section */}
             <div className="rounded-lg border border-gray-200 bg-white p-6">
               <h3 className="text-base font-semibold text-gray-900 mb-4">公司Logo</h3>

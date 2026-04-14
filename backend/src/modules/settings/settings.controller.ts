@@ -111,4 +111,15 @@ export class SettingsController {
   updateBankInfo(@Body() dto: BankInfoDto) {
     return this.settingsService.updateBankInfo(dto);
   }
+
+  @Get('company-info')
+  getCompanyInfo() {
+    return this.settingsService.getCompanyInfo();
+  }
+
+  @Put('company-info')
+  @Roles('ADMIN')
+  updateCompanyInfo(@Body() data: Record<string, string>) {
+    return this.settingsService.updateCompanyInfo(data);
+  }
 }

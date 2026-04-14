@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { useAuth } from '@/contexts/auth-context';
-import { pisApi, customersApi } from '@/lib/api';
+import { pisApi, customersApi, settingsApi } from '@/lib/api';
 import type { ProformaInvoice, ProformaInvoiceItem, Customer } from '@/types';
 
 export default function PIDetailPage() {
@@ -33,9 +33,10 @@ export default function PIDetailPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [customersRes, piRes] = await Promise.all([
+        const [customersRes, piRes, companyRes] = await Promise.all([
           customersApi.list({ pageSize: 999 }),
           isNew ? Promise.resolve(null) : pisApi.getById(piId),
+          settingsApi.getCompanyInfo().catch(() => null),
         ]);
         setCustomers((customersRes as any).data?.items || (customersRes as any).items || []);
         if (piRes) {
@@ -55,6 +56,16 @@ export default function PIDetailPage() {
               totalPrice: Number(item.totalPrice || 0),
             })),
           });
+        } else if (isNew) {
+          // Auto-fill seller info from company settings for new PI
+          const companyInfo = (companyRes as any)?.data || companyRes;
+          if (companyInfo) {
+            setFormData((prev) => ({
+              ...prev,
+              sellerId: companyInfo.companyName || '',
+              sellerAddress: companyInfo.companyAddress || '',
+            }));
+          }
         }
       } catch {
         toast.error('加载数据失败');
