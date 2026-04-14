@@ -229,6 +229,8 @@ export const settingsApi = {
   getLogo: () => api.get('/settings/logo'),
   getBankInfo: () => api.get('/settings/bank-info'),
   updateBankInfo: (data: any) => api.put('/settings/bank-info', data),
+  getCompanyInfo: () => api.get('/settings/company-info'),
+  updateCompanyInfo: (data: any) => api.put('/settings/company-info', data),
 };
 
 // ==================== Proforma Invoice (PI) API ====================

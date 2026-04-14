@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
 
-type FolderType = 'inbox' | 'unread' | 'sent' | 'templates';
+type FolderType = 'inbox' | 'unread' | 'sent' | 'templates' | 'settings';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
@@ -93,8 +93,78 @@ export default function EmailsPage() {
   const prevUnreadRef = useRef(0);
 
   // Fetch emails (threaded mode) based on active folder
+  // ==================== Email Config State ====================
+  const defaultEmailConfig = {
+    smtpHost: '', smtpPort: 465, smtpUser: '', smtpPass: '', smtpSecure: true,
+    imapHost: '', imapPort: 993, imapUser: '', imapPass: '', imapSecure: true,
+    fromName: '', signature: '',
+  };
+  const [emailConfig, setEmailConfig] = useState(defaultEmailConfig);
+  const [emailConfigLoading, setEmailConfigLoading] = useState(false);
+  const [emailConfigSaving, setEmailConfigSaving] = useState(false);
+  const [emailConfigTesting, setEmailConfigTesting] = useState(false);
+
+  const fetchEmailConfig = useCallback(async () => {
+    setEmailConfigLoading(true);
+    try {
+      const res: any = await settingsApi.getEmailConfig();
+      const cfg = res.data;
+      if (cfg) {
+        setEmailConfig({
+          smtpHost: cfg.smtpHost || '',
+          smtpPort: cfg.smtpPort || 465,
+          smtpUser: cfg.smtpUser || '',
+          smtpPass: cfg.smtpPass || '',
+          smtpSecure: cfg.smtpSecure ?? true,
+          imapHost: cfg.imapHost || '',
+          imapPort: cfg.imapPort || 993,
+          imapUser: cfg.imapUser || '',
+          imapPass: cfg.imapPass || '',
+          imapSecure: cfg.imapSecure ?? true,
+          fromName: cfg.fromName || '',
+          signature: cfg.signature || '',
+        });
+      }
+    } catch {
+      // handled by interceptor
+    } finally {
+      setEmailConfigLoading(false);
+    }
+  }, []);
+
+  const handleSaveEmailConfig = async () => {
+    setEmailConfigSaving(true);
+    try {
+      await settingsApi.updateEmailConfig(emailConfig);
+      toast.success('邮箱配置已保存');
+      // Update signature used for compose
+      if (emailConfig.signature) setSignature(emailConfig.signature);
+    } catch {
+      // handled by interceptor
+    } finally {
+      setEmailConfigSaving(false);
+    }
+  };
+
+  const handleTestEmailConfig = async () => {
+    setEmailConfigTesting(true);
+    try {
+      const res: any = await settingsApi.testEmailConfig(emailConfig);
+      const result = res.data;
+      if (result?.success) {
+        toast.success('SMTP 连接测试成功');
+      } else {
+        toast.error(result?.message || 'SMTP 连接测试失败');
+      }
+    } catch {
+      toast.error('连接测试失败');
+    } finally {
+      setEmailConfigTesting(false);
+    }
+  };
+
   const fetchEmails = useCallback(async () => {
-    if (activeFolder === 'templates') return;
+    if (activeFolder === 'templates' || activeFolder === 'settings') return;
     setLoading(true);
     try {
       const params: Record<string, any> = {
@@ -162,10 +232,12 @@ export default function EmailsPage() {
   useEffect(() => {
     if (activeFolder === 'templates') {
       fetchTemplates();
+    } else if (activeFolder === 'settings') {
+      fetchEmailConfig();
     } else {
       fetchEmails();
     }
-  }, [activeFolder, fetchEmails, fetchTemplates]);
+  }, [activeFolder, fetchEmails, fetchTemplates, fetchEmailConfig]);
 
   // Fetch email config for signature
   useEffect(() => {
@@ -465,6 +537,7 @@ export default function EmailsPage() {
     { key: 'unread', label: '未读邮件', icon: 'unread' },
     { key: 'sent', label: '已发送', icon: 'sent' },
     { key: 'templates', label: '邮件模板', icon: 'templates' },
+    { key: 'settings', label: '邮箱设置', icon: 'settings' },
   ];
 
   const folderIcons: Record<string, React.ReactNode> = {
@@ -486,6 +559,12 @@ export default function EmailsPage() {
     templates: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    settings: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
       </svg>
     ),
   };
@@ -1101,7 +1180,180 @@ export default function EmailsPage() {
           </aside>
 
           {/* Content area */}
-          {activeFolder === 'templates' ? (
+          {activeFolder === 'settings' ? (
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="max-w-2xl mx-auto">
+                <h2 className="text-lg font-semibold text-gray-900 mb-6">邮箱配置</h2>
+                {emailConfigLoading ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
+                    加载中...
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* SMTP Settings */}
+                    <div className="bg-white rounded-lg border p-5">
+                      <h3 className="text-sm font-semibold text-gray-800 mb-4">SMTP 发件服务器</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">SMTP 服务器</label>
+                          <input
+                            type="text"
+                            value={emailConfig.smtpHost}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpHost: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="例如: smtp.gmail.com"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">端口</label>
+                          <input
+                            type="number"
+                            value={emailConfig.smtpPort}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpPort: Number(e.target.value) })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">用户名</label>
+                          <input
+                            type="text"
+                            value={emailConfig.smtpUser}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpUser: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="邮箱地址"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">密码</label>
+                          <input
+                            type="password"
+                            value={emailConfig.smtpPass}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpPass: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="邮箱密码或授权码"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="flex items-center gap-2 text-sm text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={emailConfig.smtpSecure}
+                              onChange={(e) => setEmailConfig({ ...emailConfig, smtpSecure: e.target.checked })}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            使用 SSL/TLS 加密
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* IMAP Settings */}
+                    <div className="bg-white rounded-lg border p-5">
+                      <h3 className="text-sm font-semibold text-gray-800 mb-4">IMAP 收件服务器</h3>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">IMAP 服务器</label>
+                          <input
+                            type="text"
+                            value={emailConfig.imapHost}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, imapHost: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="例如: imap.gmail.com"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">端口</label>
+                          <input
+                            type="number"
+                            value={emailConfig.imapPort}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, imapPort: Number(e.target.value) })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">用户名</label>
+                          <input
+                            type="text"
+                            value={emailConfig.imapUser}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, imapUser: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="邮箱地址"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">密码</label>
+                          <input
+                            type="password"
+                            value={emailConfig.imapPass}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, imapPass: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="邮箱密码或授权码"
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="flex items-center gap-2 text-sm text-gray-600">
+                            <input
+                              type="checkbox"
+                              checked={emailConfig.imapSecure}
+                              onChange={(e) => setEmailConfig({ ...emailConfig, imapSecure: e.target.checked })}
+                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                            使用 SSL/TLS 加密
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Display Name & Signature */}
+                    <div className="bg-white rounded-lg border p-5">
+                      <h3 className="text-sm font-semibold text-gray-800 mb-4">显示设置</h3>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">发件人名称</label>
+                          <input
+                            type="text"
+                            value={emailConfig.fromName}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, fromName: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="收件人看到的发件人名称"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-gray-600 mb-1">邮件签名</label>
+                          <textarea
+                            value={emailConfig.signature}
+                            onChange={(e) => setEmailConfig({ ...emailConfig, signature: e.target.value })}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            rows={4}
+                            placeholder="支持 HTML 格式的邮件签名"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={handleSaveEmailConfig}
+                        disabled={emailConfigSaving}
+                        className="px-5 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        {emailConfigSaving ? '保存中...' : '保存配置'}
+                      </button>
+                      <button
+                        onClick={handleTestEmailConfig}
+                        disabled={emailConfigTesting}
+                        className="px-5 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        {emailConfigTesting ? '测试中...' : '测试 SMTP 连接'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : activeFolder === 'templates' ? (
             <div className="flex-1 overflow-y-auto p-4">
               <div className="flex justify-end mb-3">
                 <button

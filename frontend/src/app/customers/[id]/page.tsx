@@ -383,7 +383,12 @@ export default function CustomerDetailPage() {
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
               <InfoField label="公司名称" value={customer.companyName} />
               <InfoField label="国家" value={customer.country} />
-              <InfoField label="地址" value={customer.address} />
+              <div>
+                <dt className="text-sm font-medium text-gray-500">地址</dt>
+                <dd className="mt-1 text-sm text-gray-900 whitespace-pre-line">
+                  {customer.address || <span className="text-gray-400">-</span>}
+                </dd>
+              </div>
               <InfoField label="网站" value={customer.website} isLink />
               <InfoField label="行业" value={customer.industry} />
               <InfoField label="规模" value={customer.scale} />
@@ -807,11 +812,12 @@ export default function CustomerDetailPage() {
             </div>
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">地址</label>
-              <input
-                type="text"
+              <textarea
                 value={editForm.address || ''}
                 onChange={(e) => setEditForm((f) => ({ ...f, address: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                rows={3}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                placeholder="可换行输入详细地址"
               />
             </div>
             <div>
