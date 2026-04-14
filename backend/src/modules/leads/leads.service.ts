@@ -184,6 +184,7 @@ export class LeadsService {
       expectedDate: expectedDate ? new Date(expectedDate) : undefined,
       lastContactAt: lastContactAt ? new Date(lastContactAt) : undefined,
       nextFollowUpAt: nextFollowUpAt ? new Date(nextFollowUpAt) : undefined,
+      creator: { connect: { id: userId } },
     };
 
     if (effectiveOwnerId) {
@@ -583,74 +584,255 @@ export class LeadsService {
 
   // ==================== CSV 导出 ====================
 
+  private readonly CSV_HEADERS = [
+    'ID',
+    '公司名称',
+    '行业',
+    '网站',
+    '电话',
+    '邮箱',
+    '国家',
+    '地区',
+    '城市',
+    '地址',
+    '邮编',
+    '状态',
+    '备注',
+    '创建时间',
+    '更新时间',
+    '创建者ID',
+    '负责人ID',
+    '对接人姓名',
+    '对接人头衔',
+    '对接人邮箱',
+  ];
+
+  private readonly STAGE_LABEL_MAP: Record<string, string> = {
+    NEW: '新建',
+    CONTACTED: '已联系',
+    QUALIFIED: '已确认',
+    PROPOSAL: '方案',
+    NEGOTIATION: '谈判',
+    CLOSED_WON: '成交',
+    CLOSED_LOST: '失败',
+  };
+
+  private readonly LABEL_STAGE_MAP: Record<string, string> = Object.fromEntries(
+    Object.entries({
+      NEW: '新建',
+      CONTACTED: '已联系',
+      QUALIFIED: '已确认',
+      PROPOSAL: '方案',
+      NEGOTIATION: '谈判',
+      CLOSED_WON: '成交',
+      CLOSED_LOST: '失败',
+    }).map(([k, v]) => [v, k]),
+  );
+
+  private escapeCsvField(v: any): string {
+    const s = String(v ?? '');
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return `"${s.replace(/"/g, '""')}"`;
+    }
+    return s;
+  }
+
   async exportCsv(query: QueryLeadDto, userId: string, role: string) {
-    // Reuse findAll to get all matching leads (no pagination)
     const result = await this.findAll(
       { ...query, page: 1, pageSize: 10000 },
       userId,
       role,
     );
 
-    const headers = [
-      '联系人',
-      '公司',
-      '职位',
-      '邮箱',
-      '电话',
-      '国家',
-      '城市',
-      '行业',
-      '来源',
-      '状态',
-      '评分',
-      '预估价值',
-      '货币',
-      '归属人',
-      '最后联系时间',
-      '下次跟进时间',
-      '备注',
-      '创建时间',
-    ];
-
     const rows = result.items.map((lead: any) => [
-      lead.contactName || '',
+      lead.id,
       lead.companyName || '',
-      lead.contactTitle || '',
-      lead.email || '',
-      lead.phone || '',
-      lead.country || '',
-      lead.city || '',
       lead.industry || '',
-      lead.source || '',
-      lead.stage,
-      lead.score ?? 0,
-      lead.estimatedValue ? Number(lead.estimatedValue) : '',
-      lead.currency || '',
-      lead.owner?.name || '未分配',
-      lead.lastContactAt
-        ? new Date(lead.lastContactAt).toISOString()
-        : '',
-      lead.nextFollowUpAt
-        ? new Date(lead.nextFollowUpAt).toISOString()
-        : '',
+      lead.website || '',
+      lead.phone || '',
+      lead.email || '',
+      lead.country || '',
+      lead.region || '',
+      lead.city || '',
+      lead.address || '',
+      lead.postalCode || '',
+      this.STAGE_LABEL_MAP[lead.stage] || lead.stage,
       (lead.notes || '').replace(/\n/g, ' '),
-      new Date(lead.createdAt).toISOString(),
+      lead.createdAt ? new Date(lead.createdAt).toISOString() : '',
+      lead.updatedAt ? new Date(lead.updatedAt).toISOString() : '',
+      lead.creatorId || '',
+      lead.ownerId || '',
+      lead.contactName || '',
+      lead.contactTitle || '',
+      lead.contactEmail || lead.email || '',
     ]);
-
-    const escape = (v: any) => {
-      const s = String(v ?? '');
-      if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-        return `"${s.replace(/"/g, '""')}"`;
-      }
-      return s;
-    };
 
     const csv =
       '\uFEFF' +
-      [headers, ...rows]
-        .map((row) => row.map(escape).join(','))
+      [this.CSV_HEADERS, ...rows]
+        .map((row) => row.map((v) => this.escapeCsvField(v)).join(','))
         .join('\n');
 
     return csv;
+  }
+
+  // ==================== CSV 导入 ====================
+
+  private parseCsvContent(csvContent: string): string[][] {
+    const rows: string[][] = [];
+    // Strip BOM
+    const content = csvContent.replace(/^\uFEFF/, '');
+    const lines = content.split(/\r?\n/);
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const cells: string[] = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+          if (ch === '"') {
+            if (i + 1 < line.length && line[i + 1] === '"') {
+              current += '"';
+              i++; // skip escaped quote
+            } else {
+              inQuotes = false;
+            }
+          } else {
+            current += ch;
+          }
+        } else {
+          if (ch === '"') {
+            inQuotes = true;
+          } else if (ch === ',') {
+            cells.push(current.trim());
+            current = '';
+          } else {
+            current += ch;
+          }
+        }
+      }
+      cells.push(current.trim());
+      rows.push(cells);
+    }
+    return rows;
+  }
+
+  async importCsv(csvContent: string, userId: string, role: string) {
+    const rows = this.parseCsvContent(csvContent);
+    if (rows.length < 2) {
+      throw new BadRequestException('CSV 文件为空或格式不正确');
+    }
+
+    const headerRow = rows[0];
+    // Build column index map from header
+    const colIdx: Record<string, number> = {};
+    headerRow.forEach((h, i) => {
+      colIdx[h.trim()] = i;
+    });
+
+    // Validate required header columns exist
+    const requiredHeaders = ['公司名称'];
+    for (const rh of requiredHeaders) {
+      if (colIdx[rh] === undefined) {
+        throw new BadRequestException(`缺少必要列: ${rh}`);
+      }
+    }
+
+    const dataRows = rows.slice(1);
+
+    // Cache valid user IDs for owner validation
+    const allUsers = await this.prisma.user.findMany({
+      select: { id: true },
+    });
+    const validUserIds = new Set(allUsers.map((u) => u.id));
+
+    const results = { created: 0, updated: 0, errors: [] as string[] };
+
+    for (let i = 0; i < dataRows.length; i++) {
+      const row = dataRows[i];
+      const lineNum = i + 2; // 1-based + header
+      try {
+        const get = (col: string) => {
+          const idx = colIdx[col];
+          return idx !== undefined && idx < row.length ? row[idx] : '';
+        };
+
+        const id = get('ID');
+        const companyName = get('公司名称');
+        if (!companyName) {
+          results.errors.push(`第${lineNum}行: 公司名称为空，已跳过`);
+          continue;
+        }
+
+        const stageLabel = get('状态');
+        const stage = this.LABEL_STAGE_MAP[stageLabel] || stageLabel || 'NEW';
+        // Validate stage value
+        const validStages = [
+          'NEW', 'CONTACTED', 'QUALIFIED', 'PROPOSAL',
+          'NEGOTIATION', 'CLOSED_WON', 'CLOSED_LOST',
+        ];
+        const finalStage = validStages.includes(stage) ? stage : 'NEW';
+
+        const ownerId = get('负责人ID') || null;
+        // Validate ownerId if provided
+        if (ownerId && !validUserIds.has(ownerId)) {
+          results.errors.push(
+            `第${lineNum}行: 负责人ID "${ownerId}" 不存在，已设为未分配`,
+          );
+        }
+        const effectiveOwnerId =
+          ownerId && validUserIds.has(ownerId) ? ownerId : null;
+
+        const leadData: any = {
+          title: companyName,
+          companyName,
+          industry: get('行业') || undefined,
+          website: get('网站') || undefined,
+          phone: get('电话') || undefined,
+          email: get('邮箱') || undefined,
+          country: get('国家') || undefined,
+          region: get('地区') || undefined,
+          city: get('城市') || undefined,
+          address: get('地址') || undefined,
+          postalCode: get('邮编') || undefined,
+          stage: finalStage as any,
+          notes: get('备注') || undefined,
+          contactName: get('对接人姓名') || undefined,
+          contactTitle: get('对接人头衔') || undefined,
+          contactEmail: get('对接人邮箱') || undefined,
+          ownerId: effectiveOwnerId,
+          isPublicPool: !effectiveOwnerId,
+          creatorId: userId,
+        };
+
+        // If ID exists, try to update; otherwise create
+        if (id) {
+          const existing = await this.prisma.lead.findUnique({
+            where: { id },
+          });
+          if (existing) {
+            await this.prisma.lead.update({
+              where: { id },
+              data: leadData,
+            });
+            results.updated++;
+            continue;
+          }
+        }
+
+        // Create new lead
+        await this.prisma.lead.create({ data: leadData });
+        results.created++;
+      } catch (err: any) {
+        results.errors.push(
+          `第${lineNum}行: ${err.message || '未知错误'}`,
+        );
+      }
+    }
+
+    return results;
   }
 }

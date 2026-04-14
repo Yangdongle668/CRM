@@ -14,6 +14,7 @@ import {
   HiOutlineEye,
   HiOutlineTrash,
   HiOutlineArrowUpTray,
+  HiOutlineArrowDownTray,
   HiOutlineLockClosed,
   HiOutlineUserPlus,
 } from 'react-icons/hi2';
@@ -64,6 +65,16 @@ export default function LeadsPage() {
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [form, setForm] = useState<LeadFormData>(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+
+  // Import state
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    updated: number;
+    errors: string[];
+  } | null>(null);
 
   // Assign modal (admin only)
   const [assignOpen, setAssignOpen] = useState(false);
@@ -122,6 +133,54 @@ export default function LeadsPage() {
       // handled by interceptor
     } finally {
       setAssigning(false);
+    }
+  };
+
+  // ===== Export =====
+  const handleExport = async () => {
+    try {
+      const params: Record<string, any> = { scope };
+      if (search) params.search = search;
+      if (stage) params.stage = stage;
+      const res: any = await leadsApi.exportCsv(params);
+      const blob = res instanceof Blob ? res : new Blob([res], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('导出成功');
+    } catch {
+      toast.error('导出失败');
+    }
+  };
+
+  // ===== Import =====
+  const handleImport = async () => {
+    if (!importFile) {
+      toast.error('请选择 CSV 文件');
+      return;
+    }
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res: any = await leadsApi.importCsv(importFile);
+      const data = res.data;
+      setImportResult(data);
+      if (data.created > 0 || data.updated > 0) {
+        toast.success(`导入完成: 新增 ${data.created}, 更新 ${data.updated}`);
+        fetchLeads();
+      }
+      if (data.errors?.length > 0) {
+        toast.error(`${data.errors.length} 条记录有错误`);
+      }
+    } catch {
+      toast.error('导入失败');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -208,12 +267,30 @@ export default function LeadsPage() {
             <h1 className="text-2xl font-bold text-gray-900">线索列表</h1>
             <p className="text-sm text-gray-500 mt-1">共 {total} 条线索 — 可搜索、筛选、批量操作</p>
           </div>
-          <button
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            <span>+</span> 新建线索
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setImportFile(null);
+                setImportResult(null);
+                setImportOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              <HiOutlineArrowUpTray className="h-4 w-4" /> 导入
+            </button>
+            <button
+              onClick={handleExport}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm"
+            >
+              <HiOutlineArrowDownTray className="h-4 w-4" /> 导出
+            </button>
+            <button
+              onClick={openCreateModal}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+            >
+              <span>+</span> 新建线索
+            </button>
+          </div>
         </div>
 
         {/* Search & Filters */}
@@ -585,6 +662,81 @@ export default function LeadsPage() {
               >
                 {assigning ? '分配中...' : '确认分配'}
               </button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Import Modal */}
+        <Modal
+          isOpen={importOpen}
+          onClose={() => setImportOpen(false)}
+          title="导入线索 (CSV)"
+          size="lg"
+        >
+          <div className="space-y-4">
+            <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600">
+              <p className="font-medium text-gray-800 mb-2">CSV 文件格式要求：</p>
+              <p>第一行为表头，列名如下（顺序不限）：</p>
+              <p className="mt-1 text-xs text-gray-500 bg-white p-2 rounded border font-mono">
+                ID, 公司名称, 行业, 网站, 电话, 邮箱, 国家, 地区, 城市, 地址, 邮编, 状态, 备注, 创建时间, 更新时间, 创建者ID, 负责人ID, 对接人姓名, 对接人头衔, 对接人邮箱
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-gray-500">
+                <li>- <strong>公司名称</strong>为必填项</li>
+                <li>- <strong>状态</strong>可填写：新建、已联系、已确认、方案、谈判、成交、失败</li>
+                <li>- <strong>负责人ID</strong>为业务员的用户 ID，留空则进入公海</li>
+                <li>- 如果 <strong>ID</strong> 列匹配已有线索则更新，否则新建</li>
+              </ul>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">选择 CSV 文件</label>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  setImportFile(e.target.files?.[0] || null);
+                  setImportResult(null);
+                }}
+                className="w-full text-sm text-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+              />
+            </div>
+
+            {importResult && (
+              <div className="bg-gray-50 rounded-lg p-4 text-sm">
+                <p className="font-medium text-gray-800">
+                  导入结果：新增 {importResult.created} 条，更新 {importResult.updated} 条
+                </p>
+                {importResult.errors.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-red-600 font-medium">
+                      错误 ({importResult.errors.length})：
+                    </p>
+                    <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5">
+                      {importResult.errors.map((err, i) => (
+                        <li key={i} className="text-xs text-red-500">{err}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                onClick={() => setImportOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+              >
+                {importResult ? '关闭' : '取消'}
+              </button>
+              {!importResult && (
+                <button
+                  onClick={handleImport}
+                  disabled={importing || !importFile}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {importing ? '导入中...' : '开始导入'}
+                </button>
+              )}
             </div>
           </div>
         </Modal>

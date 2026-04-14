@@ -99,9 +99,21 @@ export const leadsApi = {
   listActivities: (id: string) => api.get(`/leads/${id}/activities`),
   addActivity: (id: string, content: string) =>
     api.post(`/leads/${id}/activities`, { content }),
+  exportCsv: (params?: any) =>
+    api.get('/leads/export/csv', {
+      params,
+      responseType: 'blob',
+    }),
   exportCsvUrl: (params?: any) => {
     const qs = new URLSearchParams(params || {}).toString();
     return `/api/leads/export/csv${qs ? `?${qs}` : ''}`;
+  },
+  importCsv: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post('/leads/import/csv', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
   },
 };
 

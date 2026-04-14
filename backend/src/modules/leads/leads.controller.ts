@@ -9,7 +9,11 @@ import {
   Query,
   Res,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { LeadsService } from './leads.service';
 import { CreateLeadDto, LeadStage } from './dto/create-lead.dto';
@@ -56,6 +60,19 @@ export class LeadsController {
       `attachment; filename="leads-${Date.now()}.csv"`,
     );
     res.send(csv);
+  }
+
+  @Post('import/csv')
+  @UseInterceptors(FileInterceptor('file'))
+  async importCsv(
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: { id: string; role: string },
+  ) {
+    if (!file) {
+      throw new BadRequestException('请上传 CSV 文件');
+    }
+    const content = file.buffer.toString('utf-8');
+    return this.leadsService.importCsv(content, user.id, user.role);
   }
 
   @Post('batch-assign')
