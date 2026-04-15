@@ -215,7 +215,8 @@ export class CustomersService {
     // Find linked emails that don't have a matching activity
     const emailsWithoutActivity: any[] = await this.prisma.$queryRawUnsafe(
       `SELECT e.id, e.direction, e.from_addr as "fromAddr", e.to_addr as "toAddr",
-              e.subject, e.sent_at as "sentAt", e.received_at as "receivedAt", e.created_at as "createdAt"
+              e.subject, e.sent_at as "sentAt", e.received_at as "receivedAt",
+              e.created_at as "createdAt", e.sender_id as "senderId"
        FROM emails e
        WHERE e.customer_id = $1
          AND NOT EXISTS (
@@ -234,14 +235,13 @@ export class CustomersService {
 
     const activities = emailsWithoutActivity.map((email) => {
       const time = email.sentAt || email.receivedAt || email.createdAt;
-      const timeStr = time ? new Date(time).toLocaleString('zh-CN') : '';
       return {
         type: 'EMAIL' as const,
         content: email.direction === 'INBOUND'
           ? `收到邮件 - 发件人: ${email.fromAddr}，主题: ${email.subject || '(无主题)'}`
           : `发送邮件 - 收件人: ${email.toAddr}，主题: ${email.subject || '(无主题)'}`,
         customerId,
-        ownerId,
+        ownerId: email.senderId || ownerId,
         relatedType: 'email',
         relatedId: email.id,
         createdAt: time || new Date(),

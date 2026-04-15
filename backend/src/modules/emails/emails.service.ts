@@ -335,6 +335,8 @@ export class EmailsService {
             content: `发送邮件 - 收件人: ${dto.toAddr}，主题: ${dto.subject}`,
             customerId: email.customerId,
             ownerId: userId,
+            relatedType: 'email',
+            relatedId: email.id,
           },
         }).catch(() => {});
       }
@@ -375,7 +377,9 @@ export class EmailsService {
 
     const where: any = {};
 
-    if (role !== 'ADMIN') {
+    // When viewing a specific customer's emails, show all accounts' emails for that customer.
+    // Otherwise restrict non-admins to their own emails only.
+    if (role !== 'ADMIN' && !query.customerId) {
       where.senderId = userId;
     }
 
@@ -950,7 +954,7 @@ export class EmailsService {
                   threadCache.set(normalizedSubject, threadId);
                 }
 
-                await this.prisma.email.create({
+                const newEmail = await this.prisma.email.create({
                   data: {
                     messageId,
                     fromAddr,
@@ -983,6 +987,8 @@ export class EmailsService {
                       content: actContent,
                       customerId: customer.id,
                       ownerId: userId,
+                      relatedType: 'email',
+                      relatedId: newEmail.id,
                     },
                   }).catch(() => {});
                 }
