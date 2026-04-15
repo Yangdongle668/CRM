@@ -56,7 +56,7 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<'mine' | 'pool' | 'all'>('mine');
@@ -83,8 +83,15 @@ export default function LeadsPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [assigning, setAssigning] = useState(false);
 
+  // Batch selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAssignOpen, setBulkAssignOpen] = useState(false);
+  const [bulkAssignUserId, setBulkAssignUserId] = useState('');
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+
   const fetchLeads = useCallback(async () => {
     setLoading(true);
+    setSelectedIds(new Set());
     try {
       const params: Record<string, any> = { page, pageSize, scope };
       if (search) params.search = search;
@@ -111,6 +118,58 @@ export default function LeadsPage() {
       }).catch(() => {});
     }
   }, [user?.role]);
+
+  // Derived selection helpers
+  const allOnPageSelected = leads.length > 0 && leads.every((l) => selectedIds.has(l.id));
+  const someOnPageSelected = leads.some((l) => selectedIds.has(l.id));
+
+  const toggleSelectAll = () => {
+    if (allOnPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        leads.forEach((l) => next.delete(l.id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        leads.forEach((l) => next.add(l.id));
+        return next;
+      });
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkAssign = async () => {
+    if (!bulkAssignUserId) {
+      toast.error('请选择负责人');
+      return;
+    }
+    setBulkAssigning(true);
+    try {
+      const res: any = await leadsApi.batchAssign(Array.from(selectedIds), bulkAssignUserId);
+      const skipped = res.data?.skipped ?? 0;
+      toast.success(
+        `成功分配 ${res.data?.updated ?? 0} 条线索` + (skipped > 0 ? `，${skipped} 条已跳过` : ''),
+      );
+      setBulkAssignOpen(false);
+      setBulkAssignUserId('');
+      setSelectedIds(new Set());
+      fetchLeads();
+    } catch {
+      // handled by interceptor
+    } finally {
+      setBulkAssigning(false);
+    }
+  };
 
   const openAssignModal = (leadId: string) => {
     setAssignLeadId(leadId);
@@ -359,6 +418,29 @@ export default function LeadsPage() {
           </div>
         </div>
 
+        {/* Bulk action bar */}
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 mb-3 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+            <span className="text-sm font-medium text-blue-700">
+              已选 {selectedIds.size} 条
+            </span>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-blue-500 hover:text-blue-700 underline"
+            >
+              取消选择
+            </button>
+            {user?.role === 'ADMIN' && (
+              <button
+                onClick={() => { setBulkAssignUserId(''); setBulkAssignOpen(true); }}
+                className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+              >
+                <HiOutlineUserPlus className="h-4 w-4" /> 批量分配
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Table */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           {loading ? (
@@ -369,6 +451,15 @@ export default function LeadsPage() {
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allOnPageSelected}
+                      ref={(el) => { if (el) el.indeterminate = someOnPageSelected && !allOnPageSelected; }}
+                      onChange={toggleSelectAll}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 cursor-pointer"
+                    />
+                  </th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">线索</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">来源</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">国家</th>
@@ -382,7 +473,18 @@ export default function LeadsPage() {
               </thead>
               <tbody className="divide-y divide-gray-200">
                 {leads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-gray-50">
+                  <tr
+                    key={lead.id}
+                    className={`hover:bg-gray-50 ${selectedIds.has(lead.id) ? 'bg-blue-50' : ''}`}
+                  >
+                    <td className="px-4 py-3 w-10">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={() => toggleSelect(lead.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
@@ -430,7 +532,7 @@ export default function LeadsPage() {
                         >
                           <HiOutlineEye className="h-4 w-4" />
                         </button>
-                        {user?.role === 'ADMIN' && !isAdminOwned(lead) && (
+                        {user?.role === 'ADMIN' && (
                           <button
                             onClick={() => openAssignModal(lead.id)}
                             className="p-1 text-gray-500 hover:text-green-600"
@@ -438,11 +540,6 @@ export default function LeadsPage() {
                           >
                             <HiOutlineUserPlus className="h-4 w-4" />
                           </button>
-                        )}
-                        {isAdminOwned(lead) && (
-                          <span className="p-1 text-amber-500 cursor-not-allowed" title="管理员线索不可转移">
-                            <HiOutlineLockClosed className="h-4 w-4" />
-                          </span>
                         )}
                         <button
                           onClick={() => handleDelete(lead.id)}
@@ -459,14 +556,33 @@ export default function LeadsPage() {
             </table>
           )}
 
-          {/* Pagination */}
+          {/* Pagination + page-size selector */}
           {leads.length > 0 && (
-            <Pagination
-              current={page}
-              total={total}
-              pageSize={pageSize}
-              onChange={setPage}
-            />
+            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <span>每页显示</span>
+                {[25, 50, 100].map((n) => (
+                  <button
+                    key={n}
+                    onClick={() => { setPageSize(n); setPage(1); }}
+                    className={`px-2 py-0.5 rounded text-xs font-medium border ${
+                      pageSize === n
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'border-gray-300 text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {n}
+                  </button>
+                ))}
+                <span>条</span>
+              </div>
+              <Pagination
+                current={page}
+                total={total}
+                pageSize={pageSize}
+                onChange={setPage}
+              />
+            </div>
           )}
         </div>
 
@@ -661,6 +777,47 @@ export default function LeadsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
               >
                 {assigning ? '分配中...' : '确认分配'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Bulk Assign Modal (admin only) */}
+        <Modal
+          isOpen={bulkAssignOpen}
+          onClose={() => setBulkAssignOpen(false)}
+          title={`批量分配线索（已选 ${selectedIds.size} 条）`}
+          size="sm"
+        >
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">选择负责人</label>
+              <select
+                value={bulkAssignUserId}
+                onChange={(e) => setBulkAssignUserId(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">请选择...</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name} ({u.role === 'ADMIN' ? '管理员' : '业务员'})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                onClick={() => setBulkAssignOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleBulkAssign}
+                disabled={bulkAssigning || !bulkAssignUserId}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+              >
+                {bulkAssigning ? '分配中...' : '确认分配'}
               </button>
             </div>
           </div>
