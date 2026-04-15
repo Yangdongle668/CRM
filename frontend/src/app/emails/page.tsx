@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
-import { emailsApi, customersApi, settingsApi } from '@/lib/api';
+import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
@@ -157,103 +157,7 @@ export default function EmailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeFolder, page, pageSize, selectedAccountId]);;
-  const [emailConfigTesting, setEmailConfigTesting] = useState(false);
-
-  const fetchEmailConfig = useCallback(async () => {
-    setEmailConfigLoading(true);
-    try {
-      const res: any = await settingsApi.getEmailConfig();
-      const cfg = res.data;
-      if (cfg) {
-        setEmailConfig({
-          smtpHost: cfg.smtpHost || '',
-          smtpPort: cfg.smtpPort || 465,
-          smtpUser: cfg.smtpUser || '',
-          smtpPass: cfg.smtpPass || '',
-          smtpSecure: cfg.smtpSecure ?? true,
-          imapHost: cfg.imapHost || '',
-          imapPort: cfg.imapPort || 993,
-          imapUser: cfg.imapUser || '',
-          imapPass: cfg.imapPass || '',
-          imapSecure: cfg.imapSecure ?? true,
-          fromName: cfg.fromName || '',
-          signature: cfg.signature || '',
-        });
-      }
-    } catch {
-      // handled by interceptor
-    } finally {
-      setEmailConfigLoading(false);
-    }
-  }, []);
-
-  const handleSaveEmailConfig = async () => {
-    setEmailConfigSaving(true);
-    try {
-      await settingsApi.updateEmailConfig(emailConfig);
-      toast.success('邮箱配置已保存');
-      // Update signature used for compose
-      if (emailConfig.signature) setSignature(emailConfig.signature);
-    } catch {
-      // handled by interceptor
-    } finally {
-      setEmailConfigSaving(false);
-    }
-  };
-
-  const handleTestEmailConfig = async () => {
-    setEmailConfigTesting(true);
-    try {
-      const res: any = await settingsApi.testEmailConfig(emailConfig);
-      const result = res.data;
-      if (result?.success) {
-        toast.success('SMTP 连接测试成功');
-      } else {
-        toast.error(result?.message || 'SMTP 连接测试失败');
-      }
-    } catch {
-      toast.error('连接测试失败');
-    } finally {
-      setEmailConfigTesting(false);
-    }
-  };
-
-  const fetchEmails = useCallback(async () => {
-    if (activeFolder === 'templates' || activeFolder === 'settings') return;
-    setLoading(true);
-    try {
-      const params: Record<string, any> = {
-        page,
-        pageSize,
-        grouped: 'true',
-      };
-
-      switch (activeFolder) {
-        case 'inbox':
-          params.direction = 'INBOUND';
-          break;
-        case 'unread':
-          params.direction = 'INBOUND';
-          params.status = 'RECEIVED';
-          break;
-        case 'sent':
-          params.direction = 'OUTBOUND';
-          break;
-      }
-
-      const res: any = await emailsApi.list(params);
-      const data = res.data;
-      const items = Array.isArray(data.items) ? data.items : [];
-      setThreads(items);
-      setEmails(items.map((t: EmailThreadItem) => t.latestEmail).filter(Boolean));
-      setTotal(data.total || 0);
-    } catch {
-      // handled by interceptor
-    } finally {
-      setLoading(false);
-    }
-  }, [activeFolder, page, pageSize]);
+  }, [activeFolder, page, pageSize, selectedAccountId]);
 
   const fetchTemplates = useCallback(async () => {
     try {
@@ -288,20 +192,10 @@ export default function EmailsPage() {
   useEffect(() => {
     if (activeFolder === 'templates') {
       fetchTemplates();
-    } else if (activeFolder === 'settings') {
-      fetchEmailConfig();
-    } else {
+    } else if (activeFolder !== 'settings') {
       fetchEmails();
     }
-  }, [activeFolder, fetchEmails, fetchTemplates, fetchEmailConfig]);
-
-  // Fetch email config for signature
-  useEffect(() => {
-    settingsApi.getEmailConfig().then((res: any) => {
-      const config = res.data;
-      if (config?.signature) setSignature(config.signature);
-    }).catch(() => {});
-  }, []);
+  }, [activeFolder, fetchEmails, fetchTemplates]);
 
   useEffect(() => {
     fetchCustomers();
