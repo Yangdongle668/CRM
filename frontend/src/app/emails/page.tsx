@@ -54,6 +54,38 @@ const emptyTemplateForm: TemplateForm = {
   category: '',
 };
 
+interface AccountForm {
+  emailAddr: string;
+  fromName: string;
+  signature: string;
+  smtpHost: string;
+  smtpPort: string;
+  smtpUser: string;
+  smtpPass: string;
+  smtpSecure: boolean;
+  imapHost: string;
+  imapPort: string;
+  imapUser: string;
+  imapPass: string;
+  imapSecure: boolean;
+}
+
+const emptyAccountForm: AccountForm = {
+  emailAddr: '',
+  fromName: '',
+  signature: '',
+  smtpHost: '',
+  smtpPort: '465',
+  smtpUser: '',
+  smtpPass: '',
+  smtpSecure: true,
+  imapHost: '',
+  imapPort: '993',
+  imapUser: '',
+  imapPass: '',
+  imapSecure: true,
+};
+
 export default function EmailsPage() {
   const { user } = useAuth();
   const [activeFolder, setActiveFolder] = useState<FolderType>('inbox');
@@ -94,26 +126,38 @@ export default function EmailsPage() {
   const [templateForm, setTemplateForm] = useState<TemplateForm>(emptyTemplateForm);
   const [savingTemplate, setSavingTemplate] = useState(false);
 
+  // Account manager form
+  const [accountForm, setAccountForm] = useState<AccountForm>(emptyAccountForm);
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [testingAccountId, setTestingAccountId] = useState<string | null>(null);
+
   // Unread count for notification
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
+  const accountsInitialized = useRef(false);
 
   // Load email accounts
-  useEffect(() => {
-    const loadAccounts = async () => {
-      try {
-        const res: any = await emailsApi.listAccounts();
-        const accts = res.data?.accounts || [];
-        setAccounts(accts);
-        if (accts.length > 0 && !selectedAccountId) {
-          setSelectedAccountId(accts[0].id);
-        }
-      } catch {
-        // handled by interceptor
+  const loadAccounts = useCallback(async () => {
+    setAccountsLoading(true);
+    try {
+      const res: any = await emailsApi.listAccounts();
+      const accts = res.data?.accounts || [];
+      setAccounts(accts);
+      if (!accountsInitialized.current && accts.length > 0) {
+        setSelectedAccountId(accts[0].id);
+        accountsInitialized.current = true;
       }
-    };
+    } catch {
+      // handled by interceptor
+    } finally {
+      setAccountsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
     loadAccounts();
-  }, [selectedAccountId]);
+  }, [loadAccounts]);
 
   // Fetch emails with account filter
   const fetchEmails = useCallback(async () => {
@@ -414,10 +458,13 @@ export default function EmailsPage() {
       toast.loading('正在收取邮件...', { id: 'fetch-email' });
       const res: any = await emailsApi.fetch();
       const data = res.data;
-      if (data?.sentFolder) {
-        toast.success(`邮件收取完成 (收件箱: ${data.inboxFetched || 0}, 已发送: ${data.sentFetched || 0})`, { id: 'fetch-email' });
+      const total = data?.totalFetched ?? 0;
+      const accountResults: any[] = data?.accounts || [];
+      const errored = accountResults.filter((a: any) => a.error);
+      if (errored.length > 0) {
+        toast.error(`${errored.length} 个账户收取失败，共收取 ${total} 封`, { id: 'fetch-email' });
       } else {
-        toast.success(`收件箱收取完成 (${data?.inboxFetched || 0} 封)，未找到已发送文件夹`, { id: 'fetch-email' });
+        toast.success(`邮件收取完成，共收取 ${total} 封新邮件`, { id: 'fetch-email' });
       }
       fetchEmails();
       fetchUnreadCount();
@@ -436,6 +483,60 @@ export default function EmailsPage() {
       fetchEmails();
     } catch {
       toast.error('操作失败');
+    }
+  };
+
+  // Save email account (create or update)
+  const handleSaveAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!accountForm.emailAddr.trim()) { toast.error('请输入邮箱地址'); return; }
+    if (!accountForm.smtpHost.trim()) { toast.error('请输入 SMTP 服务器地址'); return; }
+    if (!accountForm.smtpUser.trim()) { toast.error('请输入 SMTP 用户名'); return; }
+    if (!editingAccountId && !accountForm.smtpPass.trim()) { toast.error('请输入 SMTP 密码'); return; }
+    if (!accountForm.imapHost.trim()) { toast.error('请输入 IMAP 服务器地址'); return; }
+    if (!accountForm.imapUser.trim()) { toast.error('请输入 IMAP 用户名'); return; }
+    if (!editingAccountId && !accountForm.imapPass.trim()) { toast.error('请输入 IMAP 密码'); return; }
+
+    setAccountSaving(true);
+    try {
+      const payload = {
+        ...accountForm,
+        smtpPort: Number(accountForm.smtpPort) || 465,
+        imapPort: Number(accountForm.imapPort) || 993,
+      };
+      if (editingAccountId) {
+        await emailsApi.updateAccount(editingAccountId, payload);
+        toast.success('邮箱账户已更新');
+      } else {
+        await emailsApi.createAccount(payload);
+        toast.success('邮箱账户已添加');
+      }
+      setShowAccountManager(false);
+      setAccountForm(emptyAccountForm);
+      setEditingAccountId(null);
+      await loadAccounts();
+    } catch {
+      // handled by interceptor
+    } finally {
+      setAccountSaving(false);
+    }
+  };
+
+  // Test SMTP connection for an account
+  const handleTestAccount = async (id: string) => {
+    setTestingAccountId(id);
+    try {
+      const res: any = await emailsApi.testAccount(id);
+      const data = res.data;
+      if (data?.success) {
+        toast.success('SMTP 连接测试成功');
+      } else {
+        toast.error(data?.message || 'SMTP 连接失败');
+      }
+    } catch {
+      // handled by interceptor
+    } finally {
+      setTestingAccountId(null);
     }
   };
 
@@ -1083,6 +1184,206 @@ export default function EmailsPage() {
     </Modal>
   );
 
+  // ==================== Account Manager Modal ====================
+  const renderAccountManagerModal = () => (
+    <Modal
+      isOpen={showAccountManager}
+      onClose={() => {
+        setShowAccountManager(false);
+        setAccountForm(emptyAccountForm);
+        setEditingAccountId(null);
+      }}
+      title={editingAccountId ? '编辑邮箱账户' : '添加邮箱账户'}
+      size="3xl"
+    >
+      <form onSubmit={handleSaveAccount} className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              邮箱地址 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="email"
+              value={accountForm.emailAddr}
+              onChange={(e) => setAccountForm({ ...accountForm, emailAddr: e.target.value })}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+              placeholder="your@email.com"
+              disabled={!!editingAccountId}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">发件人名称</label>
+            <input
+              type="text"
+              value={accountForm.fromName}
+              onChange={(e) => setAccountForm({ ...accountForm, fromName: e.target.value })}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+              placeholder="例如：张三"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">邮件签名</label>
+          <textarea
+            value={accountForm.signature}
+            onChange={(e) => setAccountForm({ ...accountForm, signature: e.target.value })}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+            rows={2}
+            placeholder="发送邮件时自动附加的签名内容"
+          />
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">SMTP 发件服务器</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                服务器地址 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={accountForm.smtpHost}
+                onChange={(e) => setAccountForm({ ...accountForm, smtpHost: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="smtp.example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">端口</label>
+              <input
+                type="number"
+                value={accountForm.smtpPort}
+                onChange={(e) => setAccountForm({ ...accountForm, smtpPort: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="465"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                用户名 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={accountForm.smtpUser}
+                onChange={(e) => setAccountForm({ ...accountForm, smtpUser: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="your@email.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                密码{editingAccountId ? '（留空则保持不变）' : <span className="text-red-500"> *</span>}
+              </label>
+              <input
+                type="password"
+                value={accountForm.smtpPass}
+                onChange={(e) => setAccountForm({ ...accountForm, smtpPass: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+          <div className="mt-2">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={accountForm.smtpSecure}
+                onChange={(e) => setAccountForm({ ...accountForm, smtpSecure: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              使用 SSL/TLS 加密（推荐）
+            </label>
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-semibold text-gray-800 mb-3">IMAP 收件服务器</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                服务器地址 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={accountForm.imapHost}
+                onChange={(e) => setAccountForm({ ...accountForm, imapHost: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="imap.example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">端口</label>
+              <input
+                type="number"
+                value={accountForm.imapPort}
+                onChange={(e) => setAccountForm({ ...accountForm, imapPort: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="993"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                用户名 <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={accountForm.imapUser}
+                onChange={(e) => setAccountForm({ ...accountForm, imapUser: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="your@email.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                密码{editingAccountId ? '（留空则保持不变）' : <span className="text-red-500"> *</span>}
+              </label>
+              <input
+                type="password"
+                value={accountForm.imapPass}
+                onChange={(e) => setAccountForm({ ...accountForm, imapPass: e.target.value })}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                placeholder="••••••••"
+              />
+            </div>
+          </div>
+          <div className="mt-2">
+            <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={accountForm.imapSecure}
+                onChange={(e) => setAccountForm({ ...accountForm, imapSecure: e.target.checked })}
+                className="rounded border-gray-300"
+              />
+              使用 SSL/TLS 加密（推荐）
+            </label>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-4 border-t">
+          <button
+            type="button"
+            onClick={() => {
+              setShowAccountManager(false);
+              setAccountForm(emptyAccountForm);
+              setEditingAccountId(null);
+            }}
+            className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+          >
+            取消
+          </button>
+          <button
+            type="submit"
+            disabled={accountSaving}
+            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {accountSaving ? '保存中...' : '保存账户'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+
   return (
     <AppLayout>
       <div className="flex flex-col h-[calc(100vh-64px)]">
@@ -1194,21 +1495,53 @@ export default function EmailsPage() {
                     {accounts.map((acct: any) => (
                       <div key={acct.id} className="bg-white rounded-lg border p-4 flex items-center justify-between">
                         <div>
-                          <p className="font-medium text-gray-900">{acct.emailAddr}</p>
-                          <p className="text-xs text-gray-500">{acct.fromName || '(未设置发件人名称)'}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-900">{acct.emailAddr}</p>
+                            {selectedAccountId === acct.id && (
+                              <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-medium">当前使用</span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">{acct.fromName || '(未设置发件人名称)'}</p>
                         </div>
                         <div className="flex gap-2">
+                          <button
+                            onClick={() => handleTestAccount(acct.id)}
+                            disabled={testingAccountId === acct.id}
+                            className="px-3 py-1 text-xs text-gray-600 hover:text-gray-800 border border-gray-200 rounded hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            {testingAccountId === acct.id ? '测试中...' : '测试连接'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setAccountForm({
+                                ...emptyAccountForm,
+                                emailAddr: acct.emailAddr,
+                                fromName: acct.fromName || '',
+                              });
+                              setEditingAccountId(acct.id);
+                              setShowAccountManager(true);
+                            }}
+                            className="px-3 py-1 text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            编辑
+                          </button>
                           <button
                             onClick={() => {
                               setSelectedAccountId(acct.id);
                               setActiveFolder('inbox');
                             }}
-                            className="px-3 py-1 text-xs text-blue-600 hover:text-blue-800"
+                            className="px-3 py-1 text-xs text-green-600 hover:text-green-800"
                           >
-                            选择
+                            使用
                           </button>
                           <button
-                            onClick={() => emailsApi.deleteAccount(acct.id).then(() => setAccounts(accounts.filter((a: any) => a.id !== acct.id)))}
+                            onClick={() =>
+                              emailsApi.deleteAccount(acct.id).then(() => {
+                                setAccounts(accounts.filter((a: any) => a.id !== acct.id));
+                                if (selectedAccountId === acct.id) setSelectedAccountId(null);
+                                toast.success('账户已删除');
+                              })
+                            }
                             className="px-3 py-1 text-xs text-red-600 hover:text-red-800"
                           >
                             删除
@@ -1306,6 +1639,7 @@ export default function EmailsPage() {
         {/* Modals */}
         {renderComposeModal()}
         {renderTemplateModal()}
+        {renderAccountManagerModal()}
       </div>
     </AppLayout>
   );

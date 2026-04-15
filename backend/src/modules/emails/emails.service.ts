@@ -249,7 +249,7 @@ export class EmailsService {
     }
 
     let customerId = dto.customerId || null;
-    let category = 'inbox';
+    let category = 'sent';
     if (!customerId) {
       const matched = await this.autoMatchCustomer(dto.toAddr);
       if (matched) {
@@ -361,9 +361,7 @@ export class EmailsService {
     const where: any = {};
 
     if (role !== 'ADMIN') {
-      if (query.direction === 'OUTBOUND') {
-        where.senderId = userId;
-      }
+      where.senderId = userId;
     }
 
     if (query.customerId) {
@@ -617,7 +615,7 @@ export class EmailsService {
       throw new NotFoundException('Email not found');
     }
 
-    const validCategories = ['inbox', 'customer', 'advertisement', 'drafts', 'starred', 'trash', 'spam'];
+    const validCategories = ['inbox', 'sent', 'customer', 'advertisement', 'drafts', 'starred', 'trash', 'spam'];
     if (!validCategories.includes(category)) {
       throw new BadRequestException('Invalid category');
     }
