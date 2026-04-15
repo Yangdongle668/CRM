@@ -1120,20 +1120,20 @@ export class EmailsService {
         domain !== 'aol.com' && domain !== 'mail.com' &&
         domain !== 'protonmail.com' && domain !== 'zoho.com') {
       const customers = await this.prisma.customer.findMany({
-        where: { website: { not: null } },
-        select: { id: true, website: true, companyName: true },
+        where: { OR: [{ website: { not: null } }, { website2: { not: null } }] },
+        select: { id: true, website: true, website2: true, companyName: true },
       });
 
-      for (let i = 0; i < customers.length; i++) {
-        const c = customers[i];
-        if (!c.website) continue;
-        const websiteDomain = c.website
-          .replace(/^https?:\/\//i, '')
-          .replace(/^www\./i, '')
-          .split('/')[0]
-          .toLowerCase();
-        if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
-          return c;
+      const extractDomain = (url: string) =>
+        url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+
+      for (const c of customers) {
+        for (const w of [c.website, c.website2]) {
+          if (!w) continue;
+          const websiteDomain = extractDomain(w);
+          if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
+            return c;
+          }
         }
       }
     }

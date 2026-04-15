@@ -90,9 +90,9 @@ export class CustomersService {
       },
     });
 
-    // Retroactively link existing emails by domain
-    if (dto.website) {
-      this.linkEmailsByDomain(customer.id, dto.website, userId).catch((err) =>
+    // Retroactively link existing emails by domain (both websites)
+    for (const w of [dto.website, dto.website2].filter(Boolean)) {
+      this.linkEmailsByDomain(customer.id, w!, userId).catch((err) =>
         this.logger.error(`Failed to link emails for new customer: ${err.message}`),
       );
     }
@@ -128,11 +128,16 @@ export class CustomersService {
       },
     });
 
-    // If website changed, retroactively link emails by new domain
-    if (dto.website && dto.website !== customer.website) {
-      this.linkEmailsByDomain(id, dto.website, userId).catch((err) =>
-        this.logger.error(`Failed to link emails for updated customer: ${err.message}`),
-      );
+    // If either website changed, retroactively link emails by the new domain
+    for (const [newW, oldW] of [
+      [dto.website, customer.website],
+      [(dto as any).website2, (customer as any).website2],
+    ]) {
+      if (newW && newW !== oldW) {
+        this.linkEmailsByDomain(id, newW, userId).catch((err) =>
+          this.logger.error(`Failed to link emails for updated customer: ${err.message}`),
+        );
+      }
     }
 
     return updated;
@@ -145,13 +150,14 @@ export class CustomersService {
   async syncEmailsByDomain(customerId: string, userId: string, role: string) {
     const customer = await this.findOne(customerId, userId, role);
 
-    if (!customer.website) {
+    const websites = [(customer as any).website, (customer as any).website2].filter(Boolean) as string[];
+    if (websites.length === 0) {
       // Also check for emails already linked but missing activities
       return this.createMissingActivities(customerId, userId);
     }
 
-    // Step 1: Link unmatched emails by domain
-    const domain = customer.website
+    // Step 1: Link unmatched emails by domain (try both websites)
+    const domain = websites[0]
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
       .split('/')[0]
@@ -188,10 +194,17 @@ export class CustomersService {
       this.logger.log(`Linked ${unmatchedEmails.length} emails to customer ${customerId} by domain ${domain}`);
     }
 
+    // Also link by website2 domain if present
+    let linked2 = 0;
+    if (websites[1]) {
+      await this.linkEmailsByDomain(customerId, websites[1], userId);
+      linked2 = 1; // linkEmailsByDomain logs internally
+    }
+
     // Step 2: Create activities for all linked emails that don't have them
     const result = await this.createMissingActivities(customerId, userId);
 
-    return { linked: unmatchedEmails.length, activitiesCreated: result.activitiesCreated };
+    return { linked: unmatchedEmails.length + linked2, activitiesCreated: result.activitiesCreated };
   }
 
   /**

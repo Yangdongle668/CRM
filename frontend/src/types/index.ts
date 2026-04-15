@@ -35,6 +35,7 @@ export interface Customer {
   country?: string;
   address?: string;
   website?: string;
+  website2?: string;
   industry?: string;
   scale?: string;
   source?: string;

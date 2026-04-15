@@ -158,6 +158,7 @@ export default function CustomerDetailPage() {
       country: customer.country || '',
       address: customer.address || '',
       website: customer.website || '',
+      website2: customer.website2 || '',
       industry: customer.industry || '',
       scale: customer.scale || '',
       source: customer.source || '',
@@ -389,7 +390,8 @@ export default function CustomerDetailPage() {
                   {customer.address || <span className="text-gray-400">-</span>}
                 </dd>
               </div>
-              <InfoField label="网站" value={customer.website} isLink />
+              <InfoField label="网站 1" value={customer.website} isLink />
+              {customer.website2 && <InfoField label="网站 2" value={customer.website2} isLink />}
               <InfoField label="行业" value={customer.industry} />
               <InfoField label="规模" value={customer.scale} />
               <InfoField label="来源" value={customer.source} />
@@ -821,12 +823,23 @@ export default function CustomerDetailPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">网站</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">网站 1</label>
               <input
                 type="text"
                 value={editForm.website || ''}
                 onChange={(e) => setEditForm((f) => ({ ...f, website: e.target.value }))}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="https://example.com"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">网站 2</label>
+              <input
+                type="text"
+                value={(editForm as any).website2 || ''}
+                onChange={(e) => setEditForm((f) => ({ ...f, website2: e.target.value }))}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="https://example2.com（可选）"
               />
             </div>
             <div>
