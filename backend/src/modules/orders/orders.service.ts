@@ -38,6 +38,8 @@ export class OrdersService {
         title: dto.title,
         currency: dto.currency || 'USD',
         totalAmount,
+        costTypes: dto.costTypes ?? [],
+        floorPrice: dto.floorPrice ?? undefined,
         shippingAddr: dto.shippingAddr,
         shippingDate: dto.shippingDate ? new Date(dto.shippingDate) : undefined,
         deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : undefined,
@@ -134,6 +136,8 @@ export class OrdersService {
 
     if (dto.title !== undefined) updateData.title = dto.title;
     if (dto.currency !== undefined) updateData.currency = dto.currency;
+    if (dto.costTypes !== undefined) updateData.costTypes = dto.costTypes;
+    if (dto.floorPrice !== undefined) updateData.floorPrice = dto.floorPrice;
     if (dto.shippingAddr !== undefined) updateData.shippingAddr = dto.shippingAddr;
     if (dto.shippingDate !== undefined)
       updateData.shippingDate = new Date(dto.shippingDate);

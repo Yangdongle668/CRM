@@ -27,10 +27,14 @@ const emptyItem: OrderItem = {
   totalPrice: 0,
 };
 
+const COST_TYPE_OPTIONS = ['模具', '认证', '货物'] as const;
+
 const defaultForm = {
   customerId: '',
   title: '',
   currency: 'USD',
+  costTypes: [] as string[],
+  floorPrice: '',
   shippingAddr: '',
   shippingDate: '',
   trackingNo: '',
@@ -138,6 +142,8 @@ export default function OrdersPage() {
       customerId: o.customerId,
       title: o.title,
       currency: o.currency,
+      costTypes: o.costTypes ?? [],
+      floorPrice: o.floorPrice != null ? String(o.floorPrice) : '',
       shippingAddr: o.shippingAddr ?? '',
       shippingDate: o.shippingDate ? o.shippingDate.slice(0, 10) : '',
       trackingNo: o.trackingNo ?? '',
@@ -193,6 +199,7 @@ export default function OrdersPage() {
       const payload = {
         ...form,
         shippingDate: form.shippingDate || undefined,
+        floorPrice: form.floorPrice !== '' ? Number(form.floorPrice) : undefined,
         totalAmount,
         items: items.map((i, idx) => ({
           productName: i.productName,
@@ -523,6 +530,23 @@ export default function OrdersPage() {
               </select>
             </div>
             <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">公司底价</label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400">
+                  {form.currency}
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={form.floorPrice}
+                  onChange={(e) => setForm({ ...form, floorPrice: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 pl-12 pr-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+            <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">发货日期</label>
               <input
                 type="date"
@@ -530,6 +554,29 @@ export default function OrdersPage() {
                 onChange={(e) => setForm({ ...form, shippingDate: e.target.value })}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
               />
+            </div>
+            <div className="col-span-2">
+              <label className="mb-2 block text-sm font-medium text-gray-700">费用类型</label>
+              <div className="flex items-center gap-5">
+                {COST_TYPE_OPTIONS.map((opt) => (
+                  <label key={opt} className="flex items-center gap-1.5 cursor-pointer select-none text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={form.costTypes.includes(opt)}
+                      onChange={(e) => {
+                        setForm((prev) => ({
+                          ...prev,
+                          costTypes: e.target.checked
+                            ? [...prev.costTypes, opt]
+                            : prev.costTypes.filter((t) => t !== opt),
+                        }));
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
             </div>
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">发货地址</label>
@@ -726,6 +773,20 @@ export default function OrdersPage() {
                   {detailOrder.currency} {(detailOrder.totalAmount ?? 0).toLocaleString()}
                 </span>
               </div>
+              <div>
+                <span className="font-medium text-gray-500">公司底价：</span>
+                <span className="text-gray-900">
+                  {detailOrder.floorPrice != null
+                    ? `${detailOrder.currency} ${Number(detailOrder.floorPrice).toLocaleString()}`
+                    : '-'}
+                </span>
+              </div>
+              {detailOrder.costTypes?.length > 0 && (
+                <div className="col-span-2">
+                  <span className="font-medium text-gray-500">费用类型：</span>
+                  <span className="text-gray-900">{detailOrder.costTypes.join('、')}</span>
+                </div>
+              )}
               <div>
                 <span className="font-medium text-gray-500">订单状态：</span>
                 <Badge className={ORDER_STATUS_MAP[detailOrder.status]?.color}>

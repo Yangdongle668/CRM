@@ -5,6 +5,9 @@ import {
   IsDateString,
   IsArray,
   ValidateNested,
+  IsNumber,
+  IsIn,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { OrderItemDto } from './create-order.dto';
@@ -53,6 +56,16 @@ export class UpdateOrderDto {
   @IsString()
   @IsOptional()
   remark?: string;
+
+  @IsArray()
+  @IsIn(['模具', '认证', '货物'], { each: true })
+  @IsOptional()
+  costTypes?: string[];
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  floorPrice?: number;
 
   @IsArray()
   @ValidateNested({ each: true })

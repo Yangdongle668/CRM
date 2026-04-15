@@ -9,6 +9,7 @@ import {
   IsDateString,
   IsInt,
   Min,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -78,6 +79,16 @@ export class CreateOrderDto {
   @IsString()
   @IsOptional()
   remark?: string;
+
+  @IsArray()
+  @IsIn(['模具', '认证', '货物'], { each: true })
+  @IsOptional()
+  costTypes?: string[];
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  floorPrice?: number;
 
   @IsArray()
   @ValidateNested({ each: true })
