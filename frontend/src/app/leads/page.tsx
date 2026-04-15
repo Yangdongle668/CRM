@@ -17,6 +17,7 @@ import {
   HiOutlineArrowDownTray,
   HiOutlineLockClosed,
   HiOutlineUserPlus,
+  HiOutlineHandRaised,
 } from 'react-icons/hi2';
 
 const isAdminOwned = (lead: Lead): boolean => lead.owner?.role === 'ADMIN';
@@ -168,6 +169,16 @@ export default function LeadsPage() {
       // handled by interceptor
     } finally {
       setBulkAssigning(false);
+    }
+  };
+
+  const handleClaim = async (leadId: string) => {
+    try {
+      await leadsApi.claim(leadId);
+      toast.success('认领成功，线索已归入我的线索');
+      fetchLeads();
+    } catch {
+      // handled by interceptor
     }
   };
 
@@ -467,6 +478,7 @@ export default function LeadsPage() {
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">电话</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">状态</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">评分</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">负责人</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">最后更新时间</th>
                   <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700">操作</th>
                 </tr>
@@ -521,6 +533,18 @@ export default function LeadsPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{lead.score ?? 0}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">
+                      {lead.owner ? (
+                        <span className="inline-flex items-center gap-1">
+                          {lead.owner.name}
+                          {lead.owner.role === 'ADMIN' && (
+                            <HiOutlineLockClosed className="h-3 w-3 text-amber-500" title="管理员" />
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">公海</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">
                       {formatDate(lead.updatedAt)}
                     </td>
                     <td className="px-4 py-3">
@@ -532,11 +556,21 @@ export default function LeadsPage() {
                         >
                           <HiOutlineEye className="h-4 w-4" />
                         </button>
+                        {/* Claim button — shown when lead is in public pool and not owned by current user */}
+                        {(lead.isPublicPool || !lead.ownerId) && lead.ownerId !== user?.id && (
+                          <button
+                            onClick={() => handleClaim(lead.id)}
+                            className="p-1 text-gray-500 hover:text-emerald-600"
+                            title="认领线索"
+                          >
+                            <HiOutlineHandRaised className="h-4 w-4" />
+                          </button>
+                        )}
                         {user?.role === 'ADMIN' && (
                           <button
                             onClick={() => openAssignModal(lead.id)}
                             className="p-1 text-gray-500 hover:text-green-600"
-                            title="分配"
+                            title="分配给业务员"
                           >
                             <HiOutlineUserPlus className="h-4 w-4" />
                           </button>
