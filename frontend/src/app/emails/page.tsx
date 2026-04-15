@@ -144,10 +144,9 @@ export default function EmailsPage() {
       const res: any = await emailsApi.listAccounts();
       const accts = res.data?.accounts || [];
       setAccounts(accts);
-      if (!accountsInitialized.current && accts.length > 0) {
-        setSelectedAccountId(accts[0].id);
-        accountsInitialized.current = true;
-      }
+      // Just mark as initialized; don't auto-select an account so the inbox
+      // defaults to "全部账户" and shows emails from all accounts.
+      accountsInitialized.current = true;
     } catch {
       // handled by interceptor
     } finally {
@@ -398,6 +397,7 @@ export default function EmailsPage() {
         subject: replyForm.subject,
         bodyHtml: replyForm.bodyHtml + quotedContent,
         inReplyTo: replyForm.inReplyTo || undefined,
+        emailConfigId: selectedAccountId || undefined,
       };
       if (replyForm.cc) payload.cc = replyForm.cc;
       if (replyForm.bcc) payload.bcc = replyForm.bcc;
@@ -435,6 +435,7 @@ export default function EmailsPage() {
         toAddr: composeForm.toAddr,
         subject: composeForm.subject,
         bodyHtml: composeForm.bodyHtml,
+        emailConfigId: selectedAccountId || undefined,
       };
       if (composeForm.cc) payload.cc = composeForm.cc;
       if (composeForm.bcc) payload.bcc = composeForm.bcc;
@@ -1011,6 +1012,21 @@ export default function EmailsPage() {
       size="3xl"
     >
       <form onSubmit={handleSendEmail} className="space-y-4">
+        {accounts.length > 1 && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">发件账户</label>
+            <select
+              value={selectedAccountId || ''}
+              onChange={(e) => setSelectedAccountId(e.target.value || null)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            >
+              <option value="">默认账户</option>
+              {accounts.map((acct: any) => (
+                <option key={acct.id} value={acct.id}>{acct.emailAddr}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
             收件人 <span className="text-red-500">*</span>
