@@ -267,3 +267,12 @@ export const pisApi = {
   generatePdf: (id: string) => api.post(`/pis/${id}/pdf`, {}),
   downloadPdf: (id: string) => api.get(`/pis/${id}/download`, { responseType: 'blob' }),
 };
+
+
+// ==================== Messages API ====================
+export const messagesApi = {
+  getConversations: () => api.get('/messages/conversations'),
+  getHistory: (userId: string) => api.get(`/messages/${userId}`),
+  send: (toId: string, content: string) => api.post('/messages', { toId, content }),
+  getUnreadCount: () => api.get('/messages/unread-count'),
+};

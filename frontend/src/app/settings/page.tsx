@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/contexts/auth-context';
+import { useLogo } from '@/contexts/logo-context';
 import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
 import type { User, Role } from '@/types';
@@ -28,6 +29,7 @@ const defaultUserForm = {
 
 export default function SettingsPage() {
   const { user: currentUser, isAdmin, loading: authLoading } = useAuth();
+  const { refreshLogo } = useLogo();
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<TabKey>('users');
@@ -307,6 +309,7 @@ export default function SettingsPage() {
         formData.append('logo', file);
         const res: any = await settingsApi.uploadLogo(formData);
         setLogoUrl(res.data?.logoUrl || null);
+        await refreshLogo();
         toast.success('Logo上传成功');
       } catch {
         toast.error('Logo上传失败');

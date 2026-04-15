@@ -4,7 +4,8 @@ import React, { useState, useEffect, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/contexts/auth-context';
-import { authApi, settingsApi } from '@/lib/api';
+import { useLogo } from '@/contexts/logo-context';
+import { authApi } from '@/lib/api';
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -13,20 +14,13 @@ export default function LoginPage() {
   const [isSetupMode, setIsSetupMode] = useState(false);
   const [checking, setChecking] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const { logoUrl } = useLogo();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
-
-  useEffect(() => {
-    settingsApi.getLogo().then((res: any) => {
-      const url = res?.data?.logoUrl || res?.logoUrl;
-      if (url) setLogoUrl(url);
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     authApi

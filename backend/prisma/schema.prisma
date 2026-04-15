@@ -40,7 +40,9 @@ model User {
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
-  leadActivities  LeadActivity[]
+  leadActivities   LeadActivity[]
+  messagesSent     Message[]      @relation("MessagesSent")
+  messagesReceived Message[]      @relation("MessagesReceived")
 
   @@map("users")
 }
@@ -434,6 +436,8 @@ model Order {
   totalAmount   Decimal       @default(0) @map("total_amount") @db.Decimal(12, 2)
   status        OrderStatus   @default(PENDING)
   paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+  costTypes     String[]      @default([]) @map("cost_types")
+  floorPrice    Decimal?      @map("floor_price") @db.Decimal(12, 2)
   shippingAddr  String?       @map("shipping_addr")
   shippingDate  DateTime?     @map("shipping_date")
   deliveryDate  DateTime?     @map("delivery_date")
@@ -566,6 +570,23 @@ model Memo {
   owner User @relation(fields: [ownerId], references: [id])
 
   @@map("memos")
+}
+
+// ==================== 站内消息 ====================
+model Message {
+  id        String   @id @default(uuid())
+  fromId    String   @map("from_id")
+  toId      String   @map("to_id")
+  content   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  from User @relation("MessagesSent", fields: [fromId], references: [id], onDelete: Cascade)
+  to   User @relation("MessagesReceived", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([toId, isRead])
+  @@index([fromId])
+  @@map("messages")
 }
 
 // ==================== 系统设置 ====================

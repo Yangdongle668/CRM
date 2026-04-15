@@ -233,6 +233,8 @@ export interface Order {
   title: string;
   currency: string;
   totalAmount: number;
+  costTypes: string[];
+  floorPrice?: number;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   shippingAddr?: string;
