@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
 
-type FolderType = 'inbox' | 'unread' | 'sent' | 'templates' | 'settings';
+type FolderType = 'inbox' | 'unread' | 'sent' | 'customer' | 'advertisement' | 'templates' | 'settings';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
@@ -67,6 +67,12 @@ export default function EmailsPage() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
   const [signature, setSignature] = useState<string>('');
 
+  // Multi-account support
+  const [accounts, setAccounts] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [accountsLoading, setAccountsLoading] = useState(false);
+  const [showAccountManager, setShowAccountManager] = useState(false);
+
   // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
   const [threadEmails, setThreadEmails] = useState<Email[]>([]);
@@ -92,16 +98,66 @@ export default function EmailsPage() {
   const [unreadCount, setUnreadCount] = useState(0);
   const prevUnreadRef = useRef(0);
 
-  // Fetch emails (threaded mode) based on active folder
-  // ==================== Email Config State ====================
-  const defaultEmailConfig = {
-    smtpHost: '', smtpPort: 465, smtpUser: '', smtpPass: '', smtpSecure: true,
-    imapHost: '', imapPort: 993, imapUser: '', imapPass: '', imapSecure: true,
-    fromName: '', signature: '',
-  };
-  const [emailConfig, setEmailConfig] = useState(defaultEmailConfig);
-  const [emailConfigLoading, setEmailConfigLoading] = useState(false);
-  const [emailConfigSaving, setEmailConfigSaving] = useState(false);
+  // Load email accounts
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const res: any = await emailsApi.listAccounts();
+        const accts = res.data?.accounts || [];
+        setAccounts(accts);
+        if (accts.length > 0 && !selectedAccountId) {
+          setSelectedAccountId(accts[0].id);
+        }
+      } catch {
+        // handled by interceptor
+      }
+    };
+    loadAccounts();
+  }, [selectedAccountId]);
+
+  // Fetch emails with account filter
+  const fetchEmails = useCallback(async () => {
+    if (activeFolder === 'templates' || activeFolder === 'settings') return;
+    setLoading(true);
+    try {
+      const params: Record<string, any> = {
+        page,
+        pageSize,
+        grouped: 'true',
+        emailConfigId: selectedAccountId || undefined,
+      };
+
+      switch (activeFolder) {
+        case 'inbox':
+          params.category = 'inbox';
+          break;
+        case 'unread':
+          params.status = 'RECEIVED';
+          params.category = 'inbox';
+          break;
+        case 'sent':
+          params.category = 'sent';
+          break;
+        case 'customer':
+          params.category = 'customer';
+          break;
+        case 'advertisement':
+          params.category = 'advertisement';
+          break;
+      }
+
+      const res: any = await emailsApi.list(params);
+      const data = res.data;
+      const items = Array.isArray(data.items) ? data.items : [];
+      setThreads(items);
+      setEmails(items.map((t: EmailThreadItem) => t.latestEmail).filter(Boolean));
+      setTotal(data.total || 0);
+    } catch {
+      // handled by interceptor
+    } finally {
+      setLoading(false);
+    }
+  }, [activeFolder, page, pageSize, selectedAccountId]);;
   const [emailConfigTesting, setEmailConfigTesting] = useState(false);
 
   const fetchEmailConfig = useCallback(async () => {
@@ -536,6 +592,8 @@ export default function EmailsPage() {
     { key: 'inbox', label: '收件箱', icon: 'inbox', badge: unreadCount > 0 ? unreadCount : undefined },
     { key: 'unread', label: '未读邮件', icon: 'unread' },
     { key: 'sent', label: '已发送', icon: 'sent' },
+    { key: 'customer', label: '客户', icon: 'customer' },
+    { key: 'advertisement', label: '广告邮件', icon: 'advertisement' },
     { key: 'templates', label: '邮件模板', icon: 'templates' },
     { key: 'settings', label: '邮箱设置', icon: 'settings' },
   ];
@@ -559,6 +617,16 @@ export default function EmailsPage() {
     templates: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    customer: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.856-1.487M15 6a3 3 0 11-6 0 3 3 0 016 0zM15 13H9m4 0h6m-6 0a6 6 0 11-12 0 6 6 0 0112 0z" />
+      </svg>
+    ),
+    advertisement: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     ),
     settings: (
@@ -1126,7 +1194,27 @@ export default function EmailsPage() {
       <div className="flex flex-col h-[calc(100vh-64px)]">
         {/* Header */}
         <div className="flex items-center justify-between px-0 py-4 flex-shrink-0">
-          <h1 className="text-2xl font-bold text-gray-900">邮件中心</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-bold text-gray-900">邮件中心</h1>
+            {accounts.length > 0 && (
+              <select
+                value={selectedAccountId || ''}
+                onChange={(e) => {
+                  setSelectedAccountId(e.target.value);
+                  setPage(1);
+                  setSelectedEmail(null);
+                }}
+                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">全部账户</option>
+                {accounts.map((acct: any) => (
+                  <option key={acct.id} value={acct.id}>
+                    {acct.emailAddr}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <button
               onClick={handleFetchImap}
@@ -1183,172 +1271,57 @@ export default function EmailsPage() {
           {activeFolder === 'settings' ? (
             <div className="flex-1 overflow-y-auto p-6">
               <div className="max-w-2xl mx-auto">
-                <h2 className="text-lg font-semibold text-gray-900 mb-6">邮箱配置</h2>
-                {emailConfigLoading ? (
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900">邮箱账户管理</h2>
+                  <button
+                    onClick={() => setShowAccountManager(true)}
+                    className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                  >
+                    + 添加邮箱账户
+                  </button>
+                </div>
+                {accountsLoading ? (
                   <div className="text-center py-12 text-gray-400">
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-blue-600 border-t-transparent mx-auto mb-2" />
                     加载中...
                   </div>
+                ) : accounts.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <p className="mb-4">暂无邮箱账户</p>
+                    <button
+                      onClick={() => setShowAccountManager(true)}
+                      className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+                    >
+                      添加第一个邮箱
+                    </button>
+                  </div>
                 ) : (
-                  <div className="space-y-6">
-                    {/* SMTP Settings */}
-                    <div className="bg-white rounded-lg border p-5">
-                      <h3 className="text-sm font-semibold text-gray-800 mb-4">SMTP 发件服务器</h3>
-                      <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-3">
+                    {accounts.map((acct: any) => (
+                      <div key={acct.id} className="bg-white rounded-lg border p-4 flex items-center justify-between">
                         <div>
-                          <label className="block text-sm text-gray-600 mb-1">SMTP 服务器</label>
-                          <input
-                            type="text"
-                            value={emailConfig.smtpHost}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpHost: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="例如: smtp.gmail.com"
-                          />
+                          <p className="font-medium text-gray-900">{acct.emailAddr}</p>
+                          <p className="text-xs text-gray-500">{acct.fromName || '(未设置发件人名称)'}</p>
                         </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">端口</label>
-                          <input
-                            type="number"
-                            value={emailConfig.smtpPort}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpPort: Number(e.target.value) })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">用户名</label>
-                          <input
-                            type="text"
-                            value={emailConfig.smtpUser}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpUser: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="邮箱地址"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">密码</label>
-                          <input
-                            type="password"
-                            value={emailConfig.smtpPass}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, smtpPass: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="邮箱密码或授权码"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="flex items-center gap-2 text-sm text-gray-600">
-                            <input
-                              type="checkbox"
-                              checked={emailConfig.smtpSecure}
-                              onChange={(e) => setEmailConfig({ ...emailConfig, smtpSecure: e.target.checked })}
-                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            使用 SSL/TLS 加密
-                          </label>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              setSelectedAccountId(acct.id);
+                              setActiveFolder('inbox');
+                            }}
+                            className="px-3 py-1 text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            选择
+                          </button>
+                          <button
+                            onClick={() => emailsApi.deleteAccount(acct.id).then(() => setAccounts(accounts.filter((a: any) => a.id !== acct.id)))}
+                            className="px-3 py-1 text-xs text-red-600 hover:text-red-800"
+                          >
+                            删除
+                          </button>
                         </div>
                       </div>
-                    </div>
-
-                    {/* IMAP Settings */}
-                    <div className="bg-white rounded-lg border p-5">
-                      <h3 className="text-sm font-semibold text-gray-800 mb-4">IMAP 收件服务器</h3>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">IMAP 服务器</label>
-                          <input
-                            type="text"
-                            value={emailConfig.imapHost}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, imapHost: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="例如: imap.gmail.com"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">端口</label>
-                          <input
-                            type="number"
-                            value={emailConfig.imapPort}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, imapPort: Number(e.target.value) })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">用户名</label>
-                          <input
-                            type="text"
-                            value={emailConfig.imapUser}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, imapUser: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="邮箱地址"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">密码</label>
-                          <input
-                            type="password"
-                            value={emailConfig.imapPass}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, imapPass: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="邮箱密码或授权码"
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="flex items-center gap-2 text-sm text-gray-600">
-                            <input
-                              type="checkbox"
-                              checked={emailConfig.imapSecure}
-                              onChange={(e) => setEmailConfig({ ...emailConfig, imapSecure: e.target.checked })}
-                              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            使用 SSL/TLS 加密
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Display Name & Signature */}
-                    <div className="bg-white rounded-lg border p-5">
-                      <h3 className="text-sm font-semibold text-gray-800 mb-4">显示设置</h3>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">发件人名称</label>
-                          <input
-                            type="text"
-                            value={emailConfig.fromName}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, fromName: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            placeholder="收件人看到的发件人名称"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-sm text-gray-600 mb-1">邮件签名</label>
-                          <textarea
-                            value={emailConfig.signature}
-                            onChange={(e) => setEmailConfig({ ...emailConfig, signature: e.target.value })}
-                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            rows={4}
-                            placeholder="支持 HTML 格式的邮件签名"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={handleSaveEmailConfig}
-                        disabled={emailConfigSaving}
-                        className="px-5 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                      >
-                        {emailConfigSaving ? '保存中...' : '保存配置'}
-                      </button>
-                      <button
-                        onClick={handleTestEmailConfig}
-                        disabled={emailConfigTesting}
-                        className="px-5 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
-                      >
-                        {emailConfigTesting ? '测试中...' : '测试 SMTP 连接'}
-                      </button>
-                    </div>
+                    ))}
                   </div>
                 )}
               </div>
