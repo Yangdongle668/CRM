@@ -11,10 +11,16 @@ import * as path from 'path';
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
   const app = await NestFactory.create(AppModule);
-
+  
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port', 3000);
   const apiPrefix = configService.get<string>('apiPrefix', 'api');
+
+  // 🚨 FIX: BigInt JSON serialization error
+  // ===============================
+  BigInt.prototype.toJSON = function () {
+    return this.toString();
+  };
 
   // Serve uploaded files statically (before API prefix)
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
