@@ -16,7 +16,6 @@ import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
-import { EmailConfigDto } from './dto/email-config.dto';
 import { BankInfoDto } from './dto/bank-info.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -83,21 +82,6 @@ export class SettingsController {
   async getLogo() {
     const logoUrl = await this.settingsService.getLogoUrl();
     return { logoUrl };
-  }
-
-  @Get('email-config')
-  getEmailConfig(@CurrentUser() user: any) {
-    return this.settingsService.getEmailConfig(user.id);
-  }
-
-  @Put('email-config')
-  updateEmailConfig(@CurrentUser() user: any, @Body() dto: EmailConfigDto) {
-    return this.settingsService.updateEmailConfig(user.id, dto);
-  }
-
-  @Post('email-config/test')
-  testEmailConnection(@CurrentUser() user: any) {
-    return this.settingsService.testEmailConnection(user.id);
   }
 
   @Get('bank-info')

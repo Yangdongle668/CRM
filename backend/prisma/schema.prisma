@@ -36,7 +36,7 @@ model User {
   activities      Activity[]
   documents       Document[]
   emailsSent      Email[]        @relation("SentEmails")
-  emailConfig     EmailConfig?
+  emailConfigs    EmailConfig[]
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
@@ -48,7 +48,8 @@ model User {
 // ==================== 邮件配置 ====================
 model EmailConfig {
   id         String  @id @default(uuid())
-  userId     String  @unique @map("user_id")
+  userId     String  @map("user_id")
+  emailAddr  String  @map("email_addr")
   smtpHost   String  @map("smtp_host")
   smtpPort   Int     @map("smtp_port")
   smtpUser   String  @map("smtp_user")
@@ -64,7 +65,8 @@ model EmailConfig {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails Email[] @relation("EmailAccount")
 
   @@map("email_configs")
 }
@@ -210,30 +212,34 @@ enum EmailStatus {
 }
 
 model Email {
-  id         String         @id @default(uuid())
-  messageId  String?        @unique @map("message_id")
-  threadId   String?        @map("thread_id")
-  fromAddr   String         @map("from_addr")
-  toAddr     String         @map("to_addr")
-  cc         String?
-  bcc        String?
-  subject    String
-  bodyHtml   String?        @map("body_html")
-  bodyText   String?        @map("body_text")
-  direction  EmailDirection
-  status     EmailStatus    @default(DRAFT)
-  sentAt     DateTime?      @map("sent_at")
-  receivedAt DateTime?      @map("received_at")
-  viewedAt   DateTime?      @map("viewed_at")
-  viewCount  Int            @default(0) @map("view_count")
-  customerId String?        @map("customer_id")
-  senderId   String?        @map("sender_id")
-  createdAt  DateTime       @default(now()) @map("created_at")
-  updatedAt  DateTime       @updatedAt @map("updated_at")
+  id            String         @id @default(uuid())
+  messageId     String?        @unique @map("message_id")
+  threadId      String?        @map("thread_id")
+  emailConfigId String?        @map("email_config_id")
+  fromAddr      String         @map("from_addr")
+  toAddr        String         @map("to_addr")
+  cc            String?
+  bcc           String?
+  subject       String
+  bodyHtml      String?        @map("body_html")
+  bodyText      String?        @map("body_text")
+  direction     EmailDirection
+  status        EmailStatus    @default(DRAFT)
+  category      String?        @default("inbox")
+  flagged       Boolean        @default(false)
+  sentAt        DateTime?      @map("sent_at")
+  receivedAt    DateTime?      @map("received_at")
+  viewedAt      DateTime?      @map("viewed_at")
+  viewCount     Int            @default(0) @map("view_count")
+  customerId    String?        @map("customer_id")
+  senderId      String?        @map("sender_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  thread   EmailThread? @relation(fields: [threadId], references: [id])
-  customer Customer?    @relation(fields: [customerId], references: [id])
-  sender   User?        @relation("SentEmails", fields: [senderId], references: [id])
+  thread       EmailThread?  @relation(fields: [threadId], references: [id])
+  emailConfig  EmailConfig?  @relation("EmailAccount", fields: [emailConfigId], references: [id], onDelete: Cascade)
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  sender       User?         @relation("SentEmails", fields: [senderId], references: [id])
 
   @@map("emails")
 }

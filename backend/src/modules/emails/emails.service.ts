@@ -17,17 +17,11 @@ export class EmailsService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  /**
-   * Strip tracking pixel images from HTML to prevent self-triggering read receipts
-   */
   private stripTrackingPixel(html: string | null): string | null {
     if (!html) return html;
     return html.replace(/<img[^>]*\/api\/emails\/track\/[^>]*>/gi, '');
   }
 
-  /**
-   * Normalize email subject by stripping Re:/Fwd:/Fw:/回复:/转发: prefixes
-   */
   private normalizeSubject(subject: string): string {
     return subject
       .replace(/^(re|fwd|fw|回复|转发)\s*[:：]\s*/gi, '')
@@ -35,9 +29,6 @@ export class EmailsService {
       .trim() || '(No Subject)';
   }
 
-  /**
-   * Find or create an EmailThread for the given subject
-   */
   private async findOrCreateThread(subject: string): Promise<string> {
     const normalized = this.normalizeSubject(subject);
     const existing = await this.prisma.emailThread.findFirst({
@@ -51,10 +42,158 @@ export class EmailsService {
     return thread.id;
   }
 
-  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
-    const config = await this.prisma.emailConfig.findUnique({
+  // ==================== Email Account Management ====================
+
+  async listEmailAccounts(userId: string) {
+    const accounts = await this.prisma.emailConfig.findMany({
       where: { userId },
+      select: {
+        id: true,
+        emailAddr: true,
+        fromName: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
     });
+    return { accounts };
+  }
+
+  async createEmailAccount(userId: string, data: any) {
+    const { emailAddr, smtpHost, smtpPort, smtpUser, smtpPass, smtpSecure, imapHost, imapPort, imapUser, imapPass, imapSecure, fromName, signature } = data;
+
+    if (!emailAddr || !smtpHost || !smtpUser || !imapHost || !imapUser) {
+      throw new BadRequestException('Missing required email configuration fields');
+    }
+
+    const config = await this.prisma.emailConfig.create({
+      data: {
+        userId,
+        emailAddr,
+        smtpHost,
+        smtpPort: Number(smtpPort) || 465,
+        smtpUser,
+        smtpPass,
+        smtpSecure: smtpSecure !== false,
+        imapHost,
+        imapPort: Number(imapPort) || 993,
+        imapUser,
+        imapPass,
+        imapSecure: imapSecure !== false,
+        fromName: fromName || undefined,
+        signature: signature || undefined,
+      },
+      select: {
+        id: true,
+        emailAddr: true,
+        fromName: true,
+        createdAt: true,
+      },
+    });
+
+    return { config };
+  }
+
+  async updateEmailAccount(userId: string, configId: string, data: any) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Email configuration not found');
+    }
+
+    const updated = await this.prisma.emailConfig.update({
+      where: { id: configId },
+      data: {
+        fromName: data.fromName || config.fromName,
+        signature: data.signature || config.signature,
+        smtpHost: data.smtpHost || config.smtpHost,
+        smtpPort: data.smtpPort ? Number(data.smtpPort) : config.smtpPort,
+        smtpUser: data.smtpUser || config.smtpUser,
+        smtpPass: data.smtpPass && data.smtpPass !== '********' ? data.smtpPass : config.smtpPass,
+        smtpSecure: data.smtpSecure !== undefined ? data.smtpSecure : config.smtpSecure,
+        imapHost: data.imapHost || config.imapHost,
+        imapPort: data.imapPort ? Number(data.imapPort) : config.imapPort,
+        imapUser: data.imapUser || config.imapUser,
+        imapPass: data.imapPass && data.imapPass !== '********' ? data.imapPass : config.imapPass,
+        imapSecure: data.imapSecure !== undefined ? data.imapSecure : config.imapSecure,
+      },
+      select: {
+        id: true,
+        emailAddr: true,
+        fromName: true,
+      },
+    });
+
+    return { config: updated };
+  }
+
+  async deleteEmailAccount(userId: string, configId: string) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Email configuration not found');
+    }
+
+    await this.prisma.emailConfig.delete({
+      where: { id: configId },
+    });
+
+    return { deleted: true };
+  }
+
+  async testEmailAccount(userId: string, configId: string) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Email configuration not found');
+    }
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host: config.smtpHost,
+        port: config.smtpPort,
+        secure: config.smtpSecure,
+        auth: {
+          user: config.smtpUser,
+          pass: config.smtpPass,
+        },
+        connectionTimeout: 10000,
+      });
+
+      await transporter.verify();
+
+      return {
+        success: true,
+        message: 'SMTP connection successful',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: `SMTP connection failed: ${error.message}`,
+      };
+    }
+  }
+
+  // ==================== Send Email ====================
+
+  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
+    let config: any;
+
+    if (dto.emailConfigId) {
+      config = await this.prisma.emailConfig.findFirst({
+        where: { id: dto.emailConfigId, userId },
+      });
+    } else {
+      config = await this.prisma.emailConfig.findFirst({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
 
     if (!config) {
       throw new BadRequestException(
@@ -73,15 +212,14 @@ export class EmailsService {
     });
 
     const fromAddress = config.fromName
-      ? `"${config.fromName}" <${config.smtpUser}>`
-      : config.smtpUser;
+      ? `"${config.fromName}" <${config.emailAddr}>`
+      : config.emailAddr;
 
     let htmlBody = dto.bodyHtml;
     if (config.signature) {
       htmlBody += `<br/><br/>--<br/>${config.signature}`;
     }
 
-    // Handle reply threading
     let inReplyToMessageId: string | undefined;
     let threadId: string | undefined;
 
@@ -106,22 +244,25 @@ export class EmailsService {
       }
     }
 
-    // Auto-assign thread if not already set from reply
     if (!threadId) {
       threadId = await this.findOrCreateThread(dto.subject);
     }
 
-    // Auto-match customer by recipient domain if not manually specified
     let customerId = dto.customerId || null;
+    let category = 'inbox';
     if (!customerId) {
       const matched = await this.autoMatchCustomer(dto.toAddr);
-      if (matched) customerId = matched.id;
+      if (matched) {
+        customerId = matched.id;
+        category = 'customer';
+      }
+    } else {
+      category = 'customer';
     }
 
-    // Create email record first (as DRAFT) to get the ID for tracking pixel
     const emailRecord = await this.prisma.email.create({
       data: {
-        fromAddr: config.smtpUser,
+        fromAddr: config.emailAddr,
         toAddr: dto.toAddr,
         cc: dto.cc,
         bcc: dto.bcc,
@@ -129,13 +270,14 @@ export class EmailsService {
         bodyHtml: htmlBody,
         direction: 'OUTBOUND',
         status: 'DRAFT',
+        category,
         customerId,
         senderId: userId,
+        emailConfigId: config.id,
         threadId: threadId || null,
       },
     });
 
-    // Embed tracking pixel in HTML body
     const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
     const trackingPixel = appUrl
       ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
@@ -159,8 +301,6 @@ export class EmailsService {
 
       const info = await transporter.sendMail(mailOptions);
 
-      // Update email record to SENT with messageId
-      // Store original HTML without tracking pixel to avoid self-read when viewing in CRM
       const email = await this.prisma.email.update({
         where: { id: emailRecord.id },
         data: {
@@ -173,7 +313,6 @@ export class EmailsService {
         },
       });
 
-      // Create activity on customer timeline
       if (email.customerId) {
         await this.prisma.activity.create({
           data: {
@@ -189,7 +328,6 @@ export class EmailsService {
     } catch (error) {
       this.logger.error(`Failed to send email: ${error.message}`, error.stack);
 
-      // Update record to FAILED
       await this.prisma.email.update({
         where: { id: emailRecord.id },
         data: { status: 'FAILED' },
@@ -198,6 +336,8 @@ export class EmailsService {
       throw new BadRequestException(`Failed to send email: ${error.message}`);
     }
   }
+
+  // ==================== List Emails ====================
 
   async findAll(
     userId: string,
@@ -209,6 +349,9 @@ export class EmailsService {
       page?: number;
       pageSize?: number;
       grouped?: string;
+      emailConfigId?: string;
+      category?: string;
+      flagged?: string;
     },
   ) {
     const page = query.page || 1;
@@ -218,9 +361,6 @@ export class EmailsService {
     const where: any = {};
 
     if (role !== 'ADMIN') {
-      // OUTBOUND: user sent these emails — filter by senderId
-      // INBOUND: emails received from external senders — no senderId filter
-      // (all non-admin users share the same inbox)
       if (query.direction === 'OUTBOUND') {
         where.senderId = userId;
       }
@@ -238,7 +378,18 @@ export class EmailsService {
       where.status = query.status;
     }
 
-    // Direction-aware sorting: use actual email timestamp
+    if (query.emailConfigId) {
+      where.emailConfigId = query.emailConfigId;
+    }
+
+    if (query.category) {
+      where.category = query.category;
+    }
+
+    if (query.flagged === 'true') {
+      where.flagged = true;
+    }
+
     let orderBy: any;
     if (query.direction === 'INBOUND') {
       orderBy = [{ receivedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }];
@@ -262,6 +413,7 @@ export class EmailsService {
         include: {
           customer: { select: { id: true, companyName: true } },
           sender: { select: { id: true, name: true, email: true } },
+          emailConfig: { select: { emailAddr: true } },
         },
         orderBy,
         skip,
@@ -273,6 +425,8 @@ export class EmailsService {
     return { items, total, page, pageSize };
   }
 
+  // ==================== Email Detail ====================
+
   async findOne(id: string, _userId: string, _role: string) {
     const where: any = { id };
 
@@ -281,6 +435,7 @@ export class EmailsService {
       include: {
         customer: true,
         sender: { select: { id: true, name: true, email: true } },
+        emailConfig: { select: { emailAddr: true } },
         thread: {
           include: {
             emails: {
@@ -303,7 +458,6 @@ export class EmailsService {
       throw new NotFoundException('Email not found');
     }
 
-    // Strip tracking pixels to prevent self-triggering read receipts
     const result: any = { ...email };
     result.bodyHtml = this.stripTrackingPixel(email.bodyHtml);
     if (result.thread?.emails) {
@@ -316,9 +470,6 @@ export class EmailsService {
     return result;
   }
 
-  /**
-   * Thread-grouped email listing: returns one entry per thread, with latest email and count
-   */
   private async findAllThreaded(
     where: any,
     _orderBy: any,
@@ -328,7 +479,6 @@ export class EmailsService {
   ) {
     const skip = (page - 1) * pageSize;
 
-    // Build WHERE clause fragments for raw SQL
     const conditions: string[] = [];
     const params: any[] = [];
     let paramIdx = 1;
@@ -349,17 +499,26 @@ export class EmailsService {
       conditions.push(`e.status::text = $${paramIdx++}`);
       params.push(where.status);
     }
+    if (where.emailConfigId) {
+      conditions.push(`e.email_config_id = $${paramIdx++}`);
+      params.push(where.emailConfigId);
+    }
+    if (where.category) {
+      conditions.push(`e.category = $${paramIdx++}`);
+      params.push(where.category);
+    }
+    if (where.flagged) {
+      conditions.push(`e.flagged = true`);
+    }
 
     const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
 
-    // Count distinct threads
     const countResult: any[] = await this.prisma.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT COALESCE(e.thread_id, e.id)) as cnt FROM emails e ${whereClause}`,
       ...params,
     );
     const total = Number(countResult[0]?.cnt || 0);
 
-    // Get thread groups with latest date, ordered by latest email date
     const dateExpr = direction === 'INBOUND'
       ? 'COALESCE(e.received_at, e.created_at)'
       : direction === 'OUTBOUND'
@@ -373,73 +532,50 @@ export class EmailsService {
         MAX(${dateExpr}) as latest_date
       FROM emails e
       ${whereClause}
-      GROUP BY COALESCE(e.thread_id, e.id)
+      GROUP BY group_id
       ORDER BY latest_date DESC
-      LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
-      ...params, pageSize, skip,
+      LIMIT $${paramIdx} OFFSET $${paramIdx + 1}`,
+      ...params,
+      pageSize,
+      skip,
     );
 
-    if (threadRows.length === 0) {
-      return { items: [], total, page, pageSize };
-    }
+    const groupIds = threadRows.map((r: any) => r.group_id);
+    const latestEmails = await this.prisma.email.findMany({
+      where: {
+        OR: [
+          { id: { in: groupIds } },
+          { threadId: { in: groupIds } },
+        ],
+      },
+      include: {
+        customer: { select: { id: true, companyName: true } },
+        sender: { select: { id: true, name: true, email: true } },
+        emailConfig: { select: { emailAddr: true } },
+      },
+    });
 
-    // For each thread group, get the latest email
-    const items: any[] = [];
-    for (const row of threadRows) {
-      const groupId = row.group_id;
-      const emailCount = Number(row.email_count);
+    const results = threadRows.map((row: any) => {
+      const emails = latestEmails.filter(
+        (e: any) => (e.threadId === row.group_id || e.id === row.group_id),
+      );
+      const latestEmail = emails.sort(
+        (a: any, b: any) =>
+          new Date(b.sentAt || b.receivedAt || b.createdAt).getTime() -
+          new Date(a.sentAt || a.receivedAt || a.createdAt).getTime(),
+      )[0];
 
-      // Determine if this is a real thread or a standalone email
-      const isThread = await this.prisma.emailThread.findUnique({ where: { id: groupId } });
+      return {
+        threadId: row.group_id === latestEmail?.id ? null : row.group_id,
+        threadSubject: latestEmail?.subject || '(No Subject)',
+        emailCount: row.email_count,
+        latestEmail,
+      };
+    });
 
-      let latestEmail: any;
-      if (isThread) {
-        // Real thread — get the latest email in this thread
-        const threadWhere: any = { ...where, threadId: groupId };
-        delete threadWhere.senderId; // already filtered in raw SQL
-        delete threadWhere.customerId;
-        delete threadWhere.direction;
-        delete threadWhere.status;
-
-        latestEmail = await this.prisma.email.findFirst({
-          where: { threadId: groupId },
-          include: {
-            customer: { select: { id: true, companyName: true } },
-            sender: { select: { id: true, name: true, email: true } },
-          },
-          orderBy: [
-            { sentAt: { sort: 'desc', nulls: 'last' } },
-            { receivedAt: { sort: 'desc', nulls: 'last' } },
-            { createdAt: 'desc' },
-          ],
-        });
-      } else {
-        // Standalone email (no thread) — the groupId IS the email id
-        latestEmail = await this.prisma.email.findUnique({
-          where: { id: groupId },
-          include: {
-            customer: { select: { id: true, companyName: true } },
-            sender: { select: { id: true, name: true, email: true } },
-          },
-        });
-      }
-
-      if (latestEmail) {
-        items.push({
-          threadId: isThread ? groupId : null,
-          threadSubject: isThread ? isThread.subject : latestEmail.subject,
-          emailCount,
-          latestEmail,
-        });
-      }
-    }
-
-    return { items, total, page, pageSize };
+    return { items: results, total, page, pageSize };
   }
 
-  /**
-   * Get all emails in a specific thread, sorted chronologically
-   */
   async findThreadEmails(threadId: string, _userId: string, _role: string) {
     const where: any = { threadId };
 
@@ -458,6 +594,41 @@ export class EmailsService {
 
     return emails.map((e) => ({ ...e, bodyHtml: this.stripTrackingPixel(e.bodyHtml) }));
   }
+
+  // ==================== Flag & Category ====================
+
+  async toggleFlag(id: string, userId: string, flagged: boolean) {
+    const email = await this.prisma.email.findUnique({ where: { id } });
+
+    if (!email) {
+      throw new NotFoundException('Email not found');
+    }
+
+    return this.prisma.email.update({
+      where: { id },
+      data: { flagged },
+    });
+  }
+
+  async updateCategory(id: string, userId: string, category: string) {
+    const email = await this.prisma.email.findUnique({ where: { id } });
+
+    if (!email) {
+      throw new NotFoundException('Email not found');
+    }
+
+    const validCategories = ['inbox', 'customer', 'advertisement', 'drafts', 'starred', 'trash', 'spam'];
+    if (!validCategories.includes(category)) {
+      throw new BadRequestException('Invalid category');
+    }
+
+    return this.prisma.email.update({
+      where: { id },
+      data: { category },
+    });
+  }
+
+  // ==================== Read Status ====================
 
   async getUnreadCount(userId: string, role: string) {
     const where: any = {
@@ -550,7 +721,6 @@ export class EmailsService {
       where.senderId = userId;
     }
 
-    // Get emails viewed in the last 24 hours
     const since = new Date();
     since.setHours(since.getHours() - 24);
     where.viewedAt = { gte: since };
@@ -567,9 +737,11 @@ export class EmailsService {
     return { items };
   }
 
-  async fetchEmails(userId: string): Promise<{ fetched: number; inboxFetched?: number; sentFetched?: number; sentFolder?: string | null }> {
-    const config = await this.prisma.emailConfig.findUnique({
-      where: { userId },
+  // ==================== Fetch Emails ====================
+
+  async fetchEmails(userId: string, configId: string): Promise<{ fetched: number; inboxFetched?: number; sentFetched?: number; sentFolder?: string | null }> {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
     });
 
     if (!config) {
@@ -594,17 +766,16 @@ export class EmailsService {
 
       imap.once('ready', async () => {
         try {
-          // 1. Fetch from INBOX (inbound emails)
           const inboxCount = await this.fetchFromFolder(
             imap,
             userId,
-            config.smtpUser,
+            configId,
+            config.emailAddr,
             'INBOX',
             'INBOUND',
           );
           totalFetched += inboxCount;
 
-          // 2. Find and fetch from Sent folder (outbound emails)
           let sentCount = 0;
           const sentFolder = await this.findSentFolder(imap);
           if (sentFolder) {
@@ -612,7 +783,8 @@ export class EmailsService {
             sentCount = await this.fetchFromFolder(
               imap,
               userId,
-              config.smtpUser,
+              configId,
+              config.emailAddr,
               sentFolder,
               'OUTBOUND',
             );
@@ -650,12 +822,44 @@ export class EmailsService {
     });
   }
 
-  /**
-   * Fetch emails from a specific IMAP folder
-   */
+  async fetchAllAccounts(userId: string) {
+    const configs = await this.prisma.emailConfig.findMany({
+      where: { userId },
+    });
+
+    if (configs.length === 0) {
+      throw new BadRequestException('No email configurations found');
+    }
+
+    const results: any = {
+      totalFetched: 0,
+      accounts: [],
+    };
+
+    for (const config of configs) {
+      try {
+        const result = await this.fetchEmails(userId, config.id);
+        results.accounts.push({
+          emailAddr: config.emailAddr,
+          ...result,
+        });
+        results.totalFetched += result.fetched;
+      } catch (error) {
+        this.logger.error(`Failed to fetch emails for ${config.emailAddr}: ${error.message}`);
+        results.accounts.push({
+          emailAddr: config.emailAddr,
+          error: error.message,
+        });
+      }
+    }
+
+    return results;
+  }
+
   private fetchFromFolder(
     imap: any,
     userId: string,
+    configId: string,
     userEmail: string,
     folderName: string,
     direction: 'INBOUND' | 'OUTBOUND',
@@ -663,19 +867,13 @@ export class EmailsService {
     return new Promise((resolve, reject) => {
       imap.openBox(folderName, true, (err: any) => {
         if (err) {
-          // If we can't open the folder, just skip (don't fail the whole fetch)
-          this.logger.warn(
-            `Failed to open folder ${folderName}: ${err.message}`,
-          );
+          this.logger.warn(`Failed to open folder ${folderName}: ${err.message}`);
           return resolve(0);
         }
 
-        // Fetch ALL emails in the folder (no date limit)
         imap.search(['ALL'], (searchErr: any, results: number[]) => {
           if (searchErr) {
-            this.logger.warn(
-              `Search failed in ${folderName}: ${searchErr.message}`,
-            );
+            this.logger.warn(`Search failed in ${folderName}: ${searchErr.message}`);
             return resolve(0);
           }
 
@@ -683,7 +881,6 @@ export class EmailsService {
             return resolve(0);
           }
 
-          // Fetch all messages (no cap)
           const toFetch = results;
           const fetch = imap.fetch(toFetch, {
             bodies: '',
@@ -692,15 +889,13 @@ export class EmailsService {
 
           let fetchedCount = 0;
           const emailPromises: Promise<void>[] = [];
-          // Thread cache to avoid duplicate thread creation within a single fetch batch
-          const threadCache = new Map<string, string>(); // normalizedSubject -> threadId
+          const threadCache = new Map<string, string>();
 
           fetch.on('message', (msg: any) => {
             msg.on('body', (stream: any) => {
               const promise = simpleParser(stream).then(async (parsed) => {
                 const messageId = parsed.messageId || null;
 
-                // Skip if already stored
                 if (messageId) {
                   const existing = await this.prisma.email.findUnique({
                     where: { messageId },
@@ -708,29 +903,23 @@ export class EmailsService {
                   if (existing) return;
                 }
 
-                const fromAddr =
-                  parsed.from?.value?.[0]?.address || 'unknown';
-                const toAddr =
-                  parsed.to?.value?.map((v) => v.address).join(', ') || '';
-                const ccAddr =
-                  parsed.cc?.value?.map((v) => v.address).join(', ') || null;
+                const fromAddr = parsed.from?.value?.[0]?.address || 'unknown';
+                const toAddr = parsed.to?.value?.map((v) => v.address).join(', ') || '';
+                const ccAddr = parsed.cc?.value?.map((v) => v.address).join(', ') || null;
 
-                // For outbound, match customer by recipient; for inbound, by sender
-                const matchEmail =
-                  direction === 'INBOUND' ? fromAddr : toAddr.split(',')[0]?.trim();
-                const customer = matchEmail
-                  ? await this.autoMatchCustomer(matchEmail)
-                  : null;
+                const matchEmail = direction === 'INBOUND' ? fromAddr : toAddr.split(',')[0]?.trim();
+                const customer = matchEmail ? await this.autoMatchCustomer(matchEmail) : null;
 
-                // Get sender display name
-                const fromName =
-                  parsed.from?.value?.[0]?.name || '';
+                const fromName = parsed.from?.value?.[0]?.name || '';
 
-                // Determine status
-                const status =
-                  direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
+                const status = direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
+                let category = 'inbox';
+                if (customer) {
+                  category = 'customer';
+                } else if (direction === 'OUTBOUND') {
+                  category = 'sent';
+                }
 
-                // Thread assignment: find or create thread by normalized subject
                 const rawSubject = parsed.subject || '(No Subject)';
                 const normalizedSubject = this.normalizeSubject(rawSubject);
                 let threadId: string | null = threadCache.get(normalizedSubject) || null;
@@ -750,19 +939,18 @@ export class EmailsService {
                     bodyText: parsed.text || null,
                     direction,
                     status,
+                    category,
                     sentAt: direction === 'OUTBOUND' ? (parsed.date || new Date()) : null,
                     receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
                     customerId: customer?.id || null,
                     senderId: userId,
+                    emailConfigId: configId,
                     threadId,
                   },
                 });
 
-                // Create activity record on customer timeline when auto-matched
                 if (customer) {
-                  const senderLabel = fromName
-                    ? `${fromName} (${fromAddr})`
-                    : fromAddr;
+                  const senderLabel = fromName ? `${fromName} (${fromAddr})` : fromAddr;
                   const actContent = direction === 'INBOUND'
                     ? `收到邮件 - 发件人: ${senderLabel}，主题: ${parsed.subject || '(无主题)'}`
                     : `发送邮件 - 收件人: ${toAddr}，主题: ${parsed.subject || '(无主题)'}`;
@@ -787,23 +975,17 @@ export class EmailsService {
           fetch.once('end', () => {
             Promise.all(emailPromises)
               .then(() => {
-                this.logger.log(
-                  `Fetched ${fetchedCount} emails from ${folderName}`,
-                );
+                this.logger.log(`Fetched ${fetchedCount} emails from ${folderName}`);
                 resolve(fetchedCount);
               })
               .catch((promiseErr) => {
-                this.logger.error(
-                  `Error processing emails from ${folderName}: ${promiseErr.message}`,
-                );
+                this.logger.error(`Error processing emails from ${folderName}: ${promiseErr.message}`);
                 resolve(fetchedCount);
               });
           });
 
           fetch.once('error', (fetchErr: any) => {
-            this.logger.warn(
-              `Fetch error in ${folderName}: ${fetchErr.message}`,
-            );
+            this.logger.warn(`Fetch error in ${folderName}: ${fetchErr.message}`);
             resolve(0);
           });
         });
@@ -811,9 +993,6 @@ export class EmailsService {
     });
   }
 
-  /**
-   * Find the Sent folder by trying common names and checking IMAP attributes
-   */
   private findSentFolder(imap: any): Promise<string | null> {
     return new Promise((resolve) => {
       imap.getBoxes((err: any, boxes: any) => {
@@ -822,35 +1001,15 @@ export class EmailsService {
           return resolve(null);
         }
 
-        // Comprehensive list of sent folder names across providers
         const sentNames = [
-          // Standard
-          'Sent', 'SENT', 'sent',
-          'Sent Items', 'Sent Messages', 'Sent Mail',
-          // INBOX-prefixed (common on many providers)
+          'Sent', 'SENT', 'sent', 'Sent Items', 'Sent Messages', 'Sent Mail',
           'INBOX.Sent', 'INBOX.Sent Messages', 'INBOX.Sent Items', 'INBOX.Sent Mail',
-          // Chinese (QQ Mail, 163/网易企业邮箱, Foxmail, etc.)
-          '已发送', '已发邮件', '已发送邮件',
-          'INBOX.已发送', 'INBOX.已发邮件',
-          '&XfJT0ZAB-', // UTF-7 encoded 已发送
-          'INBOX.&XfJT0ZAB-',
-          '&XfJSIJZk;', // UTF-7 variant for 已发邮件
-          // Hostinger
-          'INBOX.Sent', 'Sent',
-          // Outlook / Exchange
+          '已发送', '已发邮件', '已发送邮件', 'INBOX.已发送', 'INBOX.已发邮件',
+          '&XfJT0ZAB-', 'INBOX.&XfJT0ZAB-', '&XfJSIJZk;',
           'Sent Items', 'SentItems',
-          // Yahoo
-          'Sent',
-          // German
-          'Gesendete Objekte', 'Gesendet',
-          // French
-          'Messages envoy\u00e9s', 'Envoy\u00e9s',
-          // Spanish
-          'Enviados', 'Mensajes enviados',
+          'Gesendete Objekte', 'Gesendet', 'Messages envoyés', 'Envoyés', 'Enviados', 'Mensajes enviados',
         ];
 
-        // Helper: recursively flatten all folders into { path, attribs } list
-        // Uses each box's delimiter property (e.g. '.' for 163/QQ, '/' for Gmail)
         const flattenBoxes = (boxTree: any, prefix = ''): Array<{ path: string; attribs: string[] }> => {
           const result: Array<{ path: string; attribs: string[] }> = [];
           for (const [name, box] of Object.entries(boxTree)) {
@@ -867,35 +1026,24 @@ export class EmailsService {
 
         const allFolders = flattenBoxes(boxes);
 
-        // First: check ALL folders for \Sent attribute (most reliable)
         for (let i = 0; i < allFolders.length; i++) {
           const folder = allFolders[i];
-          if (
-            folder.attribs.includes('\\Sent') ||
-            folder.attribs.includes('\\sent')
-          ) {
+          if (folder.attribs.includes('\\Sent') || folder.attribs.includes('\\sent')) {
             return resolve(folder.path);
           }
         }
 
-        // Second: check common top-level names
         for (const name of sentNames) {
           if (boxes[name]) {
             return resolve(name);
           }
         }
 
-        // Third: check [Gmail] or [Google Mail] subfolder
-        const gmailKey =
-          Object.keys(boxes).find(
-            (k) => k === '[Gmail]' || k === '[Google Mail]',
-          ) || null;
+        const gmailKey = Object.keys(boxes).find((k) => k === '[Gmail]' || k === '[Google Mail]') || null;
         if (gmailKey && (boxes[gmailKey] as any).children) {
           const children = (boxes[gmailKey] as any).children;
           const gmailDelim = (boxes[gmailKey] as any).delimiter || '/';
-          const gmailSentNames = [
-            'Sent Mail', '已发送邮件', 'Sent', 'Sent Messages',
-          ];
+          const gmailSentNames = ['Sent Mail', '已发送邮件', 'Sent', 'Sent Messages'];
           for (const name of gmailSentNames) {
             if (children[name]) {
               return resolve(`${gmailKey}${gmailDelim}${name}`);
@@ -903,7 +1051,6 @@ export class EmailsService {
           }
         }
 
-        // Fourth: check INBOX children
         if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
           const inboxChildren = (boxes['INBOX'] as any).children;
           const inboxDelim = (boxes['INBOX'] as any).delimiter || '/';
@@ -915,24 +1062,16 @@ export class EmailsService {
           }
         }
 
-        // Fifth (fallback): scan all folders for name containing "sent" or "已发"
         const skipPatterns = /^(INBOX|Drafts|Trash|Junk|Spam|Archive|Deleted|Deleted Items|Deleted Messages|Notes|Outbox)$/i;
         for (let i = 0; i < allFolders.length; i++) {
           const folder = allFolders[i];
           const baseName = folder.path.split('/').pop() || '';
           if (skipPatterns.test(baseName)) continue;
-          if (
-            /sent/i.test(baseName) ||
-            /已发/.test(baseName) ||
-            /envoy/i.test(baseName) ||
-            /enviados/i.test(baseName) ||
-            /gesendet/i.test(baseName)
-          ) {
+          if (/sent/i.test(baseName) || /已发/.test(baseName) || /envoy/i.test(baseName) || /enviados/i.test(baseName) || /gesendet/i.test(baseName)) {
             return resolve(folder.path);
           }
         }
 
-        // Log all available folders for debugging
         const folderPaths = allFolders.map(f => `${f.path} [${f.attribs.join(',')}]`);
         this.logger.warn(`Could not find Sent folder. Available folders: ${folderPaths.join('; ')}`);
         resolve(null);
@@ -941,7 +1080,6 @@ export class EmailsService {
   }
 
   private async autoMatchCustomer(emailAddress: string) {
-    // 1. Match by contact email (exact match)
     const contact = await this.prisma.contact.findFirst({
       where: { email: emailAddress },
       include: { customer: true },
@@ -951,7 +1089,6 @@ export class EmailsService {
       return contact.customer;
     }
 
-    // 2. Match by customer website domain
     const domain = emailAddress.split('@')[1]?.toLowerCase();
     if (domain && domain !== 'gmail.com' && domain !== 'yahoo.com' &&
         domain !== 'hotmail.com' && domain !== 'outlook.com' &&
@@ -960,18 +1097,14 @@ export class EmailsService {
         domain !== 'live.com' && domain !== 'msn.com' &&
         domain !== 'aol.com' && domain !== 'mail.com' &&
         domain !== 'protonmail.com' && domain !== 'zoho.com') {
-      // Search customers whose website contains this domain
       const customers = await this.prisma.customer.findMany({
-        where: {
-          website: { not: null },
-        },
+        where: { website: { not: null } },
         select: { id: true, website: true, companyName: true },
       });
 
       for (let i = 0; i < customers.length; i++) {
         const c = customers[i];
         if (!c.website) continue;
-        // Extract domain from website: "https://www.example.com/path" → "example.com"
         const websiteDomain = c.website
           .replace(/^https?:\/\//i, '')
           .replace(/^www\./i, '')

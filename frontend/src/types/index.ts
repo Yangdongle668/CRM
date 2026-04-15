@@ -123,6 +123,7 @@ export interface Email {
   id: string;
   messageId?: string;
   threadId?: string;
+  emailConfigId?: string;
   fromAddr: string;
   toAddr: string;
   cc?: string;
@@ -132,6 +133,8 @@ export interface Email {
   bodyText?: string;
   direction: EmailDirection;
   status: EmailStatus;
+  category?: string;
+  flagged?: boolean;
   sentAt?: string;
   receivedAt?: string;
   viewedAt?: string;
@@ -145,6 +148,14 @@ export interface Email {
     subject: string;
     emails: Email[];
   };
+}
+
+export interface EmailConfig {
+  id: string;
+  emailAddr: string;
+  fromName?: string;
+  signature?: string;
+  createdAt: string;
 }
 
 export interface EmailThreadItem {

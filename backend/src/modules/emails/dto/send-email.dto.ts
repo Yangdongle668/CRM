@@ -34,4 +34,8 @@ export class SendEmailDto {
   @IsUUID()
   @IsOptional()
   inReplyTo?: string;
+
+  @IsUUID()
+  @IsOptional()
+  emailConfigId?: string;
 }

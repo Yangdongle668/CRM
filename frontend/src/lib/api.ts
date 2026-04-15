@@ -119,16 +119,37 @@ export const leadsApi = {
 
 // ==================== Emails API ====================
 export const emailsApi = {
+  // Account management
+  listAccounts: () => api.get('/emails/accounts'),
+  createAccount: (data: any) => api.post('/emails/accounts', data),
+  updateAccount: (id: string, data: any) => api.put(`/emails/accounts/${id}`, data),
+  deleteAccount: (id: string) => api.delete(`/emails/accounts/${id}`),
+  testAccount: (id: string) => api.post(`/emails/accounts/${id}/test`),
+  fetchAccount: (id: string) => api.post(`/emails/accounts/${id}/fetch`),
+
+  // Email operations
   list: (params?: any) => api.get('/emails', { params }),
   getById: (id: string) => api.get(`/emails/${id}`),
   send: (data: any) => api.post('/emails/send', data),
   fetch: () => api.post('/emails/fetch'),
+
+  // Flag and category
+  toggleFlag: (id: string, flagged: boolean) => api.patch(`/emails/${id}/flag`, { flagged }),
+  updateCategory: (id: string, category: string) => api.patch(`/emails/${id}/category`, { category }),
+
+  // Templates
   getTemplates: () => api.get('/emails/templates'),
   createTemplate: (data: any) => api.post('/emails/templates', data),
+  updateTemplate: (id: string, data: any) => api.put(`/emails/templates/${id}`, data),
+  deleteTemplate: (id: string) => api.delete(`/emails/templates/${id}`),
+
+  // Status and counts
   getUnreadCount: () => api.get('/emails/unread-count'),
   markAsRead: (id: string) => api.patch(`/emails/${id}/read`),
   markAllAsRead: () => api.patch('/emails/mark-all-read'),
   getRecentlyViewed: () => api.get('/emails/recently-viewed'),
+
+  // Threads
   getThreadEmails: (threadId: string) => api.get(`/emails/threads/${threadId}`),
 };
 

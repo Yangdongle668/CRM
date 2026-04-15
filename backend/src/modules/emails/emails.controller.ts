@@ -35,11 +35,50 @@ const TRACKING_PIXEL = Buffer.from(
 export class EmailsController {
   constructor(private readonly emailsService: EmailsService) {}
 
-  // Public tracking pixel endpoint - no auth required
+  // ==================== Email Account Config ====================
+
+  @Get('accounts')
+  async listAccounts(@CurrentUser() user: any) {
+    return this.emailsService.listEmailAccounts(user.id);
+  }
+
+  @Post('accounts')
+  async createAccount(@CurrentUser() user: any, @Body() body: any) {
+    return this.emailsService.createEmailAccount(user.id, body);
+  }
+
+  @Put('accounts/:id')
+  async updateAccount(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: any,
+  ) {
+    return this.emailsService.updateEmailAccount(user.id, id, body);
+  }
+
+  @Delete('accounts/:id')
+  async deleteAccount(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.deleteEmailAccount(user.id, id);
+  }
+
+  @Post('accounts/:id/test')
+  async testAccount(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.testEmailAccount(user.id, id);
+  }
+
+  @Post('accounts/:id/fetch')
+  async fetchAccountEmails(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    return this.emailsService.fetchEmails(user.id, id);
+  }
+
+  // ==================== Tracking Pixel ====================
+
   @Public()
   @Get('track/:id/pixel.png')
   async trackOpen(@Param('id') id: string, @Res() res: Response) {
-    // Record the view asynchronously, don't block the pixel response
     this.emailsService.recordView(id).catch(() => {});
 
     res.set({
@@ -51,6 +90,8 @@ export class EmailsController {
     });
     res.end(TRACKING_PIXEL);
   }
+
+  // ==================== Email Operations ====================
 
   @Post('send')
   async sendEmail(
@@ -83,6 +124,9 @@ export class EmailsController {
     @Query('page') page?: number,
     @Query('pageSize') pageSize?: number,
     @Query('grouped') grouped?: string,
+    @Query('emailConfigId') emailConfigId?: string,
+    @Query('category') category?: string,
+    @Query('flagged') flagged?: string,
   ) {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
@@ -91,8 +135,33 @@ export class EmailsController {
       page,
       pageSize,
       grouped,
+      emailConfigId,
+      category,
+      flagged,
     });
   }
+
+  // ==================== Flag/Category ====================
+
+  @Patch(':id/flag')
+  async toggleFlag(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { flagged: boolean },
+  ) {
+    return this.emailsService.toggleFlag(id, user.id, body.flagged);
+  }
+
+  @Patch(':id/category')
+  async updateCategory(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { category: string },
+  ) {
+    return this.emailsService.updateCategory(id, user.id, body.category);
+  }
+
+  // ==================== Templates ====================
 
   @Get('templates')
   async findAllTemplates() {
@@ -116,6 +185,8 @@ export class EmailsController {
   async deleteTemplate(@Param('id') id: string) {
     return this.emailsService.deleteTemplate(id);
   }
+
+  // ==================== Thread & Detail ====================
 
   @Get('threads/:threadId')
   async findThreadEmails(
@@ -141,7 +212,7 @@ export class EmailsController {
   }
 
   @Post('fetch')
-  async fetchEmails(@CurrentUser() user: any) {
-    return this.emailsService.fetchEmails(user.id);
+  async fetchAllEmails(@CurrentUser() user: any) {
+    return this.emailsService.fetchAllAccounts(user.id);
   }
 }
