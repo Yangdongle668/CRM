@@ -137,11 +137,26 @@ export class EmailsService {
       throw new NotFoundException('Email configuration not found');
     }
 
-    await this.prisma.emailConfig.delete({
-      where: { id: configId },
+    // Delete the config and all associated emails in a single transaction.
+    // Even though the DB has ON DELETE CASCADE, we do this explicitly so the
+    // email count is logged and the intent is clear in code.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.email.deleteMany({
+        where: { emailConfigId: configId },
+      });
+
+      await tx.emailConfig.delete({
+        where: { id: configId },
+      });
+
+      return { deletedEmails: count };
     });
 
-    return { deleted: true };
+    this.logger.log(
+      `Deleted email config ${configId} for user ${userId}, removed ${result.deletedEmails} associated emails`,
+    );
+
+    return { deleted: true, deletedEmails: result.deletedEmails };
   }
 
   async testEmailAccount(userId: string, configId: string) {
