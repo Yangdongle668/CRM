@@ -174,13 +174,15 @@ export default function EmailsPage() {
       switch (activeFolder) {
         case 'inbox':
           params.category = 'inbox';
+          params.direction = 'INBOUND';
           break;
         case 'unread':
           params.status = 'RECEIVED';
           params.category = 'inbox';
+          params.direction = 'INBOUND';
           break;
         case 'sent':
-          params.category = 'sent';
+          params.direction = 'OUTBOUND';
           break;
         case 'customer':
           params.category = 'customer';
@@ -1535,13 +1537,25 @@ export default function EmailsPage() {
                             使用
                           </button>
                           <button
-                            onClick={() =>
-                              emailsApi.deleteAccount(acct.id).then(() => {
+                            onClick={() => {
+                              if (!window.confirm(
+                                `确认删除邮箱账户「${acct.emailAddr}」？\n\n该账户下所有关联邮件将同时被永久删除，此操作不可撤销。`
+                              )) return;
+                              emailsApi.deleteAccount(acct.id).then((res: any) => {
+                                const deletedEmails: number = res.data?.deletedEmails ?? 0;
                                 setAccounts(accounts.filter((a: any) => a.id !== acct.id));
-                                if (selectedAccountId === acct.id) setSelectedAccountId(null);
-                                toast.success('账户已删除');
-                              })
-                            }
+                                if (selectedAccountId === acct.id) {
+                                  setSelectedAccountId(null);
+                                  accountsInitialized.current = false;
+                                }
+                                toast.success(
+                                  deletedEmails > 0
+                                    ? `账户已删除，同时清除 ${deletedEmails} 封关联邮件`
+                                    : '账户已删除'
+                                );
+                                fetchEmails();
+                              }).catch(() => {});
+                            }}
                             className="px-3 py-1 text-xs text-red-600 hover:text-red-800"
                           >
                             删除

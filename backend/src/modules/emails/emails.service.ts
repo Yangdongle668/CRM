@@ -137,11 +137,26 @@ export class EmailsService {
       throw new NotFoundException('Email configuration not found');
     }
 
-    await this.prisma.emailConfig.delete({
-      where: { id: configId },
+    // Delete the config and all associated emails in a single transaction.
+    // Even though the DB has ON DELETE CASCADE, we do this explicitly so the
+    // email count is logged and the intent is clear in code.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.email.deleteMany({
+        where: { emailConfigId: configId },
+      });
+
+      await tx.emailConfig.delete({
+        where: { id: configId },
+      });
+
+      return { deletedEmails: count };
     });
 
-    return { deleted: true };
+    this.logger.log(
+      `Deleted email config ${configId} for user ${userId}, removed ${result.deletedEmails} associated emails`,
+    );
+
+    return { deleted: true, deletedEmails: result.deletedEmails };
   }
 
   async testEmailAccount(userId: string, configId: string) {
@@ -539,13 +554,22 @@ export class EmailsService {
     );
 
     const groupIds = threadRows.map((r: any) => r.group_id);
+
+    // Apply the same filters to latestEmails so inbox shows latest INBOUND email,
+    // sent folder shows latest OUTBOUND email, etc.
+    const latestEmailsWhere: any = {
+      OR: [
+        { id: { in: groupIds } },
+        { threadId: { in: groupIds } },
+      ],
+    };
+    if (where.direction) latestEmailsWhere.direction = where.direction;
+    if (where.category) latestEmailsWhere.category = where.category;
+    if (where.senderId) latestEmailsWhere.senderId = where.senderId;
+    if (where.emailConfigId) latestEmailsWhere.emailConfigId = where.emailConfigId;
+
     const latestEmails = await this.prisma.email.findMany({
-      where: {
-        OR: [
-          { id: { in: groupIds } },
-          { threadId: { in: groupIds } },
-        ],
-      },
+      where: latestEmailsWhere,
       include: {
         customer: { select: { id: true, companyName: true } },
         sender: { select: { id: true, name: true, email: true } },
