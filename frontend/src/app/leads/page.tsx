@@ -459,10 +459,11 @@ export default function LeadsPage() {
           ) : leads.length === 0 ? (
             <div className="p-8 text-center text-gray-500">暂无线索</div>
           ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1200px]">
+              <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                 <tr>
-                  <th className="px-4 py-3 w-10">
+                  <th className="px-3 py-2 w-8 flex-shrink-0">
                     <input
                       type="checkbox"
                       checked={allOnPageSelected}
@@ -471,16 +472,16 @@ export default function LeadsPage() {
                       className="h-4 w-4 rounded border-gray-300 text-blue-600 cursor-pointer"
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">线索</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">来源</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">国家</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">邮箱</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">电话</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">状态</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">评分</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">负责人</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700">最后更新时间</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700">操作</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[140px]">线索</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">来源</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">国家</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[120px]">邮箱</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[100px]">电话</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">状态</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[50px]">评分</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">负责人</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[90px]">最后更新</th>
+                  <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700 min-w-[100px] flex-shrink-0">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -489,7 +490,7 @@ export default function LeadsPage() {
                     key={lead.id}
                     className={`hover:bg-gray-50 ${selectedIds.has(lead.id) ? 'bg-blue-50' : ''}`}
                   >
-                    <td className="px-4 py-3 w-10">
+                    <td className="px-3 py-2 w-8 flex-shrink-0">
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead.id)}
@@ -497,90 +498,90 @@ export default function LeadsPage() {
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 cursor-pointer"
                       />
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-blue-500 text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <td className="px-3 py-2 min-w-[140px]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
                           {getInitials(lead.companyName || lead.title)}
                         </div>
                         <div className="min-w-0">
-                          <p className="font-medium text-gray-900 text-sm truncate">{lead.title}</p>
+                          <p className="font-medium text-gray-900 text-xs truncate">{lead.title}</p>
                           <p className="text-xs text-gray-500 truncate">{lead.companyName || '-'}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{lead.source || '-'}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{lead.country || '-'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">{lead.source || '-'}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[70px]">{lead.country || '-'}</td>
+                    <td className="px-3 py-2 min-w-[120px]">
                       {lead.email ? (
                         <a
                           href={`mailto:${lead.email}`}
-                          className="text-sm text-blue-600 hover:underline truncate block"
+                          className="text-xs text-blue-600 hover:underline truncate block"
                         >
                           {lead.email}
                         </a>
                       ) : (
-                        <span className="text-sm text-gray-400">-</span>
+                        <span className="text-xs text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{lead.phone || '-'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[100px]">{lead.phone || '-'}</td>
+                    <td className="px-3 py-2 min-w-[70px]">
                       <Badge className={LEAD_STAGE_MAP[lead.stage]?.color || ''}>
                         {LEAD_STAGE_MAP[lead.stage]?.label || lead.stage}
                       </Badge>
                       {isAdminOwned(lead) && (
-                        <HiOutlineLockClosed className="h-4 w-4 text-amber-500 inline-block ml-2" />
+                        <HiOutlineLockClosed className="h-3 w-3 text-amber-500 inline-block ml-1" />
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">{lead.score ?? 0}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[50px] text-center">{lead.score ?? 0}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">
                       {lead.owner ? (
-                        <span className="inline-flex items-center gap-1">
-                          {lead.owner.name}
+                        <span className="inline-flex items-center gap-0.5">
+                          <span className="truncate">{lead.owner.name}</span>
                           {lead.owner.role === 'ADMIN' && (
-                            <HiOutlineLockClosed className="h-3 w-3 text-amber-500" title="管理员" />
+                            <HiOutlineLockClosed className="h-3 w-3 text-amber-500 flex-shrink-0" title="管理员" />
                           )}
                         </span>
                       ) : (
                         <span className="text-gray-400 text-xs">公海</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[90px]">
                       {formatDate(lead.updatedAt)}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-2">
+                    <td className="px-3 py-2 min-w-[100px] flex-shrink-0">
+                      <div className="flex items-center justify-center gap-0.5 flex-wrap">
                         <button
                           onClick={() => openEditModal(lead)}
-                          className="p-1 text-gray-500 hover:text-blue-600"
+                          className="p-0.5 text-gray-500 hover:text-blue-600"
                           title="查看详情"
                         >
-                          <HiOutlineEye className="h-4 w-4" />
+                          <HiOutlineEye className="h-3.5 w-3.5" />
                         </button>
                         {/* Claim button — shown when lead is in public pool and not owned by current user */}
                         {(lead.isPublicPool || !lead.ownerId) && lead.ownerId !== user?.id && (
                           <button
                             onClick={() => handleClaim(lead.id)}
-                            className="p-1 text-gray-500 hover:text-emerald-600"
+                            className="p-0.5 text-gray-500 hover:text-emerald-600"
                             title="认领线索"
                           >
-                            <HiOutlineHandRaised className="h-4 w-4" />
+                            <HiOutlineHandRaised className="h-3.5 w-3.5" />
                           </button>
                         )}
                         {user?.role === 'ADMIN' && (
                           <button
                             onClick={() => openAssignModal(lead.id)}
-                            className="p-1 text-gray-500 hover:text-green-600"
+                            className="p-0.5 text-gray-500 hover:text-green-600"
                             title="分配给业务员"
                           >
-                            <HiOutlineUserPlus className="h-4 w-4" />
+                            <HiOutlineUserPlus className="h-3.5 w-3.5" />
                           </button>
                         )}
                         <button
                           onClick={() => handleDelete(lead.id)}
-                          className="p-1 text-gray-500 hover:text-red-600"
+                          className="p-0.5 text-gray-500 hover:text-red-600"
                           title="删除"
                         >
-                          <HiOutlineTrash className="h-4 w-4" />
+                          <HiOutlineTrash className="h-3.5 w-3.5" />
                         </button>
                       </div>
                     </td>
@@ -588,6 +589,7 @@ export default function LeadsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
 
           {/* Pagination + page-size selector */}
