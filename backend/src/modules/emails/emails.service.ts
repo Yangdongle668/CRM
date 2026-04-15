@@ -335,6 +335,8 @@ export class EmailsService {
             content: `发送邮件 - 收件人: ${dto.toAddr}，主题: ${dto.subject}`,
             customerId: email.customerId,
             ownerId: userId,
+            relatedType: 'email',
+            relatedId: email.id,
           },
         }).catch(() => {});
       }
@@ -375,7 +377,9 @@ export class EmailsService {
 
     const where: any = {};
 
-    if (role !== 'ADMIN') {
+    // When viewing a specific customer's emails, show all accounts' emails for that customer.
+    // Otherwise restrict non-admins to their own emails only.
+    if (role !== 'ADMIN' && !query.customerId) {
       where.senderId = userId;
     }
 
@@ -950,7 +954,7 @@ export class EmailsService {
                   threadCache.set(normalizedSubject, threadId);
                 }
 
-                await this.prisma.email.create({
+                const newEmail = await this.prisma.email.create({
                   data: {
                     messageId,
                     fromAddr,
@@ -983,6 +987,8 @@ export class EmailsService {
                       content: actContent,
                       customerId: customer.id,
                       ownerId: userId,
+                      relatedType: 'email',
+                      relatedId: newEmail.id,
                     },
                   }).catch(() => {});
                 }
@@ -1120,20 +1126,20 @@ export class EmailsService {
         domain !== 'aol.com' && domain !== 'mail.com' &&
         domain !== 'protonmail.com' && domain !== 'zoho.com') {
       const customers = await this.prisma.customer.findMany({
-        where: { website: { not: null } },
-        select: { id: true, website: true, companyName: true },
+        where: { OR: [{ website: { not: null } }, { website2: { not: null } }] },
+        select: { id: true, website: true, website2: true, companyName: true },
       });
 
-      for (let i = 0; i < customers.length; i++) {
-        const c = customers[i];
-        if (!c.website) continue;
-        const websiteDomain = c.website
-          .replace(/^https?:\/\//i, '')
-          .replace(/^www\./i, '')
-          .split('/')[0]
-          .toLowerCase();
-        if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
-          return c;
+      const extractDomain = (url: string) =>
+        url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
+
+      for (const c of customers) {
+        for (const w of [c.website, c.website2]) {
+          if (!w) continue;
+          const websiteDomain = extractDomain(w);
+          if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
+            return c;
+          }
         }
       }
     }

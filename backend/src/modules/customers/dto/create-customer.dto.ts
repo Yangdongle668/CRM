@@ -26,6 +26,10 @@ export class CreateCustomerDto {
 
   @IsOptional()
   @IsString()
+  website2?: string;
+
+  @IsOptional()
+  @IsString()
   industry?: string;
 
   @IsOptional()

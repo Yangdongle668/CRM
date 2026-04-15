@@ -85,6 +85,7 @@ model Customer {
   country     String?
   address     String?
   website     String?
+  website2    String?        @map("website2")
   industry    String?
   scale       String?
   source      String?

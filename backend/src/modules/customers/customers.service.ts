@@ -90,9 +90,9 @@ export class CustomersService {
       },
     });
 
-    // Retroactively link existing emails by domain
-    if (dto.website) {
-      this.linkEmailsByDomain(customer.id, dto.website, userId).catch((err) =>
+    // Retroactively link existing emails by domain (both websites)
+    for (const w of [dto.website, dto.website2].filter(Boolean)) {
+      this.linkEmailsByDomain(customer.id, w!, userId).catch((err) =>
         this.logger.error(`Failed to link emails for new customer: ${err.message}`),
       );
     }
@@ -128,11 +128,16 @@ export class CustomersService {
       },
     });
 
-    // If website changed, retroactively link emails by new domain
-    if (dto.website && dto.website !== customer.website) {
-      this.linkEmailsByDomain(id, dto.website, userId).catch((err) =>
-        this.logger.error(`Failed to link emails for updated customer: ${err.message}`),
-      );
+    // If either website changed, retroactively link emails by the new domain
+    for (const [newW, oldW] of [
+      [dto.website, customer.website],
+      [(dto as any).website2, (customer as any).website2],
+    ]) {
+      if (newW && newW !== oldW) {
+        this.linkEmailsByDomain(id, newW, userId).catch((err) =>
+          this.logger.error(`Failed to link emails for updated customer: ${err.message}`),
+        );
+      }
     }
 
     return updated;
@@ -145,13 +150,14 @@ export class CustomersService {
   async syncEmailsByDomain(customerId: string, userId: string, role: string) {
     const customer = await this.findOne(customerId, userId, role);
 
-    if (!customer.website) {
+    const websites = [(customer as any).website, (customer as any).website2].filter(Boolean) as string[];
+    if (websites.length === 0) {
       // Also check for emails already linked but missing activities
       return this.createMissingActivities(customerId, userId);
     }
 
-    // Step 1: Link unmatched emails by domain
-    const domain = customer.website
+    // Step 1: Link unmatched emails by domain (try both websites)
+    const domain = websites[0]
       .replace(/^https?:\/\//i, '')
       .replace(/^www\./i, '')
       .split('/')[0]
@@ -188,10 +194,17 @@ export class CustomersService {
       this.logger.log(`Linked ${unmatchedEmails.length} emails to customer ${customerId} by domain ${domain}`);
     }
 
+    // Also link by website2 domain if present
+    let linked2 = 0;
+    if (websites[1]) {
+      await this.linkEmailsByDomain(customerId, websites[1], userId);
+      linked2 = 1; // linkEmailsByDomain logs internally
+    }
+
     // Step 2: Create activities for all linked emails that don't have them
     const result = await this.createMissingActivities(customerId, userId);
 
-    return { linked: unmatchedEmails.length, activitiesCreated: result.activitiesCreated };
+    return { linked: unmatchedEmails.length + linked2, activitiesCreated: result.activitiesCreated };
   }
 
   /**
@@ -202,7 +215,8 @@ export class CustomersService {
     // Find linked emails that don't have a matching activity
     const emailsWithoutActivity: any[] = await this.prisma.$queryRawUnsafe(
       `SELECT e.id, e.direction, e.from_addr as "fromAddr", e.to_addr as "toAddr",
-              e.subject, e.sent_at as "sentAt", e.received_at as "receivedAt", e.created_at as "createdAt"
+              e.subject, e.sent_at as "sentAt", e.received_at as "receivedAt",
+              e.created_at as "createdAt", e.sender_id as "senderId"
        FROM emails e
        WHERE e.customer_id = $1
          AND NOT EXISTS (
@@ -221,14 +235,13 @@ export class CustomersService {
 
     const activities = emailsWithoutActivity.map((email) => {
       const time = email.sentAt || email.receivedAt || email.createdAt;
-      const timeStr = time ? new Date(time).toLocaleString('zh-CN') : '';
       return {
         type: 'EMAIL' as const,
         content: email.direction === 'INBOUND'
           ? `收到邮件 - 发件人: ${email.fromAddr}，主题: ${email.subject || '(无主题)'}`
           : `发送邮件 - 收件人: ${email.toAddr}，主题: ${email.subject || '(无主题)'}`,
         customerId,
-        ownerId,
+        ownerId: email.senderId || ownerId,
         relatedType: 'email',
         relatedId: email.id,
         createdAt: time || new Date(),

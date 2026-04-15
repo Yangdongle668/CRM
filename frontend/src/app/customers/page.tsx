@@ -18,6 +18,7 @@ const initialForm = {
   country: '',
   address: '',
   website: '',
+  website2: '',
   industry: '',
   scale: '',
   source: '',
@@ -324,12 +325,23 @@ export default function CustomersPage() {
               />
             </div>
             <div>
-              <label className="mb-1 block text-sm font-medium text-gray-700">网站</label>
+              <label className="mb-1 block text-sm font-medium text-gray-700">网站 1</label>
               <input
                 type="text"
                 value={form.website}
                 onChange={(e) => updateField('website', e.target.value)}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="https://example.com"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium text-gray-700">网站 2</label>
+              <input
+                type="text"
+                value={(form as any).website2 || ''}
+                onChange={(e) => updateField('website2', e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder="https://example2.com（可选）"
               />
             </div>
             <div>
