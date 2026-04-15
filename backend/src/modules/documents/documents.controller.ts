@@ -74,7 +74,7 @@ export class DocumentsController {
   @Get()
   findAll(
     @CurrentUser() user: any,
-    @Query() query: { customerId?: string; category?: string; page?: string; pageSize?: string },
+    @Query() query: { customerId?: string; category?: string; relatedType?: string; relatedId?: string; page?: string; pageSize?: string },
   ) {
     return this.documentsService.findAll(user.id, user.role, query);
   }

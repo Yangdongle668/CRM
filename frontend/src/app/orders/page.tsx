@@ -5,7 +5,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
-import { ordersApi, customersApi } from '@/lib/api';
+import { ordersApi, customersApi, documentsApi } from '@/lib/api';
 import { ORDER_STATUS_MAP, PAYMENT_STATUS_MAP, CURRENCIES } from '@/lib/constants';
 import toast from 'react-hot-toast';
 import type {
@@ -15,6 +15,7 @@ import type {
   PaymentStatus,
   Customer,
   PaginatedData,
+  Document,
 } from '@/types';
 
 const emptyItem: OrderItem = {
@@ -62,6 +63,11 @@ export default function OrdersPage() {
   // ---------- detail modal ----------
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailOrder, setDetailOrder] = useState<Order | null>(null);
+
+  // ---------- attachments ----------
+  const [attachments, setAttachments] = useState<Document[]>([]);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
 
   // ---------- fetch orders ----------
   const fetchOrders = useCallback(async () => {
@@ -153,6 +159,17 @@ export default function OrdersPage() {
     } catch {
       setDetailOrder(o);
     }
+    // Fetch attachments for this order
+    try {
+      const docRes: any = await documentsApi.list({
+        relatedType: 'Order',
+        relatedId: o.id,
+      });
+      setAttachments(Array.isArray(docRes.data?.items) ? docRes.data.items : []);
+    } catch {
+      setAttachments([]);
+    }
+    setSelectedFile(null);
     setDetailOpen(true);
   };
 
@@ -238,6 +255,61 @@ export default function OrdersPage() {
       toast.success('订单已删除');
       fetchOrders();
     } catch {}
+  };
+
+  // ---------- attachments ----------
+  const handleUploadAttachment = async () => {
+    if (!selectedFile || !detailOrder) return;
+    setUploadingAttachment(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('relatedType', 'Order');
+      formData.append('relatedId', detailOrder.id);
+      formData.append('category', '订单附件');
+
+      await documentsApi.upload(formData);
+      toast.success('附件上传成功');
+      setSelectedFile(null);
+
+      // Refresh attachments list
+      const docRes: any = await documentsApi.list({
+        relatedType: 'Order',
+        relatedId: detailOrder.id,
+      });
+      setAttachments(Array.isArray(docRes.data?.items) ? docRes.data.items : []);
+    } catch (err) {
+      toast.error('附件上传失败');
+    } finally {
+      setUploadingAttachment(false);
+    }
+  };
+
+  const handleDownloadAttachment = async (doc: Document) => {
+    try {
+      const blob: any = await documentsApi.download(doc.id);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = doc.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch {
+      toast.error('下载失败');
+    }
+  };
+
+  const handleDeleteAttachment = async (docId: string) => {
+    if (!window.confirm('确定要删除此附件吗？')) return;
+    try {
+      await documentsApi.delete(docId);
+      toast.success('附件已删除');
+      setAttachments((prev) => prev.filter((d) => d.id !== docId));
+    } catch {
+      toast.error('删除失败');
+    }
   };
 
   // ---------- render ----------
@@ -747,6 +819,60 @@ export default function OrdersPage() {
                   </tbody>
                 </table>
               </div>
+            </div>
+
+            {/* Attachments section */}
+            <div className="border-t pt-4">
+              <h4 className="mb-3 text-sm font-semibold text-gray-800">订单附件</h4>
+
+              {/* Upload area */}
+              <div className="mb-4 flex items-center gap-2">
+                <input
+                  type="file"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                  className="text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-600 hover:file:bg-blue-100"
+                  accept="*/*"
+                />
+                <button
+                  onClick={handleUploadAttachment}
+                  disabled={!selectedFile || uploadingAttachment}
+                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {uploadingAttachment ? '上传中...' : '上传'}
+                </button>
+              </div>
+
+              {/* Attachments list */}
+              {attachments.length > 0 ? (
+                <div className="space-y-2">
+                  {attachments.map((doc) => (
+                    <div key={doc.id} className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{doc.fileName}</p>
+                        <p className="text-xs text-gray-500">
+                          {(doc.fileSize / 1024).toFixed(2)} KB · {doc.createdAt?.slice(0, 10)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 ml-2">
+                        <button
+                          onClick={() => handleDownloadAttachment(doc)}
+                          className="text-xs text-blue-600 hover:text-blue-800 underline"
+                        >
+                          下载
+                        </button>
+                        <button
+                          onClick={() => handleDeleteAttachment(doc.id)}
+                          className="text-xs text-red-600 hover:text-red-800 underline"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">暂无附件</p>
+              )}
             </div>
 
             {/* Status update buttons */}
