@@ -19,6 +19,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { MemosModule } from './modules/memos/memos.module';
 import { PIsModule } from './modules/pis/pis.module';
+import { MessagesModule } from './modules/messages/messages.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { PIsModule } from './modules/pis/pis.module';
     BackupModule,
     MemosModule,
     PIsModule,
+    MessagesModule,
   ],
 })
 export class AppModule {}

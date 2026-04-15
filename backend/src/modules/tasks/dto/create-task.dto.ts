@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsEnum,
   IsDateString,
+  IsUUID,
 } from 'class-validator';
 
 export enum TaskPriority {
@@ -37,4 +38,9 @@ export class CreateTaskDto {
   @IsString()
   @IsOptional()
   relatedId?: string;
+
+  /** Admin can assign the task to another user */
+  @IsUUID()
+  @IsOptional()
+  assigneeId?: string;
 }

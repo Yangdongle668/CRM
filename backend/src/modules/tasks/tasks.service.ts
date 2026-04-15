@@ -9,7 +9,8 @@ import { Prisma } from '@prisma/client';
 export class TasksService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(userId: string, dto: CreateTaskDto) {
+  async create(userId: string, role: string, dto: CreateTaskDto) {
+    const ownerId = (role === 'ADMIN' && dto.assigneeId) ? dto.assigneeId : userId;
     return this.prisma.task.create({
       data: {
         title: dto.title,
@@ -18,7 +19,7 @@ export class TasksService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         relatedType: dto.relatedType,
         relatedId: dto.relatedId,
-        ownerId: userId,
+        ownerId,
       },
       include: { owner: { select: { id: true, name: true, email: true } } },
     });

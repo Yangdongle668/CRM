@@ -40,7 +40,9 @@ model User {
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
-  leadActivities  LeadActivity[]
+  leadActivities   LeadActivity[]
+  messagesSent     Message[]      @relation("MessagesSent")
+  messagesReceived Message[]      @relation("MessagesReceived")
 
   @@map("users")
 }
@@ -566,6 +568,23 @@ model Memo {
   owner User @relation(fields: [ownerId], references: [id])
 
   @@map("memos")
+}
+
+// ==================== 站内消息 ====================
+model Message {
+  id        String   @id @default(uuid())
+  fromId    String   @map("from_id")
+  toId      String   @map("to_id")
+  content   String
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  from User @relation("MessagesSent", fields: [fromId], references: [id], onDelete: Cascade)
+  to   User @relation("MessagesReceived", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([toId, isRead])
+  @@index([fromId])
+  @@map("messages")
 }
 
 // ==================== 系统设置 ====================

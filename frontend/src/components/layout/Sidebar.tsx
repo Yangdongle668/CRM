@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useLogo } from '@/contexts/logo-context';
+import { messagesApi } from '@/lib/api';
 import {
   HiOutlineHome,
   HiOutlineBuildingOffice2,
@@ -21,6 +22,7 @@ import {
   HiOutlineArrowRightOnRectangle,
   HiOutlineBookOpen,
   HiOutlineChartBar,
+  HiOutlineChatBubbleLeftRight,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -39,6 +41,7 @@ const navItems: NavItem[] = [
   { label: '形式发票', href: '/pis', icon: HiOutlineDocumentText },
   { label: '订单管理', href: '/orders', icon: HiOutlineClipboardDocumentList },
   { label: '任务管理', href: '/tasks', icon: HiOutlineCheckCircle },
+  { label: '消息中心', href: '/messages', icon: HiOutlineChatBubbleLeftRight },
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
   { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
   { label: '管理中心', href: '/admin', icon: HiOutlineChartBar, adminOnly: true },
@@ -47,9 +50,21 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const [unreadMessages, setUnreadMessages] = useState(0);
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { logoUrl } = useLogo();
+
+  useEffect(() => {
+    const fetchUnread = () => {
+      messagesApi.getUnreadCount().then((res: any) => {
+        setUnreadMessages(res.data?.count ?? 0);
+      }).catch(() => {});
+    };
+    fetchUnread();
+    const id = setInterval(fetchUnread, 15000);
+    return () => clearInterval(id);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
@@ -109,7 +124,12 @@ export default function Sidebar() {
                       active ? 'text-primary-500' : 'text-gray-400 group-hover:text-gray-600'
                     }`}
                   />
-                  {!collapsed && <span>{item.label}</span>}
+                  {!collapsed && <span className="flex-1">{item.label}</span>}
+                  {item.href === '/messages' && unreadMessages > 0 && (
+                    <span className="flex-shrink-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
+                      {unreadMessages > 99 ? '99+' : unreadMessages}
+                    </span>
+                  )}
                 </Link>
               </li>
             );
