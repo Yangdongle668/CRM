@@ -137,7 +137,6 @@ export default function PIDetailPage() {
     setSaving(true);
     try {
       const submitData = {
-        customerId: formData.customerId,
         sellerId: formData.sellerId,
         sellerAddress: formData.sellerAddress,
         consigneeName: formData.consigneeName,
