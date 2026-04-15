@@ -58,7 +58,7 @@ export class UpdateOrderDto {
   remark?: string;
 
   @IsArray()
-  @IsIn(['模具', '认证', '货物'], { each: true })
+  @IsIn(['模具', '认证', '货物', '设备', 'NRE费用'], { each: true })
   @IsOptional()
   costTypes?: string[];
 

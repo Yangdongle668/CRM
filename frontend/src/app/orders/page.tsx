@@ -27,7 +27,7 @@ const emptyItem: OrderItem = {
   totalPrice: 0,
 };
 
-const COST_TYPE_OPTIONS = ['模具', '认证', '货物'] as const;
+const COST_TYPE_OPTIONS = ['模具', '认证', '货物', '设备', 'NRE费用'] as const;
 
 const defaultForm = {
   customerId: '',
