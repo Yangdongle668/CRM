@@ -174,13 +174,15 @@ export default function EmailsPage() {
       switch (activeFolder) {
         case 'inbox':
           params.category = 'inbox';
+          params.direction = 'INBOUND';
           break;
         case 'unread':
           params.status = 'RECEIVED';
           params.category = 'inbox';
+          params.direction = 'INBOUND';
           break;
         case 'sent':
-          params.category = 'sent';
+          params.direction = 'OUTBOUND';
           break;
         case 'customer':
           params.category = 'customer';
