@@ -373,7 +373,7 @@ export class QuotationsService {
     fs.writeFileSync(pdfPath, pdfBuffer);
 
     // Send email with PDF attachment
-    const config = await this.prisma.emailConfig.findUnique({
+    const config = await this.prisma.emailConfig.findFirst({
       where: { userId },
     });
 
