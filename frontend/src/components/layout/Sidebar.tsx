@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
-import { settingsApi } from '@/lib/api';
+import { useLogo } from '@/contexts/logo-context';
 import {
   HiOutlineHome,
   HiOutlineBuildingOffice2,
@@ -47,16 +47,9 @@ const navItems: NavItem[] = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const pathname = usePathname();
   const { user, logout } = useAuth();
-
-  useEffect(() => {
-    settingsApi.getLogo().then((res: any) => {
-      const url = res?.data?.logoUrl || res?.logoUrl;
-      if (url) setLogoUrl(url);
-    }).catch(() => {});
-  }, []);
+  const { logoUrl } = useLogo();
 
   const isActive = (href: string) => {
     if (href === '/dashboard') return pathname === '/dashboard';
