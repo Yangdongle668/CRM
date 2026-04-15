@@ -47,6 +47,8 @@ export class DocumentsService {
     query: {
       customerId?: string;
       category?: string;
+      relatedType?: string;
+      relatedId?: string;
       page?: string;
       pageSize?: string;
     },
@@ -67,6 +69,14 @@ export class DocumentsService {
 
     if (query.category) {
       where.category = query.category;
+    }
+
+    if (query.relatedType) {
+      where.relatedType = query.relatedType;
+    }
+
+    if (query.relatedId) {
+      where.relatedId = query.relatedId;
     }
 
     const [items, total] = await Promise.all([
