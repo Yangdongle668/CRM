@@ -66,7 +66,7 @@ export class OrdersService {
 
     const where: any = {};
 
-    if (role !== 'ADMIN') {
+    if (role !== 'ADMIN' && role !== 'FINANCE') {
       where.ownerId = userId;
     }
 
@@ -122,7 +122,7 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    if (role !== 'ADMIN' && order.ownerId !== userId) {
+    if (role !== 'ADMIN' && role !== 'FINANCE' && order.ownerId !== userId) {
       throw new ForbiddenException('Access denied');
     }
 
