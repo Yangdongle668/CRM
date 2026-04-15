@@ -16,9 +16,8 @@ async function bootstrap() {
   const port = configService.get<number>('port', 3000);
   const apiPrefix = configService.get<string>('apiPrefix', 'api');
 
-  // 🚨 FIX: BigInt JSON serialization error
-  // ===============================
-  BigInt.prototype.toJSON = function () {
+  // 🚨 FIX: BigInt JSON serialization
+  (BigInt.prototype as any).toJSON = function () {
     return this.toString();
   };
 
