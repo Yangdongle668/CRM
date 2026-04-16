@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsUUID,
   IsEmail,
+  IsBoolean,
 } from 'class-validator';
 
 export class SendEmailDto {
@@ -43,4 +44,12 @@ export class SendEmailDto {
   @IsUUID()
   @IsOptional()
   campaignId?: string;
+
+  /**
+   * 前端（ComposeWindow）已经把签名可视化嵌入到了正文里，传 true 让
+   * 服务器端跳过自动追加签名，避免收件人看到重复的签名块。
+   */
+  @IsBoolean()
+  @IsOptional()
+  skipSignatureAppend?: boolean;
 }

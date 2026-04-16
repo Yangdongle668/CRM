@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
+import ComposeWindow from '@/components/emails/ComposeWindow';
 import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -424,42 +425,9 @@ export default function EmailsPage() {
     }
   };
 
-  // Send new email
-  const handleSendEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!composeForm.toAddr.trim()) {
-      toast.error('请输入收件人地址');
-      return;
-    }
-    if (!composeForm.subject.trim()) {
-      toast.error('请输入邮件主题');
-      return;
-    }
-    setSending(true);
-    try {
-      const payload: any = {
-        toAddr: composeForm.toAddr,
-        subject: composeForm.subject,
-        bodyHtml: composeForm.bodyHtml,
-        emailConfigId: selectedAccountId || undefined,
-      };
-      if (composeForm.cc) payload.cc = composeForm.cc;
-      if (composeForm.bcc) payload.bcc = composeForm.bcc;
-      if (composeForm.customerId) payload.customerId = composeForm.customerId;
-
-      await emailsApi.send(payload);
-      toast.success('邮件已发送');
-      setComposeOpen(false);
-      setComposeForm(emptyComposeForm);
-      if (activeFolder === 'sent') {
-        fetchEmails();
-      }
-    } catch {
-      // handled by interceptor
-    } finally {
-      setSending(false);
-    }
-  };
+  // 发送新邮件的逻辑已经移到 ComposeWindow 的 onSend 回调里
+  // （renderComposeModal），那边能直接访问最新的 composeForm 和
+  // skipSignatureAppend 标志。
 
   // Fetch IMAP
   const handleFetchImap = async () => {
@@ -1026,126 +994,57 @@ export default function EmailsPage() {
     </div>
   );
 
-  // ==================== Compose Modal ====================
+  // ==================== Compose Window（浮动、可拖拽、可最大化/最小化） ====================
   const renderComposeModal = () => (
-    <Modal
-      isOpen={composeOpen}
+    <ComposeWindow
+      open={composeOpen}
       onClose={() => setComposeOpen(false)}
-      title="写邮件"
-      size="3xl"
-    >
-      <form onSubmit={handleSendEmail} className="space-y-4">
-        {accounts.length > 1 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">发件账户</label>
-            <select
-              value={selectedAccountId || ''}
-              onChange={(e) => setSelectedAccountId(e.target.value || null)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">默认账户</option>
-              {accounts.map((acct: any) => (
-                <option key={acct.id} value={acct.id}>{acct.emailAddr}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            收件人 <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={composeForm.toAddr}
-            onChange={(e) => setComposeForm({ ...composeForm, toAddr: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="请输入收件人邮箱"
-          />
-        </div>
+      value={composeForm}
+      onChange={setComposeForm}
+      onSend={async () => {
+        // 复用已有的发送逻辑 —— handleSendEmail 需要一个 FormEvent，
+        // 这里自己构造一次发送动作，避免伪造事件对象。
+        if (!composeForm.toAddr.trim()) {
+          toast.error('请输入收件人地址');
+          return;
+        }
+        if (!composeForm.subject.trim()) {
+          toast.error('请输入邮件主题');
+          return;
+        }
+        setSending(true);
+        try {
+          const payload: any = {
+            toAddr: composeForm.toAddr,
+            subject: composeForm.subject,
+            bodyHtml: composeForm.bodyHtml,
+            emailConfigId: selectedAccountId || undefined,
+            // ComposeWindow 已经在正文末尾可视化插入了签名块，告诉服务器
+            // 不要再追加一次。
+            skipSignatureAppend: true,
+          };
+          if (composeForm.cc) payload.cc = composeForm.cc;
+          if (composeForm.bcc) payload.bcc = composeForm.bcc;
+          if (composeForm.customerId) payload.customerId = composeForm.customerId;
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">抄送</label>
-            <input
-              type="text"
-              value={composeForm.cc}
-              onChange={(e) => setComposeForm({ ...composeForm, cc: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="抄送邮箱"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">密送</label>
-            <input
-              type="text"
-              value={composeForm.bcc}
-              onChange={(e) => setComposeForm({ ...composeForm, bcc: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="密送邮箱"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            主题 <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={composeForm.subject}
-            onChange={(e) => setComposeForm({ ...composeForm, subject: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="请输入邮件主题"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            关联客户
-          </label>
-          <select
-            value={composeForm.customerId}
-            onChange={(e) => setComposeForm({ ...composeForm, customerId: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">不关联客户</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.companyName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">正文</label>
-          <textarea
-            value={composeForm.bodyHtml}
-            onChange={(e) => setComposeForm({ ...composeForm, bodyHtml: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            rows={12}
-            placeholder="请输入邮件内容（支持 HTML）"
-          />
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <button
-            type="button"
-            onClick={() => setComposeOpen(false)}
-            className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-          >
-            取消
-          </button>
-          <button
-            type="submit"
-            disabled={sending}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {sending ? '发送中...' : '发送'}
-          </button>
-        </div>
-      </form>
-    </Modal>
+          await emailsApi.send(payload);
+          toast.success('邮件已发送');
+          setComposeOpen(false);
+          setComposeForm(emptyComposeForm);
+          if (activeFolder === 'sent') fetchEmails();
+        } catch {
+          /* handled by interceptor */
+        } finally {
+          setSending(false);
+        }
+      }}
+      sending={sending}
+      accounts={accounts}
+      selectedAccountId={selectedAccountId}
+      onAccountChange={setSelectedAccountId}
+      customers={customers}
+      templates={templates}
+    />
   );
 
   // ==================== Template Modal ====================
@@ -1460,8 +1359,9 @@ export default function EmailsPage() {
             </button>
             <button
               onClick={() => {
-                const body = signature ? `<br/><br/>--<br/>${signature}` : '';
-                setComposeForm({ ...emptyComposeForm, bodyHtml: body });
+                // 正文初始化为空，ComposeWindow 会根据选中的发件账户自动
+                // 拉签名并可视化追加到正文末尾。
+                setComposeForm({ ...emptyComposeForm });
                 setComposeOpen(true);
               }}
               className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
