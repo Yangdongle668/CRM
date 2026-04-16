@@ -375,165 +375,317 @@ export class PIsService {
         doc.on('end', () => resolve(Buffer.concat(buffers)));
         doc.on('error', reject);
 
-        // ── Layout constants ────────────────────────────────────
-        const L = 35;          // left margin
-        const T = 30;          // top margin
-        const PW = 595;        // page width (A4)
-        const CW = PW - L * 2; // content width = 525
-        const leftColW = 218;  // seller / consignee column
-        const rCW = CW - leftColW; // right section width = 307
-        const rHalfW = rCW / 2;    // each right sub-column = 153.5
+        // ── Layout constants ───────────────────────────────────
+        // PDF reference uses a single outer table with the info grid on
+        // top, the items table in the middle and a trailing bank-info
+        // block at the bottom. All values inside cells are blue, centered.
+        const L = 40;             // left margin
+        const T = 30;             // top margin
+        const PW = 595;           // page width (A4)
+        const CW = PW - L * 2;    // content width = 515
+        const leftColW = 215;     // Seller / Consignee column width
+        const rCW = CW - leftColW;          // right section = 300
+        const rHalfW = rCW / 2;             // each right sub-cell = 150
         const midX = L + leftColW;
-        const rH = 30;         // info-grid row height
+
         const BLUE = '#1155CC';
-        const DARK = '#222222';
-        const GRAY = '#666666';
-        const LINE = '#AAAAAA';
-        const TABLE_STRIPE = '#F5F5F5';
+        const DARK = '#111111';
+        const GRAY = '#555555';
+        const LINE = '#666666';
 
-        // ── Font helper ─────────────────────────────────────────
-        const setFont = (bold: boolean, size: number) => {
+        const setFont = (bold: boolean, size: number) =>
           doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size);
-        };
 
-        // ── Draw a bordered cell ─────────────────────────────────
         const border = (x: number, y: number, w: number, h: number) =>
-          doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.5).stroke();
+          doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.6).stroke();
 
-        // ── Label (top-left inside cell) ─────────────────────────
-        const label = (txt: string, x: number, y: number, w: number) => {
-          setFont(false, 7);
-          doc.fillColor(DARK).text(txt, x + 3, y + 3, { width: w - 6, lineBreak: false });
+        /**
+         * Shrink-to-fit: start from `baseSize` and reduce by 1 until the
+         * string fits within `maxW` at the current font, down to `minSize`.
+         * Returns the size that was ultimately applied. The caller is
+         * expected to keep the font state (we leave the doc at that size).
+         */
+        const fitSize = (
+          txt: string,
+          maxW: number,
+          bold: boolean,
+          baseSize: number,
+          minSize = 6,
+        ): number => {
+          let size = baseSize;
+          setFont(bold, size);
+          while (doc.widthOfString(txt) > maxW && size > minSize) {
+            size -= 1;
+            setFont(bold, size);
+          }
+          return size;
         };
 
-        // ── Centered blue value inside cell ──────────────────────
-        const value = (txt: string, x: number, y: number, w: number, h: number) => {
-          if (!txt) return;
-          setFont(false, 9);
-          doc.fillColor(BLUE).text(txt, x + 4, y + 14, {
-            width: w - 8, align: 'center', lineBreak: false,
+        const LABEL_HEIGHT = 10;
+
+        /** 标签：cell 左上角的小灰字题号 (e.g. "3. INVOICE NO.") */
+        const label = (txt: string, x: number, y: number, w: number) => {
+          setFont(false, 7.5);
+          doc.fillColor(DARK).text(txt, x + 4, y + 3, {
+            width: w - 8,
+            lineBreak: false,
           });
         };
 
-        // ── Left-aligned blue value (for multi-line cells) ───────
-        const valueLeft = (txt: string, x: number, y: number, w: number) => {
+        /**
+         * Centered blue value inside a cell. Auto-shrinks the font if it
+         * would overflow, and centers vertically in the area below the
+         * label band. Pass align='right' for the amount column where the
+         * value hugs the right edge.
+         */
+        const value = (
+          txt: string | null | undefined,
+          x: number,
+          y: number,
+          w: number,
+          h: number,
+          opts: {
+            align?: 'left' | 'center' | 'right';
+            baseSize?: number;
+            hasLabel?: boolean;
+          } = {},
+        ) => {
           if (!txt) return;
-          setFont(false, 9);
-          doc.fillColor(BLUE).text(txt, x + 4, y + 13, { width: w - 8 });
+          const { align = 'center', baseSize = 9.5, hasLabel = true } = opts;
+          const size = fitSize(txt, w - 8, false, baseSize, 6);
+          const reservedTop = hasLabel ? LABEL_HEIGHT : 0;
+          const yOff = reservedTop + (h - reservedTop - size) / 2;
+          doc.fillColor(BLUE).text(txt, x + 4, y + yOff, {
+            width: w - 8,
+            align,
+            lineBreak: false,
+          });
+        };
+
+        /** Multi-line left-aligned blue value (seller/consignee blocks). */
+        const valueBlock = (
+          txt: string,
+          x: number,
+          y: number,
+          w: number,
+          baseSize = 9,
+        ) => {
+          if (!txt) return y;
+          setFont(false, baseSize);
+          doc.fillColor(BLUE).text(txt, x + 4, y, { width: w - 8 });
+          return doc.y;
         };
 
         let cy = T;
 
-        // ════════════════════════════════════════════════════════
-        // 1.  PAGE HEADER  "PAGE 1/1"
-        // ════════════════════════════════════════════════════════
-        setFont(false, 8);
-        doc.fillColor(GRAY).text('PAGE 1/1', 0, T, { width: PW - 20, align: 'right' });
-        cy += 18;
+        // ══════════════════════════════════════════════════════
+        // 1. TITLE + LOGO ROW (no borders, just positioning)
+        // ══════════════════════════════════════════════════════
+        const titleH = 55;
+        setFont(true, 24);
+        doc.fillColor(DARK).text('Proforma Invoice', L, cy + 14, {
+          width: CW,
+          align: 'center',
+          lineBreak: false,
+        });
 
-        // ════════════════════════════════════════════════════════
-        // 2.  TITLE ROW  "Proforma Invoice"  +  logo top-right
-        // ════════════════════════════════════════════════════════
-        setFont(true, 20);
-        doc.fillColor(DARK).text('Proforma Invoice', L, cy, { width: CW * 0.55 });
-
-        // Logo (top-right of title row)
         if (logoUrl) {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              doc.image(absPath, PW - L - 110, cy - 4, { fit: [108, 46] });
-            } catch { /* skip bad image */ }
+              doc.image(absPath, PW - L - 150, cy + 6, { fit: [150, 46] });
+            } catch {
+              /* skip bad image */
+            }
           }
         }
+        cy += titleH;
 
-        cy += 38;
-        // thin rule under title
-        doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(LINE).lineWidth(0.5).stroke();
-        cy += 1;
+        // ══════════════════════════════════════════════════════
+        // 2. INFO GRID
+        //    Left column holds SELLER (3 rows tall) + CONSIGNEE
+        //    (4 rows tall, last row being TERMS OF DELIVERY).
+        //    Right column is a 2-wide grid for rows 1-5, then a
+        //    full-width PAYMENT TERM row and a full-width TERMS
+        //    OF DELIVERY row at the bottom.
+        // ══════════════════════════════════════════════════════
+        const rH = 30;        // standard right-side row height
+        const termsH = 40;    // terms of delivery: taller for 2 lines
+        const sellerH = rH * 3;                     // 90
+        const consigneeH = rH * 2 + rH + termsH;    // 130 (2 pair rows + payment term + terms)
 
-        // ════════════════════════════════════════════════════════
-        // 3.  INFO GRID
-        // ════════════════════════════════════════════════════════
-
-        // ── Seller block  (left col, 3 rows) ────────────────────
-        const sellerH = rH * 3;
+        // ── Left column: SELLER block ────────────────────────
         border(L, cy, leftColW, sellerH);
         label('1. SELLER / EXPORTER', L, cy, leftColW);
-        valueLeft(pi.sellerId || '', L, cy, leftColW);
-        // address below name
+        let sellerY = cy + 14;
+        if (pi.sellerId) {
+          setFont(false, 9.5);
+          doc.fillColor(BLUE).text(pi.sellerId, L + 4, sellerY, {
+            width: leftColW - 8,
+          });
+          sellerY = doc.y + 1;
+        }
         if (pi.sellerAddress) {
-          const afterName = doc.y;
-          setFont(false, 8);
-          doc.fillColor(BLUE).text(pi.sellerAddress, L + 4, afterName, { width: leftColW - 8 });
+          valueBlock(pi.sellerAddress, L, sellerY, leftColW, 8.5);
         }
 
-        // Row A right: INVOICE NO + DATE
+        // Right grid rows (3 × rH wide):
+        // Row A: invoice no | date
         border(midX, cy, rHalfW, rH);
         label('3. INVOICE NO.', midX, cy, rHalfW);
         value(pi.piNo, midX, cy, rHalfW, rH);
 
         border(midX + rHalfW, cy, rHalfW, rH);
         label('4. DATE', midX + rHalfW, cy, rHalfW);
-        const dateOpts: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-        value(pi.createdAt.toLocaleDateString('en-US', dateOpts), midX + rHalfW, cy, rHalfW, rH);
+        const dateStr = pi.createdAt.toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+        value(dateStr, midX + rHalfW, cy, rHalfW, rH);
 
-        // Row B right: PO NO + CURRENCY
-        border(midX, cy + rH, rHalfW, rH);
-        label('5. PO NO.', midX, cy + rH, rHalfW);
-        value(pi.poNo || '', midX, cy + rH, rHalfW, rH);
+        // Row B: po no | currency
+        const rowB = cy + rH;
+        border(midX, rowB, rHalfW, rH);
+        label('5. PO NO.', midX, rowB, rHalfW);
+        value(pi.poNo || '', midX, rowB, rHalfW, rH);
 
-        border(midX + rHalfW, cy + rH, rHalfW, rH);
-        label('6. CURRENCY', midX + rHalfW, cy + rH, rHalfW);
-        value(pi.currency, midX + rHalfW, cy + rH, rHalfW, rH);
+        border(midX + rHalfW, rowB, rHalfW, rH);
+        label('6. CURRENCY', midX + rHalfW, rowB, rHalfW);
+        value(pi.currency, midX + rHalfW, rowB, rHalfW, rH);
 
-        // Row C right: SHIPPING METHOD + PORT OF LOADING
-        border(midX, cy + rH * 2, rHalfW, rH);
-        label('7. SHIPPING METHOD', midX, cy + rH * 2, rHalfW);
-        value(pi.shippingMethod || '', midX, cy + rH * 2, rHalfW, rH);
+        // Row C: shipping method | port of loading
+        const rowC = cy + rH * 2;
+        border(midX, rowC, rHalfW, rH);
+        label('7. SHIPPING METHOD', midX, rowC, rHalfW);
+        value(pi.shippingMethod || 'N/A', midX, rowC, rHalfW, rH);
 
-        border(midX + rHalfW, cy + rH * 2, rHalfW, rH);
-        label('8. PORT OF LOADING', midX + rHalfW, cy + rH * 2, rHalfW);
-        value(pi.portOfLoading || '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
+        border(midX + rHalfW, rowC, rHalfW, rH);
+        label('8. PORT OF LOADING', midX + rHalfW, rowC, rHalfW);
+        value(pi.portOfLoading || 'N/A', midX + rHalfW, rowC, rHalfW, rH);
 
         cy += sellerH;
 
-        // ── Consignee block  (left col, 4 rows including TERMS OF DELIVERY) ──
-        const consigneeH = rH * 4;
+        // ── Left column: CONSIGNEE block ─────────────────────
         border(L, cy, leftColW, consigneeH);
         label('2. CONSIGNEE AND ADDRESS', L, cy, leftColW);
-        valueLeft(pi.consigneeName || '', L, cy, leftColW);
+        let conY = cy + 14;
+        if (pi.consigneeName) {
+          setFont(false, 9.5);
+          doc.fillColor(BLUE).text(pi.consigneeName, L + 4, conY, {
+            width: leftColW - 8,
+          });
+          conY = doc.y + 1;
+        }
         if (pi.consigneeAddress) {
-          const afterName2 = doc.y;
-          setFont(false, 8);
-          doc.fillColor(BLUE).text(pi.consigneeAddress, L + 4, afterName2, { width: leftColW - 8 });
+          valueBlock(pi.consigneeAddress, L, conY, leftColW, 8.5);
         }
 
-        // Row D right: PORT OF DISCHARGE + PLACE OF DELIVERY
+        // Row D: port of discharge | place of delivery
         border(midX, cy, rHalfW, rH);
         label('9. PORT OF DISCHARGE', midX, cy, rHalfW);
-        value(pi.portOfDischarge || '', midX, cy, rHalfW, rH);
+        value(pi.portOfDischarge || 'N/A', midX, cy, rHalfW, rH);
 
         border(midX + rHalfW, cy, rHalfW, rH);
         label('10. PLACE OF DELIVERY', midX + rHalfW, cy, rHalfW);
-        value(pi.placeOfDelivery || '', midX + rHalfW, cy, rHalfW, rH);
+        value(pi.placeOfDelivery || 'N/A', midX + rHalfW, cy, rHalfW, rH);
 
-        // Row E right: PAYMENT METHOD + TRADE TERM
-        border(midX, cy + rH, rHalfW, rH);
-        label('11. PAYMENT METHOD', midX, cy + rH, rHalfW);
-        value(pi.paymentMethod || '', midX, cy + rH, rHalfW, rH);
+        // Row E: payment method | trade term
+        const rowE = cy + rH;
+        border(midX, rowE, rHalfW, rH);
+        label('11. PAYMENT METHOD', midX, rowE, rHalfW);
+        value(pi.paymentMethod || 'N/A', midX, rowE, rHalfW, rH);
 
-        border(midX + rHalfW, cy + rH, rHalfW, rH);
-        label('12. TRADE TERM:', midX + rHalfW, cy + rH, rHalfW);
-        value(pi.tradeTerm || '', midX + rHalfW, cy + rH, rHalfW, rH);
+        border(midX + rHalfW, rowE, rHalfW, rH);
+        label('12. TRADE TERM:', midX + rHalfW, rowE, rHalfW);
+        // If both trade term and place of delivery are set, combine them
+        // e.g. "EXW Dongguan" (matches the reference template exactly).
+        const tradeTermText = pi.tradeTerm
+          ? pi.placeOfDelivery
+            ? `${pi.tradeTerm} ${pi.placeOfDelivery}`
+            : pi.tradeTerm
+          : '';
+        value(tradeTermText, midX + rHalfW, rowE, rHalfW, rH);
 
-        // Row F right: Country of Origin + PAYMENT TERM
-        border(midX, cy + rH * 2, rHalfW, rH);
-        label('13. Country of Origin', midX, cy + rH * 2, rHalfW);
-        value(pi.countryOfOrigin || '', midX, cy + rH * 2, rHalfW, rH);
+        // Row F (full width): payment term
+        const rowF = cy + rH * 2;
+        border(midX, rowF, rCW, rH);
+        label('13. PAYMENT TERM', midX, rowF, rCW);
+        const ptMap: Record<string, string> = {
+          T_30: '30% Advance & 70% before dispatch',
+          T_50: '50% Advance & 50% before dispatch',
+          T_70: '70% Advance & 30% before dispatch',
+          T_100: '100% in advance',
+        };
+        value(pi.paymentTerm ? ptMap[pi.paymentTerm] : '', midX, rowF, rCW, rH);
 
-        border(midX + rHalfW, cy + rH * 2, rHalfW, rH);
-        label('13. PAYMENT TERM', midX + rHalfW, cy + rH * 2, rHalfW);
+        // Row G (full width): terms of delivery — taller for wrapping
+        const rowG = cy + rH * 3;
+        border(midX, rowG, rCW, termsH);
+        label('14. TERMS OF DELIVERY', midX, rowG, rCW);
+        if (pi.termsOfDelivery) {
+          // Multi-line text: wrap within the cell width, below the label.
+          setFont(false, 9);
+          doc.fillColor(BLUE).text(pi.termsOfDelivery, midX + 4, rowG + 13, {
+            width: rCW - 8,
+            align: 'center',
+          });
+        }
+
+        cy += consigneeH + 6;
+
+        // ══════════════════════════════════════════════════════
+        // 3. TRANSACTION NOTICE
+        // ══════════════════════════════════════════════════════
+        setFont(false, 7);
+        doc.fillColor(GRAY).text(
+          'THE FOLLOWING SIGNING PARTIES AGREE TO MAKE THE TRANSACTION ON THE TERMS AND CONDITIONS STATED BELOW:',
+          L,
+          cy,
+          { width: CW, align: 'center' },
+        );
+        cy += 14;
+
+        // ══════════════════════════════════════════════════════
+        // 4. ITEMS TABLE
+        //    Columns: marks | description | hsn | qty | unit price | amount
+        //    Widths sum to CW (515). The MARKS column holds a single
+        //    "N/M" that spans every item row.
+        // ══════════════════════════════════════════════════════
+        const TW = [60, 150, 70, 65, 80, 90];
+        const TC: number[] = [L];
+        for (let i = 1; i < TW.length; i++) TC[i] = TC[i - 1] + TW[i - 1];
+        const TH = 22;
+
+        // Header row
+        doc.rect(L, cy, CW, TH).fillColor('#F2F2F2').fill();
+        border(L, cy, CW, TH);
+        for (let c = 1; c < TW.length; c++) {
+          doc
+            .moveTo(TC[c], cy)
+            .lineTo(TC[c], cy + TH)
+            .strokeColor(LINE)
+            .lineWidth(0.6)
+            .stroke();
+        }
+        const hLabels = [
+          "14. MARKS/NO'S.",
+          '15. DESCRIPTION OF GOODS',
+          'HSN',
+          '16. QUANTITY',
+          '17. UNIT PRICE',
+          '18. AMOUNT',
+        ];
+        hLabels.forEach((hl, i) => {
+          const size = fitSize(hl, TW[i] - 4, true, 7.5, 6);
+          doc.fillColor(DARK).text(hl, TC[i] + 2, cy + (TH - size) / 2, {
+            width: TW[i] - 4,
+            align: 'center',
+            lineBreak: false,
+          });
+        });
+        cy += TH;
+
         // Currency symbol helper
         const currencySymbol: Record<string, string> = {
           USD: '$', EUR: '€', GBP: '£', JPY: '¥', CNY: '¥',
@@ -542,166 +694,169 @@ export class PIsService {
         };
         const cSym = currencySymbol[pi.currency] || pi.currency;
 
-        const ptMap: Record<string, string> = {
-          T_30: '30% in advance, 70% before dispatch',
-          T_50: '50% in advance, 50% before dispatch',
-          T_70: '70% in advance, 30% before dispatch',
-          T_100: '100% in advance',
-        };
-        value(pi.paymentTerm ? ptMap[pi.paymentTerm] : '', midX + rHalfW, cy + rH * 2, rHalfW, rH);
+        const fmtMoney = (n: number) =>
+          Number(n).toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+        const fmtInt = (n: number) => Number(n).toLocaleString('en-US');
 
-        // Row G right (4th row of consignee block): TERMS OF DELIVERY — spans both right sub-columns
-        border(midX, cy + rH * 3, rCW, rH);
-        label('14. TERMS OF DELIVERY', midX, cy + rH * 3, rCW);
-        value(pi.termsOfDelivery || '', midX, cy + rH * 3, rCW, rH);
-
-        cy += consigneeH + 6;
-
-        // ════════════════════════════════════════════════════════
-        // 4.  TRANSACTION NOTICE
-        // ════════════════════════════════════════════════════════
-        setFont(false, 7);
-        doc.fillColor(GRAY).text(
-          'THE FOLLOWING SIGNING PARTIES AGREE TO MAKE THE TRANSACTION ON THE TERMS AND CONDITIONS STATED BELOW:',
-          L, cy, { width: CW, align: 'center' },
-        );
-        cy += 14;
-
-        // ════════════════════════════════════════════════════════
-        // 5.  ITEMS TABLE
-        // ════════════════════════════════════════════════════════
-        // Column widths (total = CW = 525)
-        //  0: MARKS 60  1: DESC 155  2: HSN 70  3: QTY 65  4: PRICE 85  5: AMT 90
-        const TW = [60, 155, 70, 65, 85, 90];
-        const TC = [L, L + TW[0], L + TW[0] + TW[1], L + TW[0] + TW[1] + TW[2],
-          L + TW[0] + TW[1] + TW[2] + TW[3], L + TW[0] + TW[1] + TW[2] + TW[3] + TW[4]];
-        const TH = 20; // item row height
-
-        // Header row
-        doc.rect(TC[0], cy, CW, TH).fill(TABLE_STRIPE);
-        border(TC[0], cy, CW, TH);
-        // vertical dividers in header
-        for (let c = 1; c < 6; c++) {
-          doc.moveTo(TC[c], cy).lineTo(TC[c], cy + TH).strokeColor(LINE).lineWidth(0.5).stroke();
-        }
-        const hLabels = [
-          '15. MARKS/NO\'S.', '16. DESCRIPTION OF GOODS', '17.HSN',
-          '18. QUANTITY', '19. UNIT PRICE', '20. AMOUNT',
-        ];
-        setFont(true, 7);
-        doc.fillColor(DARK);
-        hLabels.forEach((hl, i) => {
-          doc.text(hl, TC[i] + 2, cy + 6, { width: TW[i] - 4, align: 'center', lineBreak: false });
-        });
-        cy += TH;
-
-        // Item rows — show actual items then pad to at least 5 rows
+        // Padded to at least 5 rows for a clean block even with few items.
         const minRows = 5;
         const totalRows = Math.max(pi.items.length, minRows);
 
-        // MARKS / N/M — spans all item rows in col 0
+        // MARKS column spans all rows — draw once, then skip its borders
+        // in the per-row loop.
         border(TC[0], cy, TW[0], TH * totalRows);
-        setFont(false, 9);
-        doc.fillColor(DARK).text('N/M', TC[0] + 2, cy + TH * totalRows / 2 - 6, {
-          width: TW[0] - 4, align: 'center', lineBreak: false,
-        });
+        setFont(false, 10);
+        doc.fillColor(DARK).text(
+          'N/M',
+          TC[0] + 2,
+          cy + (TH * totalRows) / 2 - 6,
+          { width: TW[0] - 4, align: 'center', lineBreak: false },
+        );
 
         for (let r = 0; r < totalRows; r++) {
           const ry = cy + r * TH;
           const item = pi.items[r];
 
-          // Draw col borders for cols 1-5
-          for (let c = 1; c < 6; c++) {
+          // Borders for cols 1..5 (marks col already bordered)
+          for (let c = 1; c < TW.length; c++) {
             border(TC[c], ry, TW[c], TH);
           }
 
-          if (item) {
-            // Description
-            setFont(false, 9);
-            doc.fillColor(BLUE).text(item.productName, TC[1] + 3, ry + 5, {
-              width: TW[1] - 6, lineBreak: false,
-            });
+          if (!item) continue;
 
-            // HSN
-            setFont(false, 8.5);
-            doc.fillColor(BLUE).text(item.hsn || '', TC[2] + 2, ry + 6, {
-              width: TW[2] - 4, align: 'center', lineBreak: false,
-            });
-
-            // Qty  e.g. "10 PCS"
-            const qtyText = `${item.quantity} ${item.unit || 'PCS'}`;
-            doc.text(qtyText, TC[3] + 2, ry + 6, {
-              width: TW[3] - 4, align: 'center', lineBreak: false,
-            });
-
-            // Unit price
-            doc.text(`${cSym}${Number(item.unitPrice).toFixed(2)}`, TC[4] + 2, ry + 6, {
-              width: TW[4] - 4, align: 'center', lineBreak: false,
-            });
-
-            // Amount  "$ 600.00"
-            doc.text(cSym, TC[5] + 4, ry + 6, { lineBreak: false });
-            doc.text(Number(item.totalPrice).toFixed(2), TC[5] + 4, ry + 6, {
-              width: TW[5] - 8, align: 'right', lineBreak: false,
-            });
-          }
+          // Description (centered)
+          value(item.productName, TC[1], ry, TW[1], TH, {
+            align: 'center',
+            baseSize: 9.5,
+            hasLabel: false,
+          });
+          // HSN (centered)
+          value(item.hsn || '', TC[2], ry, TW[2], TH, {
+            align: 'center',
+            baseSize: 9,
+            hasLabel: false,
+          });
+          // Quantity (centered) — include unit if present
+          const qtyText = item.unit
+            ? `${fmtInt(item.quantity)} ${item.unit}`
+            : fmtInt(item.quantity);
+          value(qtyText, TC[3], ry, TW[3], TH, {
+            align: 'center',
+            baseSize: 9,
+            hasLabel: false,
+          });
+          // Unit price (centered) — e.g. "$3.00"
+          value(
+            `${cSym}${fmtMoney(Number(item.unitPrice))}`,
+            TC[4],
+            ry,
+            TW[4],
+            TH,
+            { align: 'center', baseSize: 9, hasLabel: false },
+          );
+          // Amount — $ hugs the left, number the right (per reference)
+          const amtY = ry + (TH - 9) / 2;
+          setFont(false, 9);
+          doc.fillColor(BLUE).text(cSym, TC[5] + 4, amtY, { lineBreak: false });
+          const amtText = fmtMoney(Number(item.totalPrice));
+          const amtSize = fitSize(amtText, TW[5] - 20, false, 9, 6);
+          doc.fillColor(BLUE).text(amtText, TC[5] + 4, ry + (TH - amtSize) / 2, {
+            width: TW[5] - 8,
+            align: 'right',
+            lineBreak: false,
+          });
         }
 
         cy += TH * totalRows;
 
-        // ── Totals block ─────────────────────────────────────────
-        // Aligned with items table: dollar sign in UNIT PRICE col, amount in AMOUNT col
+        // ══════════════════════════════════════════════════════
+        // 5. TOTALS BLOCK
+        //    Label sits in the DESCRIPTION column area (right-aligned),
+        //    $ symbol aligns with the UNIT PRICE column, number aligns
+        //    with the AMOUNT column and hugs the right edge.
+        // ══════════════════════════════════════════════════════
         const totRows: { lbl: string; val: string | null }[] = [
-          { lbl: 'SUBTOTAL',        val: Number(pi.subtotal).toFixed(2) },
-          { lbl: 'SHIPPING CHARGE', val: Number(pi.shippingCharge) > 0 ? Number(pi.shippingCharge).toFixed(2) : null },
-          { lbl: 'OTHER',           val: Number(pi.other) > 0 ? Number(pi.other).toFixed(2) : null },
-          { lbl: 'TOTAL VALUE',     val: Number(pi.totalAmount).toFixed(2) },
+          { lbl: 'SUBTOTAL', val: fmtMoney(Number(pi.subtotal)) },
+          {
+            lbl: 'SHIPPING CHARGE',
+            val: Number(pi.shippingCharge) > 0 ? fmtMoney(Number(pi.shippingCharge)) : null,
+          },
+          {
+            lbl: 'OTHER',
+            val: Number(pi.other) > 0 ? fmtMoney(Number(pi.other)) : null,
+          },
+          { lbl: 'TOTAL VALUE', val: fmtMoney(Number(pi.totalAmount)) },
         ];
 
-        // dolCol aligns with TC[4] (UNIT PRICE start), amtCol aligns with TC[5] (AMOUNT start)
         const dolColX = TC[4];
-        const dolColW = TW[4]; // full UNIT PRICE width for the $ symbol
+        const dolColW = TW[4];
         const amtColX = TC[5];
         const amtColW = TW[5];
+        // Label right-aligned, spanning the HSN + QTY area right up to
+        // the $ column — gives it plenty of room for "SHIPPING CHARGE".
+        const totLabelX = TC[2];
+        const totLabelW = dolColX - TC[2] - 6;
 
         totRows.forEach((tr) => {
-          const isTotalValue = tr.lbl === 'TOTAL VALUE';
-          const trH = TH;
+          const isFinal = tr.lbl === 'TOTAL VALUE';
 
-          // Label text right-aligned before the dollar column
-          setFont(isTotalValue, 8.5);
-          doc.fillColor(DARK).text(tr.lbl, dolColX - 130, cy + trH / 2 - 5, {
-            width: 125, align: 'right', lineBreak: false,
+          // Label (right-aligned, inside the shared column area)
+          setFont(isFinal, 8.5);
+          doc.fillColor(DARK).text(tr.lbl, totLabelX, cy + (TH - 8.5) / 2, {
+            width: totLabelW,
+            align: 'right',
+            lineBreak: false,
           });
 
-          // Dollar sign cell (aligned with UNIT PRICE column)
-          border(dolColX, cy, dolColW, trH);
+          // $ cell
+          border(dolColX, cy, dolColW, TH);
           if (tr.val !== null) {
             setFont(false, 9);
-            doc.fillColor(BLUE).text(cSym, dolColX + 4, cy + trH / 2 - 5, {
-              width: dolColW - 8, align: 'left', lineBreak: false,
+            doc.fillColor(BLUE).text(cSym, dolColX + 4, cy + (TH - 9) / 2, {
+              width: dolColW - 8,
+              align: 'left',
+              lineBreak: false,
             });
           }
 
-          // Amount cell (aligned with AMOUNT column)
-          border(amtColX, cy, amtColW, trH);
+          // Amount cell (right-aligned, no shrink needed since it's roomy)
+          border(amtColX, cy, amtColW, TH);
           if (tr.val !== null) {
-            setFont(isTotalValue, 9);
-            doc.fillColor(BLUE).text(tr.val, amtColX + 4, cy + trH / 2 - 5, {
-              width: amtColW - 8, align: 'right', lineBreak: false,
+            const size = fitSize(tr.val, amtColW - 8, isFinal, 9, 6);
+            doc.fillColor(BLUE).text(tr.val, amtColX + 4, cy + (TH - size) / 2, {
+              width: amtColW - 8,
+              align: 'right',
+              lineBreak: false,
             });
           }
-          cy += trH;
+          cy += TH;
         });
 
-        cy += 8;
+        cy += 10;
 
-        // ════════════════════════════════════════════════════════
-        // 6.  FOOTER TEXT
-        // ════════════════════════════════════════════════════════
-        setFont(false, 9);
-        doc.fillColor(DARK).text(`Validity Period: ${pi.validityPeriod} DAYS`, L, cy);
-        cy += 14;
+        // ══════════════════════════════════════════════════════
+        // 6. VALIDITY + NOTES
+        // ══════════════════════════════════════════════════════
+        setFont(false, 9.5);
+        doc.fillColor(DARK).text(
+          `Validity Period: ${pi.validityPeriod} DAYS`,
+          L,
+          cy,
+        );
+        cy = doc.y + 4;
+
+        if (pi.countryOfOrigin) {
+          setFont(false, 9.5);
+          doc.fillColor(DARK).text(
+            `Country of Origin: ${pi.countryOfOrigin}`,
+            L,
+            cy,
+          );
+          cy = doc.y + 4;
+        }
 
         if (pi.notes) {
           setFont(false, 9);
@@ -709,28 +864,64 @@ export class PIsService {
           cy = doc.y + 4;
         }
 
-        // separator line
+        // Separator before bank info
         cy += 2;
-        doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(DARK).lineWidth(0.8).stroke();
+        doc
+          .moveTo(L, cy)
+          .lineTo(PW - L, cy)
+          .strokeColor(DARK)
+          .lineWidth(0.8)
+          .stroke();
         cy += 8;
 
-        // ════════════════════════════════════════════════════════
-        // 7.  BANK INFORMATION
-        // ════════════════════════════════════════════════════════
+        // ══════════════════════════════════════════════════════
+        // 7. BANK INFORMATION
+        //    Each line: if it contains ':' or '：', render the label
+        //    (including the colon) bold, and the value regular. Else
+        //    render the whole line regular.
+        // ══════════════════════════════════════════════════════
         if (bankInfo && bankInfo.bankInfoText) {
-          const bankLines = bankInfo.bankInfoText.split('\n').filter((l: string) => l.trim());
+          const lines = bankInfo.bankInfoText
+            .split('\n')
+            .map((l: string) => l.replace(/\s+$/, ''))
+            .filter((l: string) => l.length > 0);
 
-          setFont(true, 8.5);
-          doc.fillColor(DARK);
-          bankLines.forEach((line: string) => {
-            if (cy > 800) { doc.addPage(); cy = T; }
-            doc.text(line, L, cy, { width: CW });
-            cy = doc.y + 1;
-          });
+          const bankBaseSize = 8.5;
+          for (const line of lines) {
+            if (cy > 790) {
+              doc.addPage();
+              cy = T;
+            }
 
-          // bottom separator
+            const match = line.match(/^([^:：]+[:：])\s*(.*)$/);
+            if (match && match[2]) {
+              const [, lbl, val] = match;
+              // Render label bold at start of line (no line break), then
+              // value regular immediately after it, wrapping into the
+              // remaining width if needed.
+              setFont(true, bankBaseSize);
+              const lblW = doc.widthOfString(lbl + ' ');
+              doc.fillColor(DARK).text(lbl, L, cy, { lineBreak: false });
+              setFont(false, bankBaseSize);
+              doc.fillColor(DARK).text(val, L + lblW, cy, {
+                width: CW - lblW,
+              });
+              cy = doc.y + 1;
+            } else {
+              // No separator or empty value — render as a plain line.
+              setFont(false, bankBaseSize);
+              doc.fillColor(DARK).text(line, L, cy, { width: CW });
+              cy = doc.y + 1;
+            }
+          }
+
           cy += 4;
-          doc.moveTo(L, cy).lineTo(PW - L, cy).strokeColor(DARK).lineWidth(0.8).stroke();
+          doc
+            .moveTo(L, cy)
+            .lineTo(PW - L, cy)
+            .strokeColor(DARK)
+            .lineWidth(0.8)
+            .stroke();
         }
 
         doc.end();
