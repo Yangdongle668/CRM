@@ -282,3 +282,8 @@ export const messagesApi = {
   getUsers: () => api.get('/messages/users'),
   getUserProfile: (userId: string) => api.get(`/messages/${userId}/profile`),
 };
+
+// ==================== Rates API ====================
+export const ratesApi = {
+  get: () => api.get('/rates'),
+};
