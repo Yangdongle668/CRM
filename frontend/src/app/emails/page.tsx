@@ -605,13 +605,17 @@ export default function EmailsPage() {
 
     // 读/未读判定
     //   - INBOUND：邮件对"我"是未读 => status === 'RECEIVED'
-    //   - OUTBOUND：邮件对"收件人"是已读 => email.viewedAt 存在
-    // "最右边的信封" 即此状态的视觉化：实心绿 = 已读 / 已被对方阅读，
-    // 空心灰 = 还没读。
+    //   - OUTBOUND：邮件对"收件人"是已读 => status === 'VIEWED'
+    //
+    // 注意 OUTBOUND 必须用 status 而不是 viewedAt —— email-tracking.service
+    // 会把 Apple MPP / Gmail 代理这类 PREFETCH/BOT 的像素也写进 viewedAt，
+    // 只有分类为 HUMAN / PROXY 的人类访问才会把 status 翻成 VIEWED
+    // （见 email-tracking.service.ts:394 vs 401）。用 status 才能避开
+    // "机器人预取 ≠ 收件人真读过" 的误报。
     const isInbound = email.direction === 'INBOUND';
     const isUnread = isInbound
       ? email.status === 'RECEIVED'
-      : !email.viewedAt;
+      : email.status !== 'VIEWED';
 
     const addr = isInbound || activeFolder === 'unread' ? email.fromAddr : email.toAddr;
     const time = email.sentAt || email.receivedAt || email.createdAt;
@@ -780,11 +784,12 @@ export default function EmailsPage() {
                   <span className="text-blue-600">{selectedEmail.customer.companyName}</span>
                 </div>
               )}
-              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.viewedAt && (
+              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.status === 'VIEWED' && (
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500 w-16 flex-shrink-0">已读：</span>
                   <span className="text-green-600 font-medium">
-                    收件人已读 · {formatTime(selectedEmail.viewedAt)}
+                    收件人已读
+                    {selectedEmail.viewedAt && ` · ${formatTime(selectedEmail.viewedAt)}`}
                     {selectedEmail.viewCount && selectedEmail.viewCount > 1
                       ? ` · 共打开 ${selectedEmail.viewCount} 次`
                       : ''}
@@ -797,7 +802,7 @@ export default function EmailsPage() {
                   </button>
                 </div>
               )}
-              {selectedEmail.direction === 'OUTBOUND' && !selectedEmail.viewedAt && (
+              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.status !== 'VIEWED' && (
                 <div className="flex items-center gap-2">
                   <span className="text-gray-500 w-16 flex-shrink-0">追踪：</span>
                   <button
@@ -813,7 +818,7 @@ export default function EmailsPage() {
               <Badge className={STATUS_MAP[selectedEmail.status]?.color || 'bg-gray-100 text-gray-800'}>
                 {STATUS_MAP[selectedEmail.status]?.label || selectedEmail.status}
               </Badge>
-              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.viewedAt && (
+              {selectedEmail.direction === 'OUTBOUND' && selectedEmail.status === 'VIEWED' && (
                 <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
