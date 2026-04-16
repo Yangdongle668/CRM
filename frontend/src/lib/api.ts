@@ -287,3 +287,12 @@ export const messagesApi = {
 export const ratesApi = {
   get: () => api.get('/rates'),
 };
+
+// ==================== RBAC API ====================
+export const rbacApi = {
+  myPermissions: () => api.get('/auth/me/permissions'),
+  catalog: () => api.get('/rbac/catalog'),
+  getRolePermissions: (role: string) => api.get(`/rbac/roles/${role}/permissions`),
+  setRolePermissions: (role: string, permissions: string[]) =>
+    api.put(`/rbac/roles/${role}/permissions`, { permissions }),
+};

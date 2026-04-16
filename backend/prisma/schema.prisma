@@ -15,6 +15,35 @@ enum Role {
   FINANCE
 }
 
+// ==================== 动态权限 (RBAC) ====================
+// Permission 存放系统可用的权限码（如 "customer:delete"）。
+// RolePermission 将角色（字符串，当前仍复用 Role 枚举值）映射到权限。
+// 这样管理员可在运行时调整每个角色的权限，而不必改代码。
+// 管理员角色约定授予 "*" 通配符 → 拥有所有权限。
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  name        String
+  description String?
+  category    String?
+  createdAt   DateTime         @default(now()) @map("created_at")
+  rolePerms   RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  role         String     // "ADMIN" | "SALESPERSON" | "FINANCE"（字符串形式，便于将来新增自定义角色）
+  permissionId String     @map("permission_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime   @default(now()) @map("created_at")
+
+  @@unique([role, permissionId])
+  @@index([role])
+  @@map("role_permissions")
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique

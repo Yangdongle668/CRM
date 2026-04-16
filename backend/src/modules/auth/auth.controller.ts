@@ -19,8 +19,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { PermissionsGuard } from '../../common/permissions/permissions.guard';
+import { RequirePermissions } from '../../common/permissions/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
@@ -28,6 +28,7 @@ import { RegisterDto } from './dto/register.dto';
 import { SetupDto } from './dto/setup.dto';
 import { UsersService } from '../users/users.service';
 import { UpdateProfileDto } from '../users/dto/update-user.dto';
+import { PermissionsService } from '../../common/permissions/permissions.service';
 
 const avatarStorage = diskStorage({
   destination: (_req, _file, cb) => {
@@ -46,6 +47,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   @Get('check-init')
@@ -69,10 +71,10 @@ export class AuthController {
   }
 
   @Post('register')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('ADMIN')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @RequirePermissions('user:create')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Register new user (admin only)' })
+  @ApiOperation({ summary: 'Register new user (requires user:create permission)' })
   async register(@Body() dto: RegisterDto) {
     return this.authService.register(dto);
   }
@@ -82,7 +84,11 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Get current user profile' })
   async getProfile(@CurrentUser() user: any) {
-    return this.usersService.findOne(user.id);
+    const profile = await this.usersService.findOne(user.id);
+    const permissions = await this.permissionsService.listForRole(
+      (profile as any)?.role ?? user.role,
+    );
+    return { ...profile, permissions };
   }
 
   @Patch('profile')

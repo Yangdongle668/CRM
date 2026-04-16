@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
-import Pagination from '@/components/ui/Pagination';
+import VirtualList from '@/components/ui/VirtualList';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
 import { customersApi } from '@/lib/api';
+import { useInfiniteList } from '@/lib/useInfiniteList';
 import { CUSTOMER_STATUS_MAP, CUSTOMER_SOURCES, INDUSTRIES, COUNTRIES } from '@/lib/constants';
 import type { Customer, CustomerStatus, PaginatedData } from '@/types';
 
@@ -26,20 +27,27 @@ const initialForm = {
   remark: '',
 };
 
+const PAGE_SIZE = 50;
+const ROW_HEIGHT = 56;
+
 export default function CustomersPage() {
   const router = useRouter();
-  const { isAdmin } = useAuth();
-
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(10);
-  const [loading, setLoading] = useState(false);
+  const { isAdmin, can } = useAuth();
+  // Prefer an explicit permission if the server exposes it; otherwise
+  // fall back to the admin-role shortcut (keeps behaviour unchanged for
+  // unmigrated environments).
+  const canDelete = can ? can('customer:delete') : isAdmin;
 
   // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [countryFilter, setCountryFilter] = useState('');
+  // The applied query — updated on search submit / filter change.
+  const [appliedQuery, setAppliedQuery] = useState({
+    search: '',
+    status: '',
+    country: '',
+  });
 
   // Create modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -50,32 +58,40 @@ export default function CustomersPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
-    try {
+  const fetchPage = useCallback(
+    async (page: number, pageSize: number) => {
       const params: Record<string, any> = { page, pageSize };
-      if (search) params.search = search;
-      if (statusFilter) params.status = statusFilter;
-      if (countryFilter) params.country = countryFilter;
+      if (appliedQuery.search) params.search = appliedQuery.search;
+      if (appliedQuery.status) params.status = appliedQuery.status;
+      if (appliedQuery.country) params.country = appliedQuery.country;
       const res: any = await customersApi.list(params);
       const data: PaginatedData<Customer> = res.data;
-      setCustomers(data.items);
-      setTotal(data.total);
-    } catch {
-      // error handled by interceptor
-    } finally {
-      setLoading(false);
-    }
-  }, [page, pageSize, search, statusFilter, countryFilter]);
+      return { items: data.items, total: data.total };
+    },
+    [appliedQuery],
+  );
 
-  useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+  const {
+    items: customers,
+    total,
+    loading,
+    loadingMore,
+    hasMore,
+    loadMore,
+    refresh,
+  } = useInfiniteList<Customer>({
+    pageSize: PAGE_SIZE,
+    fetchPage,
+    deps: [appliedQuery],
+  });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
-    setPage(1);
-    fetchCustomers();
+    setAppliedQuery({
+      search,
+      status: statusFilter,
+      country: countryFilter,
+    });
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -90,7 +106,7 @@ export default function CustomersPage() {
       toast.success('客户创建成功');
       setModalOpen(false);
       setForm(initialForm);
-      fetchCustomers();
+      void refresh();
     } catch {
       // error handled by interceptor
     } finally {
@@ -105,7 +121,7 @@ export default function CustomersPage() {
       await customersApi.delete(deleteId);
       toast.success('客户已删除');
       setDeleteId(null);
-      fetchCustomers();
+      void refresh();
     } catch {
       // error handled by interceptor
     } finally {
@@ -145,8 +161,9 @@ export default function CustomersPage() {
           <select
             value={statusFilter}
             onChange={(e) => {
-              setStatusFilter(e.target.value);
-              setPage(1);
+              const v = e.target.value;
+              setStatusFilter(v);
+              setAppliedQuery((q) => ({ ...q, status: v }));
             }}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
@@ -160,8 +177,9 @@ export default function CustomersPage() {
           <select
             value={countryFilter}
             onChange={(e) => {
-              setCountryFilter(e.target.value);
-              setPage(1);
+              const v = e.target.value;
+              setCountryFilter(v);
+              setAppliedQuery((q) => ({ ...q, country: v }));
             }}
             className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
@@ -174,101 +192,93 @@ export default function CustomersPage() {
           </select>
         </div>
 
-        {/* Table */}
+        {/* Virtualized table: header + windowed body + infinite scroll. */}
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  公司名称
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  国家
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  行业
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  状态
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  负责人
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  创建时间
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                  操作
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 bg-white">
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
-                    加载中...
-                  </td>
-                </tr>
-              ) : customers.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-500">
-                    暂无客户数据
-                  </td>
-                </tr>
-              ) : (
-                customers.map((customer) => {
-                  const statusInfo = CUSTOMER_STATUS_MAP[customer.status];
-                  return (
-                    <tr
-                      key={customer.id}
-                      onClick={() => router.push(`/customers/${customer.id}`)}
-                      className="cursor-pointer hover:bg-gray-50"
-                    >
-                      <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                        {customer.companyName}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                        {customer.country || '-'}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                        {customer.industry || '-'}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4">
-                        <Badge className={statusInfo?.color || ''}>
-                          {statusInfo?.label || customer.status}
-                        </Badge>
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                        {customer.owner?.name || '-'}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                        {new Date(customer.createdAt).toLocaleDateString('zh-CN')}
-                      </td>
-                      <td className="whitespace-nowrap px-6 py-4 text-right text-sm">
-                        {isAdmin && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteId(customer.id);
-                            }}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            删除
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-          <Pagination
-            page={page}
-            total={total}
-            pageSize={pageSize}
-            onChange={setPage}
-          />
+          {/* Header (static). Grid columns kept in sync with row template. */}
+          <div
+            className="grid bg-gray-50 border-b border-gray-200 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500"
+            style={{
+              gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 80px',
+            }}
+          >
+            <div>公司名称</div>
+            <div>国家</div>
+            <div>行业</div>
+            <div>状态</div>
+            <div>负责人</div>
+            <div>创建时间</div>
+            <div className="text-right">操作</div>
+          </div>
+
+          {loading && customers.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-500">加载中...</div>
+          ) : (
+            <VirtualList
+              items={customers}
+              rowHeight={ROW_HEIGHT}
+              onEndReached={() => {
+                if (hasMore && !loadingMore) void loadMore();
+              }}
+              getKey={(c) => c.id}
+              empty={
+                <div className="py-12 text-center text-sm text-gray-500">
+                  暂无客户数据
+                </div>
+              }
+              footer={
+                <div className="px-6 py-3 text-center text-xs text-gray-400 border-t border-gray-100">
+                  {loadingMore
+                    ? '加载中...'
+                    : hasMore
+                      ? `已加载 ${customers.length} / ${total}，继续向下滚动自动加载`
+                      : `已显示全部 ${customers.length} 条`}
+                </div>
+              }
+              renderRow={(customer) => {
+                const statusInfo = CUSTOMER_STATUS_MAP[customer.status];
+                return (
+                  <div
+                    onClick={() => router.push(`/customers/${customer.id}`)}
+                    className="grid items-center px-6 border-b border-gray-100 cursor-pointer hover:bg-gray-50 text-sm"
+                    style={{
+                      gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 80px',
+                      height: ROW_HEIGHT,
+                    }}
+                  >
+                    <div className="font-medium text-gray-900 truncate pr-2">
+                      {customer.companyName}
+                    </div>
+                    <div className="text-gray-500 truncate pr-2">{customer.country || '-'}</div>
+                    <div className="text-gray-500 truncate pr-2">{customer.industry || '-'}</div>
+                    <div>
+                      <Badge className={statusInfo?.color || ''}>
+                        {statusInfo?.label || customer.status}
+                      </Badge>
+                    </div>
+                    <div className="text-gray-500 truncate pr-2">
+                      {customer.owner?.name || '-'}
+                    </div>
+                    <div className="text-gray-500 truncate pr-2">
+                      {new Date(customer.createdAt).toLocaleDateString('zh-CN')}
+                    </div>
+                    <div className="text-right">
+                      {canDelete && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteId(customer.id);
+                          }}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          删除
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }}
+            />
+          )}
         </div>
       </div>
 

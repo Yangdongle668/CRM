@@ -7,6 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { PermissionsService } from '../../common/permissions/permissions.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SetupDto } from './dto/setup.dto';
@@ -16,6 +17,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly permissionsService: PermissionsService,
   ) {}
 
   async checkInit() {
@@ -57,9 +59,10 @@ export class AuthService {
       role: user.role,
     };
 
+    const permissions = await this.permissionsService.listForRole(user.role);
     return {
       token: this.jwtService.sign(payload),
-      user,
+      user: { ...user, permissions },
     };
   }
 
@@ -88,6 +91,7 @@ export class AuthService {
       role: user.role,
     };
 
+    const permissions = await this.permissionsService.listForRole(user.role);
     return {
       token: this.jwtService.sign(payload),
       user: {
@@ -97,6 +101,7 @@ export class AuthService {
         role: user.role,
         phone: user.phone,
         avatar: user.avatar,
+        permissions,
       },
     };
   }
