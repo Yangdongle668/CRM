@@ -616,24 +616,13 @@ model ProformaInvoice {
 }
 
 // ==================== 银行账户（收款账户） ====================
-// 公司可以同时拥有多个收款账户（例如：美元户、欧元户、人民币户），
-// 在开具 PI 时业务员可以按币种 / 客户需求选择对应银行信息。
-// alias 是给业务员在下拉里快速识别用的简称（如 "招行 USD"）。
+// 公司可同时维护多个收款账户（USD/EUR/CNY 户等），开 PI 时按需选择。
+// `alias` 是下拉里展示的简称（如 "招行 USD"），`bankInfoText` 是会
+// 直接拼到 PI PDF "Bank Information" 区域的多行文本，每行一条。
 model BankAccount {
   id            String   @id @default(uuid())
-  alias         String   // 简称，供下拉选择显示
-  accountName   String?  @map("account_name")
-  accountNumber String?  @map("account_number")
-  bankName      String?  @map("bank_name")
-  bankAddress   String?  @map("bank_address") @db.Text
-  swiftCode     String?  @map("swift_code")
-  currency      String?
-  country       String?
-  branchName    String?  @map("branch_name")
-  routingNumber String?  @map("routing_number")
-  iban          String?
-  paymentMemo   String?  @map("payment_memo") @db.Text
-  extraInfo     String?  @map("extra_info") @db.Text
+  alias         String   // 简称，下拉选择显示
+  bankInfoText  String   @map("bank_info_text") @db.Text  // 完整银行信息（多行）
   isDefault     Boolean  @default(false) @map("is_default")
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")

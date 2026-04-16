@@ -402,7 +402,6 @@ export default function PITemplatesPanel() {
                 {banks.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.alias}
-                    {b.currency ? ` · ${b.currency}` : ''}
                   </option>
                 ))}
               </select>

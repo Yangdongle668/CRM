@@ -130,7 +130,7 @@ export class PIsService {
           customer: { select: { id: true, companyName: true } },
           owner: { select: { id: true, name: true } },
           approver: { select: { id: true, name: true } },
-          bankAccount: { select: { id: true, alias: true, currency: true } },
+          bankAccount: { select: { id: true, alias: true } },
           template: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },

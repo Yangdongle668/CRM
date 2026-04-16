@@ -417,21 +417,13 @@ export interface ProformaInvoice {
 }
 
 // ==================== 银行账户 ====================
+// Each row = one receiving account. `alias` is the short name shown in
+// the PI dropdown (e.g. "招行 USD"); `bankInfoText` is the multi-line
+// block embedded verbatim into the PI PDF's "Bank Information" section.
 export interface BankAccount {
   id: string;
   alias: string;
-  accountName?: string | null;
-  accountNumber?: string | null;
-  bankName?: string | null;
-  bankAddress?: string | null;
-  swiftCode?: string | null;
-  currency?: string | null;
-  country?: string | null;
-  branchName?: string | null;
-  routingNumber?: string | null;
-  iban?: string | null;
-  paymentMemo?: string | null;
-  extraInfo?: string | null;
+  bankInfoText: string;
   isDefault: boolean;
   sortOrder: number;
   createdAt: string;
