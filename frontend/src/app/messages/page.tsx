@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import { messagesApi } from '@/lib/api';
+import { getMessagesSocket } from '@/lib/socket';
 import { useAuth } from '@/contexts/auth-context';
 import { ROLE_MAP } from '@/lib/constants';
 import toast from 'react-hot-toast';
@@ -99,7 +100,10 @@ export default function MessagesPage() {
   const [showNewChat, setShowNewChat] = useState(false);
   const [profileUser, setProfileUser] = useState<MsgUser | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Keep the *current* active user id reachable from socket callbacks without
+  // re-subscribing on every change.
+  const activeUserIdRef = useRef<string | null>(null);
+  useEffect(() => { activeUserIdRef.current = activeUserId; }, [activeUserId]);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -126,19 +130,51 @@ export default function MessagesPage() {
     }).catch(() => {});
   }, [user?.id, fetchConversations]);
 
+  // Real-time updates via WebSocket (replaces former 3s / 10s polling).
   useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
-      if (activeUserId) fetchHistory(activeUserId);
-      else fetchConversations();
-    }, 3000);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [activeUserId, fetchHistory, fetchConversations]);
+    if (!user?.id) return;
+    const socket = getMessagesSocket();
 
-  useEffect(() => {
-    const id = setInterval(fetchConversations, 10000);
-    return () => clearInterval(id);
-  }, [fetchConversations]);
+    const onNewMessage = (msg: Msg) => {
+      const active = activeUserIdRef.current;
+      const otherUser = msg.fromId === user.id ? msg.toId : msg.fromId;
+      // If the message belongs to the currently-open conversation, append.
+      if (
+        active &&
+        (msg.fromId === active || msg.toId === active) &&
+        (msg.fromId === user.id || msg.toId === user.id)
+      ) {
+        setHistory((prev) => {
+          if (prev.some((m) => m.id === msg.id)) return prev;
+          return [...prev, msg];
+        });
+        // Mark as read server-side (will emit conversation:update back).
+        if (msg.fromId === active) {
+          messagesApi.getHistory(active).catch(() => {});
+        }
+      }
+      // Keep conversation list hot: refresh to update unread/latest.
+      fetchConversations();
+      // Optional: toast for messages received while on another conversation
+      if (msg.toId === user.id && msg.fromId !== active) {
+        // avoid notifying our own echoed messages
+        // (skipped toast to prevent noise; list badge is enough)
+      }
+      void otherUser;
+    };
+
+    const onConversationUpdate = () => {
+      fetchConversations();
+    };
+
+    socket.on('message:new', onNewMessage);
+    socket.on('conversation:update', onConversationUpdate);
+
+    return () => {
+      socket.off('message:new', onNewMessage);
+      socket.off('conversation:update', onConversationUpdate);
+    };
+  }, [user?.id, fetchConversations]);
 
   const openConversation = async (partnerId: string) => {
     setActiveUserId(partnerId);

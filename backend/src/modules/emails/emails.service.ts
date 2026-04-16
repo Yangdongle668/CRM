@@ -3,19 +3,31 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import * as Imap from 'imap';
 import { simpleParser } from 'mailparser';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
+import {
+  QUEUE_EMAIL,
+  EMAIL_JOB_SEND,
+} from '../../queue/queue.constants';
 
 @Injectable()
 export class EmailsService {
   private readonly logger = new Logger(EmailsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional()
+    @InjectQueue(QUEUE_EMAIL)
+    private readonly emailQueue?: Queue,
+  ) {}
 
   private stripTrackingPixel(html: string | null): string | null {
     if (!html) return html;
@@ -216,20 +228,6 @@ export class EmailsService {
       );
     }
 
-    const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      auth: {
-        user: config.smtpUser,
-        pass: config.smtpPass,
-      },
-    });
-
-    const fromAddress = config.fromName
-      ? `"${config.fromName}" <${config.emailAddr}>`
-      : config.emailAddr;
-
     let htmlBody = dto.bodyHtml;
     if (config.signature) {
       htmlBody += `<br/><br/>--<br/>${config.signature}`;
@@ -291,29 +289,117 @@ export class EmailsService {
         emailConfigId: config.id,
         threadId: threadId || null,
       },
+      include: { customer: true },
     });
 
-    const appUrl = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
+    const requestOriginForTracking =
+      process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
+
+    // Enqueue the SMTP delivery so the HTTP request returns immediately.
+    // If BullMQ/Redis is unavailable, fall back to synchronous send so
+    // existing behaviour still works.
+    if (this.emailQueue) {
+      await this.emailQueue.add(
+        EMAIL_JOB_SEND,
+        {
+          emailId: emailRecord.id,
+          userId,
+          requestOrigin: requestOriginForTracking,
+          inReplyToMessageId,
+        },
+        {
+          jobId: `send:${emailRecord.id}`,
+        },
+      );
+      return emailRecord;
+    }
+
+    // Fallback: inline delivery (no queue configured).
+    this.logger.warn(
+      'Email queue not configured — falling back to synchronous send',
+    );
+    try {
+      return await this.deliverPendingEmail(emailRecord.id, {
+        requestOrigin: requestOriginForTracking,
+        inReplyToMessageId,
+        actingUserId: userId,
+      });
+    } catch (error: any) {
+      throw new BadRequestException(
+        `Failed to send email: ${error?.message || error}`,
+      );
+    }
+  }
+
+  /**
+   * Worker-side SMTP delivery. Looks up the persisted DRAFT email record
+   * and actually sends it, updating status to SENT or FAILED.
+   * Safe to retry: noop if the email is already SENT.
+   */
+  async deliverPendingEmail(
+    emailId: string,
+    opts: {
+      requestOrigin?: string;
+      inReplyToMessageId?: string;
+      actingUserId?: string;
+    } = {},
+  ) {
+    const emailRecord = await this.prisma.email.findUnique({
+      where: { id: emailId },
+    });
+    if (!emailRecord) {
+      throw new NotFoundException(`Email ${emailId} not found`);
+    }
+    if (emailRecord.status === 'SENT') {
+      return emailRecord;
+    }
+    if (!emailRecord.emailConfigId) {
+      throw new BadRequestException('Email record has no emailConfigId');
+    }
+
+    const config = await this.prisma.emailConfig.findUnique({
+      where: { id: emailRecord.emailConfigId },
+    });
+    if (!config) {
+      await this.prisma.email.update({
+        where: { id: emailId },
+        data: { status: 'FAILED' },
+      });
+      throw new BadRequestException('Email configuration no longer exists');
+    }
+
+    const transporter = nodemailer.createTransport({
+      host: config.smtpHost,
+      port: config.smtpPort,
+      secure: config.smtpSecure,
+      auth: { user: config.smtpUser, pass: config.smtpPass },
+    });
+
+    const fromAddress = config.fromName
+      ? `"${config.fromName}" <${config.emailAddr}>`
+      : config.emailAddr;
+
+    const appUrl = opts.requestOrigin || '';
     const trackingPixel = appUrl
       ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
       : '';
-    const htmlWithTracking = htmlBody + trackingPixel;
+    const htmlWithTracking = (emailRecord.bodyHtml || '') + trackingPixel;
+
+    const mailOptions: any = {
+      from: fromAddress,
+      to: emailRecord.toAddr,
+      cc: emailRecord.cc || undefined,
+      bcc: emailRecord.bcc || undefined,
+      subject: emailRecord.subject,
+      html: htmlWithTracking,
+    };
+
+    if (opts.inReplyToMessageId) {
+      mailOptions.inReplyTo = opts.inReplyToMessageId;
+      mailOptions.references = [opts.inReplyToMessageId];
+    }
 
     try {
-      const mailOptions: any = {
-        from: fromAddress,
-        to: dto.toAddr,
-        cc: dto.cc || undefined,
-        bcc: dto.bcc || undefined,
-        subject: dto.subject,
-        html: htmlWithTracking,
-      };
-
-      if (inReplyToMessageId) {
-        mailOptions.inReplyTo = inReplyToMessageId;
-        mailOptions.references = [inReplyToMessageId];
-      }
-
       const info = await transporter.sendMail(mailOptions);
 
       const email = await this.prisma.email.update({
@@ -323,34 +409,37 @@ export class EmailsService {
           status: 'SENT',
           sentAt: new Date(),
         },
-        include: {
-          customer: true,
-        },
+        include: { customer: true },
       });
 
       if (email.customerId) {
-        await this.prisma.activity.create({
-          data: {
-            type: 'EMAIL',
-            content: `发送邮件 - 收件人: ${dto.toAddr}，主题: ${dto.subject}`,
-            customerId: email.customerId,
-            ownerId: userId,
-            relatedType: 'email',
-            relatedId: email.id,
-          },
-        }).catch(() => {});
+        const ownerId = opts.actingUserId || emailRecord.senderId || undefined;
+        if (ownerId) {
+          await this.prisma.activity
+            .create({
+              data: {
+                type: 'EMAIL',
+                content: `发送邮件 - 收件人: ${email.toAddr}，主题: ${email.subject}`,
+                customerId: email.customerId,
+                ownerId,
+                relatedType: 'email',
+                relatedId: email.id,
+              },
+            })
+            .catch(() => {});
+        }
       }
-
       return email;
-    } catch (error) {
-      this.logger.error(`Failed to send email: ${error.message}`, error.stack);
-
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to send email ${emailId}: ${error?.message}`,
+        error?.stack,
+      );
       await this.prisma.email.update({
-        where: { id: emailRecord.id },
+        where: { id: emailId },
         data: { status: 'FAILED' },
       });
-
-      throw new BadRequestException(`Failed to send email: ${error.message}`);
+      throw error;
     }
   }
 
