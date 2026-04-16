@@ -51,6 +51,13 @@ services:
       PORT: 3001
       NODE_ENV: production
       UPLOAD_DIR: /app/uploads
+      # 邮件追踪像素 / 点击链接里用的对外地址 — 必须是收件人的邮件客户端
+      # 可以访问到的域名，不能是 docker 内部 service 名。
+      APP_URL: ${APP_URL:-https://crm.07691688.xyz}
+      CORS_ORIGIN: ${APP_URL:-https://crm.07691688.xyz}
+      # HMAC secret for tracking click tokens (falls back to JWT_SECRET
+      # if unset, but you should use a distinct value in production).
+      EMAIL_TRACKING_SECRET: ${EMAIL_TRACKING_SECRET:-${JWT_SECRET:-change-this-tracking-secret}}
     volumes:
       - uploads_data:/app/uploads
     depends_on:
