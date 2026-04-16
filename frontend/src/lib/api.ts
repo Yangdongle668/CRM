@@ -49,6 +49,10 @@ export const authApi = {
     api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
   register: (data: any) => api.post('/auth/register', data),
+  updateProfile: (data: { password?: string; phone?: string; bio?: string; avatar?: string }) =>
+    api.patch('/auth/profile', data),
+  uploadAvatar: (formData: FormData) =>
+    api.post('/auth/avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } }),
 };
 
 // ==================== Users API ====================

@@ -23,6 +23,7 @@ model User {
   role      Role     @default(SALESPERSON)
   phone     String?
   avatar    String?
+  bio       String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

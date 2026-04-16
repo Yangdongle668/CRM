@@ -41,8 +41,33 @@ export class UpdateUserDto {
   @IsOptional()
   avatar?: string;
 
+  @ApiPropertyOptional({ example: '这是我的个性签名' })
+  @IsString()
+  @IsOptional()
+  bio?: string;
+
   @ApiPropertyOptional({ example: true })
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+}
+
+/** DTO for self-service profile update — name and role are intentionally excluded */
+export class UpdateProfileDto {
+  @IsString()
+  @IsOptional()
+  @MinLength(6)
+  password?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  bio?: string;
+
+  @IsString()
+  @IsOptional()
+  avatar?: string;
 }

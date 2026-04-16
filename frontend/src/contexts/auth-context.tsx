@@ -10,6 +10,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
   isAdmin: boolean;
 }
 
@@ -54,6 +55,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push('/login');
   };
 
+  const refreshUser = async () => {
+    const res: any = await authApi.getProfile();
+    setUser(res.data);
+    localStorage.setItem('user', JSON.stringify(res.data));
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -61,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         login,
         logout,
+        refreshUser,
         isAdmin: user?.role === 'ADMIN',
       }}
     >

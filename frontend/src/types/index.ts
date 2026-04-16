@@ -22,6 +22,7 @@ export interface User {
   role: Role;
   phone?: string;
   avatar?: string;
+  bio?: string;
   isActive: boolean;
   createdAt: string;
 }
