@@ -231,6 +231,19 @@ export const backupApi = {
   export: () =>
     api.get('/backup/export', { responseType: 'blob' }),
   exportAsync: () => api.post('/backup/export/async'),
+  /**
+   * Restore from a backup ZIP.
+   * Note: overrides the default Content-Type so multer sees a multipart
+   * form and extracts the `file` field correctly.
+   */
+  import: (file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return api.post('/backup/import', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 5 * 60 * 1000, // 5 min, large restores take time
+    });
+  },
 };
 
 // ==================== Memos API ====================

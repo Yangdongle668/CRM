@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Put,
   Delete,
   Body,
@@ -37,8 +38,19 @@ export class TasksController {
     return this.tasksService.findOne(id, user.id, user.role);
   }
 
-  @Put(':id')
+  // Frontend uses PATCH for partial updates; keep PUT as an alias so
+  // older clients / API docs keep working. Both delegate to update().
+  @Patch(':id')
   update(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskDto,
+  ) {
+    return this.tasksService.update(id, user.id, user.role, dto);
+  }
+
+  @Put(':id')
+  updatePut(
     @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: UpdateTaskDto,
