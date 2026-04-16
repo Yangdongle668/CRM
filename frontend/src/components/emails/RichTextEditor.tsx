@@ -401,8 +401,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
             <HiChevronDown className="h-3 w-3 text-gray-500" />
           </button>
           {openDropdown === 'foreColor' && (
-            <div className="absolute left-0 top-full z-20 mt-1 rounded-md border border-gray-200 bg-white p-2 shadow-lg">
-              <div className="grid grid-cols-10 gap-1">
+            <div className="absolute left-0 top-full z-20 mt-1 w-[280px] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
+              <div className="mb-1.5 text-[11px] text-gray-500">文字颜色</div>
+              <div className="grid grid-cols-10 gap-1.5">
                 {TEXT_COLORS.map((c) => (
                   <button
                     key={c}
@@ -412,11 +413,23 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
                       exec('foreColor', c);
                       setOpenDropdown(null);
                     }}
-                    className="h-5 w-5 rounded border border-gray-200 hover:scale-110"
+                    className="h-6 w-6 rounded border border-gray-200 transition-transform hover:scale-110 hover:ring-2 hover:ring-blue-400/40"
                     style={{ backgroundColor: c }}
                     title={c}
                   />
                 ))}
+              </div>
+              {/* 自定义颜色：原生颜色选择器 */}
+              <div className="mt-2 flex items-center gap-2 border-t border-gray-100 pt-2">
+                <span className="text-[11px] text-gray-500">自定义：</span>
+                <input
+                  type="color"
+                  onChange={(e) => {
+                    exec('foreColor', e.target.value);
+                  }}
+                  className="h-6 w-10 cursor-pointer rounded border border-gray-200"
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
               </div>
             </div>
           )}
@@ -435,8 +448,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
             <HiChevronDown className="h-3 w-3 text-gray-500" />
           </button>
           {openDropdown === 'hiliteColor' && (
-            <div className="absolute left-0 top-full z-20 mt-1 rounded-md border border-gray-200 bg-white p-2 shadow-lg">
-              <div className="grid grid-cols-8 gap-1">
+            <div className="absolute left-0 top-full z-20 mt-1 w-[260px] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
+              <div className="mb-1.5 text-[11px] text-gray-500">背景颜色</div>
+              <div className="grid grid-cols-8 gap-1.5">
                 {HIGHLIGHT_COLORS.map((c) => (
                   <button
                     key={c}
@@ -448,7 +462,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
                       exec('backColor', c);
                       setOpenDropdown(null);
                     }}
-                    className="h-5 w-5 rounded border border-gray-200 hover:scale-110"
+                    className="h-6 w-6 rounded border border-gray-200 transition-transform hover:scale-110 hover:ring-2 hover:ring-blue-400/40"
                     style={{
                       backgroundColor: c === 'transparent' ? 'white' : c,
                       backgroundImage:
@@ -461,6 +475,18 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
                     title={c === 'transparent' ? '无' : c}
                   />
                 ))}
+              </div>
+              <div className="mt-2 flex items-center gap-2 border-t border-gray-100 pt-2">
+                <span className="text-[11px] text-gray-500">自定义：</span>
+                <input
+                  type="color"
+                  onChange={(e) => {
+                    exec('hiliteColor', e.target.value);
+                    exec('backColor', e.target.value);
+                  }}
+                  className="h-6 w-10 cursor-pointer rounded border border-gray-200"
+                  onMouseDown={(e) => e.stopPropagation()}
+                />
               </div>
             </div>
           )}

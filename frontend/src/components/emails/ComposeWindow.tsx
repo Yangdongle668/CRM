@@ -24,14 +24,25 @@ import {
   HiOutlinePaperClip,
   HiOutlinePlus,
   HiOutlineDocumentText,
-  HiOutlineSparkles,
   HiOutlinePencilSquare,
   HiChevronDown,
+  HiOutlineDocument,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import RichTextEditor, { RichTextEditorHandle } from './RichTextEditor';
-import { emailsApi } from '@/lib/api';
+import { emailsApi, documentsApi } from '@/lib/api';
 import type { EmailTemplate } from '@/types';
+
+/**
+ * 一个已经上传完成、拿到后端 Document.id 的附件。发送时把 id 放到
+ * 请求里，后端挂到 Email 上，并通过 nodemailer 带给收件人。
+ */
+export interface ComposeAttachment {
+  id: string;
+  name: string;
+  size: number;
+  mimeType?: string | null;
+}
 
 export interface ComposeWindowValue {
   toAddr: string;
@@ -41,6 +52,7 @@ export interface ComposeWindowValue {
   bodyHtml: string;
   customerId: string;
   inReplyTo: string;
+  attachments: ComposeAttachment[];
 }
 
 interface Account {
@@ -100,6 +112,21 @@ export default function ComposeWindow({
   const [showCcBcc, setShowCcBcc] = useState<boolean>(Boolean(value.cc || value.bcc));
   const [showTemplates, setShowTemplates] = useState(false);
   const [showInsert, setShowInsert] = useState(false);
+
+  // 正在上传中的附件（文件名 → 占位）。上传完成后会被移除并追加到
+  // value.attachments 里。
+  const [uploading, setUploading] = useState<
+    Array<{ tempId: string; name: string; size: number; progress: number }>
+  >([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 上传一次选多文件时，闭包里的 value 是旧的快照，连续几次
+  // onChange({ ...value, ... }) 会互相覆盖。用 ref 同步最新 value，
+  // 写回前总是基于最新的 attachments 数组。
+  const latestValueRef = useRef(value);
+  useEffect(() => {
+    latestValueRef.current = value;
+  }, [value]);
 
   // 位置 / 尺寸（normal 模式下生效；最大化/最小化时无视）
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -271,6 +298,76 @@ export default function ComposeWindow({
     // 正文：以"加在光标处"的方式插入，保留已有签名和正在写的内容
     editorRef.current?.insertHtml(tpl.bodyHtml || '');
     setShowTemplates(false);
+  };
+
+  // ============== 附件上传 ==============
+  //
+  // 走后端已有的 /documents/upload：前端上传完立刻拿到 Document.id，
+  // 发邮件时把 id 列表放 payload.attachmentIds 里，后端把这些 Document
+  // 绑到 Email 上，nodemailer 发送时当附件带出去。
+  //
+  // 超过 40MB 拦截（后端限 50MB，留点余量让 multipart 的 overhead）。
+  const MAX_FILE_SIZE = 40 * 1024 * 1024;
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    for (const file of list) {
+      if (file.size > MAX_FILE_SIZE) {
+        toast.error(`${file.name} 超过 40MB，无法上传`);
+        continue;
+      }
+      const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      setUploading((cur) => [
+        ...cur,
+        { tempId, name: file.name, size: file.size, progress: 0 },
+      ]);
+
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('category', 'email-attachment');
+        const res: any = await documentsApi.upload(fd);
+        const doc = res.data;
+        if (doc && doc.id) {
+          const next: ComposeAttachment = {
+            id: doc.id,
+            name: doc.fileName || file.name,
+            size: doc.fileSize ?? file.size,
+            mimeType: doc.mimeType || file.type || null,
+          };
+          // 读 latestValueRef 而不是闭包的 value，这样多文件上传完成时
+          // 后到的回调能看到前面已经写进去的附件。
+          const cur = latestValueRef.current;
+          onChange({
+            ...cur,
+            attachments: [...(cur.attachments || []), next],
+          });
+        } else {
+          toast.error(`${file.name} 上传失败`);
+        }
+      } catch {
+        toast.error(`${file.name} 上传失败`);
+      } finally {
+        setUploading((cur) => cur.filter((u) => u.tempId !== tempId));
+      }
+    }
+  };
+
+  const removeAttachment = (id: string) => {
+    // 只从 compose state 里移除；文件本身保留在 /documents（用户可能只
+    // 是误点添加、没真正发过），避免误删可能已关联到其他业务的文档。
+    const cur = latestValueRef.current;
+    onChange({
+      ...cur,
+      attachments: (cur.attachments || []).filter((a) => a.id !== id),
+    });
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
   };
 
   if (!open) return null;
@@ -451,6 +548,57 @@ export default function ComposeWindow({
             </div>
           </div>
 
+          {/* 附件列表（拖进来的文件也走这里） */}
+          {((value.attachments && value.attachments.length > 0) ||
+            uploading.length > 0) && (
+            <div
+              className="flex flex-shrink-0 flex-wrap gap-2 border-b border-gray-100 bg-gray-50 px-4 py-2"
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (e.dataTransfer.files?.length) {
+                  uploadFiles(e.dataTransfer.files);
+                }
+              }}
+            >
+              {value.attachments?.map((a) => (
+                <div
+                  key={a.id}
+                  className="inline-flex max-w-[240px] items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs shadow-sm"
+                  title={a.name}
+                >
+                  <HiOutlineDocument className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                  <span className="truncate text-gray-800">{a.name}</span>
+                  <span className="flex-shrink-0 text-gray-400">
+                    {formatFileSize(a.size)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.id)}
+                    className="flex-shrink-0 text-gray-400 hover:text-red-500"
+                    title="移除"
+                  >
+                    <HiOutlineXMark className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+              {uploading.map((u) => (
+                <div
+                  key={u.tempId}
+                  className="inline-flex max-w-[240px] items-center gap-2 rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-xs shadow-sm"
+                  title={u.name}
+                >
+                  <div className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                  <span className="truncate text-gray-600">{u.name}</span>
+                  <span className="flex-shrink-0 text-gray-400">上传中…</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* 富文本编辑器 */}
           <RichTextEditor
             ref={editorRef}
@@ -461,17 +609,35 @@ export default function ComposeWindow({
             className="!rounded-none !border-0 !border-t !border-gray-100"
             extraToolbar={
               <>
-                {/* 附件 */}
+                {/* 附件 —— 触发隐藏的 file input，上传后走
+                    documentsApi.upload，拿到 id 后挂到 value.attachments。 */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      uploadFiles(e.target.files);
+                      // 重置 value 以便同一个文件可以再选
+                      e.target.value = '';
+                    }
+                  }}
+                />
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => toast('邮件附件功能尚在开发中')}
+                  onClick={() => fileInputRef.current?.click()}
                   className="inline-flex h-8 items-center gap-1 rounded px-2 text-sm text-gray-700 hover:bg-gray-100"
                   title="添加附件"
                 >
                   <HiOutlinePaperClip className="h-4 w-4" />
                   <span>附件</span>
-                  <HiChevronDown className="h-3 w-3 text-gray-400" />
+                  {(value.attachments?.length || 0) > 0 && (
+                    <span className="ml-0.5 rounded bg-blue-100 px-1.5 text-[11px] font-medium text-blue-700">
+                      {value.attachments.length}
+                    </span>
+                  )}
                 </button>
 
                 {/* 插入 —— 弹出"图片 / 链接" */}
@@ -582,19 +748,6 @@ export default function ComposeWindow({
                     </div>
                   )}
                 </div>
-
-                {/* AI 智能写信 */}
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => toast('AI 写信功能尚在开发中')}
-                  className="inline-flex h-8 items-center gap-1 rounded px-2 text-sm text-violet-600 hover:bg-violet-50"
-                  title="AI 智能写信"
-                >
-                  <HiOutlineSparkles className="h-4 w-4" />
-                  <span>智能写信</span>
-                  <HiChevronDown className="h-3 w-3 text-violet-400" />
-                </button>
 
                 {/* 签名 —— 手动把签名追加进来（兼容用户删掉了自动插入的情况） */}
                 <button
