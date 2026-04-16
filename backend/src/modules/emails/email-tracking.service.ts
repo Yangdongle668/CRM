@@ -56,6 +56,65 @@ export class EmailTrackingService {
     return (req.ip as string | undefined) || req.socket?.remoteAddress || null;
   }
 
+  /**
+   * Resolve the public origin to use when building tracking URLs.
+   *
+   * Priority:
+   *   1. APP_URL / PUBLIC_URL env var — explicit override, always wins
+   *      (recommended for production).
+   *   2. Referer / Origin from the browser — in a Next.js-rewrite /
+   *      reverse-proxy setup the user's actual page URL leaks through
+   *      here, which is what we want the recipient's mail client to
+   *      load the pixel from.
+   *   3. X-Forwarded-* headers — set by nginx / traefik / cloudfront.
+   *   4. req.headers.host — last resort; usually docker-internal like
+   *      "backend:3001" which the outside world can't reach.
+   *
+   * Returns a bare origin with no trailing slash, e.g.
+   *   "https://crm.example.com" — never "https://crm.example.com/".
+   */
+  resolveTrackingOrigin(req: Request): string {
+    // 1. Explicit config
+    const fromEnv =
+      this.config.get<string>('APP_URL') ||
+      process.env.APP_URL ||
+      process.env.PUBLIC_URL;
+    if (fromEnv && /^https?:\/\//i.test(fromEnv)) {
+      return fromEnv.replace(/\/$/, '');
+    }
+
+    // 2. Browser-provided (most reliable through Next.js rewrites)
+    const originHeader =
+      (req.headers['origin'] as string | undefined) ||
+      (req.headers['referer'] as string | undefined) ||
+      (req.headers['referrer'] as string | undefined);
+    if (originHeader) {
+      try {
+        const u = new URL(originHeader);
+        // Skip docker-internal hosts if somehow they leak in.
+        if (!/^(backend|localhost|127\.0\.0\.1|0\.0\.0\.0)(:|$)/i.test(u.host)) {
+          return `${u.protocol}//${u.host}`;
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+
+    // 3. Reverse-proxy-set forwarded headers
+    const fwdProto = (req.headers['x-forwarded-proto'] as string) || '';
+    const fwdHost = (req.headers['x-forwarded-host'] as string) || '';
+    if (fwdHost) {
+      return `${fwdProto || 'https'}://${fwdHost}`;
+    }
+
+    // 4. Last resort — likely "backend:3001" in Docker, but returning it
+    // is still better than empty (the pixel URL at least becomes a
+    // same-origin path so clicking "view in browser" from the CRM works).
+    const proto = (req.protocol as string) || 'http';
+    const host = (req.headers['host'] as string) || '';
+    return host ? `${proto}://${host}` : '';
+  }
+
   // ---------- HMAC token ----------
 
   /** Short HMAC over "<emailId>:<linkId>" — 16 hex chars is plenty vs. guessing. */

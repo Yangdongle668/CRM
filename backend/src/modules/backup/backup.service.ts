@@ -446,7 +446,7 @@ export class BackupService {
     const job = await this.backupQueue.add(
       BACKUP_JOB_EXPORT,
       { requestedAt: new Date().toISOString() },
-      { jobId: `export:${Date.now()}` },
+      { jobId: `export-${Date.now()}` },
     );
     return {
       queued: true,

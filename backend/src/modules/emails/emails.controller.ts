@@ -230,9 +230,10 @@ export class EmailsController {
     @Body() dto: SendEmailDto,
     @Req() req: Request,
   ) {
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'http';
-    const host = req.headers['x-forwarded-host'] || req.headers.host || '';
-    const origin = `${protocol}://${host}`;
+    // Picks APP_URL env, else the real browser-facing origin (via Referer
+    // / X-Forwarded-Host). Avoids leaking docker-internal "backend:3001"
+    // into tracking URLs that recipients' mail clients need to reach.
+    const origin = this.tracking.resolveTrackingOrigin(req);
     return this.emailsService.sendEmail(user.id, dto, origin);
   }
 
