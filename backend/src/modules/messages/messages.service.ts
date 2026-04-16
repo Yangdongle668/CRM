@@ -65,7 +65,7 @@ export class MessagesService {
           }),
           this.prisma.user.findUnique({
             where: { id: partnerId },
-            select: { id: true, name: true, role: true },
+            select: { id: true, name: true, role: true, phone: true, email: true, bio: true, avatar: true },
           }),
         ]);
         return { partner, latest, unread };
@@ -87,8 +87,16 @@ export class MessagesService {
   async getUsers(currentUserId: string) {
     return this.prisma.user.findMany({
       where: { id: { not: currentUserId }, isActive: true },
-      select: { id: true, name: true, role: true },
+      select: { id: true, name: true, role: true, phone: true, email: true, bio: true, avatar: true },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  /** Single user profile (for profile card) */
+  async getUserProfile(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, role: true, phone: true, email: true, bio: true, avatar: true },
     });
   }
 }
