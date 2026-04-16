@@ -563,57 +563,157 @@ export default function EmailsPage() {
   };
 
   // ==================== Thread List Item ====================
+
+  // 头像颜色池 —— 根据发件人字符串哈希稳定选一个色，避免整屏全是一种色。
+  const AVATAR_COLORS = [
+    'bg-rose-400', 'bg-pink-400', 'bg-fuchsia-400', 'bg-purple-400',
+    'bg-violet-400', 'bg-indigo-400', 'bg-blue-400', 'bg-sky-400',
+    'bg-cyan-400', 'bg-teal-400', 'bg-emerald-400', 'bg-green-400',
+    'bg-lime-500', 'bg-amber-500', 'bg-orange-400', 'bg-red-400',
+  ];
+
+  const avatarFor = (s: string) => {
+    const src = (s || '?').trim();
+    let hash = 0;
+    for (let i = 0; i < src.length; i++) hash = (hash * 31 + src.charCodeAt(i)) >>> 0;
+    return {
+      letter: (src[0] || '?').toUpperCase(),
+      color: AVATAR_COLORS[hash % AVATAR_COLORS.length],
+    };
+  };
+
+  // 抠出正文预览 —— 后端 list 接口返回了 bodyText / bodyHtml，这里剥掉
+  // 标签、折叠多余空白，截到 80 字符。
+  const previewOf = (email: Email): string => {
+    const raw = email.bodyText || email.bodyHtml || '';
+    const stripped = raw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    return stripped.length > 80 ? stripped.slice(0, 80) + '…' : stripped;
+  };
+
+  // 从邮件地址里抠一个"看起来是人名"的东西出来做显示名。优先级：
+  // customer.companyName（有关联客户时更有意义）→ 邮箱 @ 前的部分。
+  const displayNameOf = (email: Email, addr: string): string => {
+    if (email.customer?.companyName) return email.customer.companyName;
+    const atIdx = addr.indexOf('@');
+    return atIdx > 0 ? addr.slice(0, atIdx) : addr;
+  };
+
   const renderThreadListItem = (thread: EmailThreadItem) => {
     const email = thread.latestEmail;
     if (!email) return null;
     const isSelected = selectedEmail?.id === email.id;
-    const isUnread = email.status === 'RECEIVED';
-    const addr = (activeFolder === 'inbox' || activeFolder === 'unread') ? email.fromAddr : email.toAddr;
+
+    // 读/未读判定
+    //   - INBOUND：邮件对"我"是未读 => status === 'RECEIVED'
+    //   - OUTBOUND：邮件对"收件人"是已读 => email.viewedAt 存在
+    // "最右边的信封" 即此状态的视觉化：实心绿 = 已读 / 已被对方阅读，
+    // 空心灰 = 还没读。
+    const isInbound = email.direction === 'INBOUND';
+    const isUnread = isInbound
+      ? email.status === 'RECEIVED'
+      : !email.viewedAt;
+
+    const addr = isInbound || activeFolder === 'unread' ? email.fromAddr : email.toAddr;
     const time = email.sentAt || email.receivedAt || email.createdAt;
+    const name = displayNameOf(email, addr);
+    const { letter, color } = avatarFor(name || addr);
+    const preview = previewOf(email);
+    const isReply = /^(re|回复)\s*[:：]/i.test(email.subject || '');
 
     return (
       <div
         key={thread.threadId || email.id}
         onClick={() => handleViewEmail(email, thread.threadId)}
-        className={`px-4 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
+        className={`flex gap-3 px-3 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
           isSelected
-            ? 'bg-blue-50 border-l-2 border-l-blue-600'
-            : 'hover:bg-gray-50 border-l-2 border-l-transparent'
+            ? 'bg-rose-50'
+            : 'hover:bg-gray-50'
         }`}
       >
-        <div className="flex items-center justify-between mb-1">
-          <span className={`text-sm truncate max-w-[200px] ${isUnread ? 'font-bold text-gray-900' : 'text-gray-700'}`}>
-            {addr}
-          </span>
-          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+        {/* 头像 */}
+        <div
+          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ${color}`}
+        >
+          {letter}
+        </div>
+
+        {/* 内容 —— 3 行：发件人 / 主题 / 预览 */}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            {/* Re 箭头 —— 像截图里那种回复邮件前的小转向标记 */}
+            {isReply && (
+              <svg
+                className="h-3.5 w-3.5 flex-shrink-0 text-gray-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+            )}
+            <span
+              className={`truncate text-[15px] ${
+                isUnread ? 'font-semibold text-gray-900' : 'text-gray-700'
+              }`}
+            >
+              {name}
+            </span>
             {thread.emailCount > 1 && (
-              <span className="inline-flex items-center justify-center px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full min-w-[20px]">
+              <span className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 text-[11px] font-semibold text-gray-500">
                 {thread.emailCount}
               </span>
             )}
-            <span className="text-xs text-gray-400">{formatShortTime(time)}</span>
+          </div>
+
+          <div
+            className={`mt-0.5 flex items-center gap-1 truncate text-sm ${
+              isUnread ? 'font-medium text-rose-600' : 'text-gray-600'
+            }`}
+          >
+            {email.flagged && (
+              <span className="flex-shrink-0 text-red-500" title="已标红旗">!</span>
+            )}
+            <span className="truncate">
+              {thread.threadSubject || email.subject || '(无主题)'}
+            </span>
+          </div>
+
+          <div className="mt-0.5 truncate text-xs text-gray-400">
+            {preview || (email.customer?.companyName || '')}
           </div>
         </div>
-        <div className={`text-sm truncate ${isUnread ? 'font-semibold text-gray-900' : 'text-gray-600'}`}>
-          {thread.threadSubject || email.subject || '(无主题)'}
-        </div>
-        <div className="flex items-center justify-between mt-1">
-          <span className="text-xs text-gray-400 truncate max-w-[180px]">
-            {email.customer?.companyName || ''}
+
+        {/* 右列 —— 信封（读/未读）堆上面，日期堆下面 */}
+        <div className="flex flex-shrink-0 flex-col items-end justify-between py-0.5">
+          {/* 信封图标 —— 实心绿表示已读 / 已被阅读；空心灰表示未读 */}
+          <span title={isUnread ? '未读' : isInbound ? '已读' : '对方已读'}>
+            {isUnread ? (
+              <svg
+                className="h-5 w-5 text-gray-300"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
+                />
+              </svg>
+            ) : (
+              <svg
+                className="h-5 w-5 text-emerald-500"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
+                <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
+              </svg>
+            )}
           </span>
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            {isUnread && (
-              <span className="w-2 h-2 rounded-full bg-blue-600"></span>
-            )}
-            {email.direction === 'OUTBOUND' && email.viewedAt && (
-              <span className="inline-flex items-center gap-0.5 text-[11px] text-green-600 font-medium">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                </svg>
-                已读
-              </span>
-            )}
-          </div>
+          <span className="text-[11px] text-gray-400">{formatShortTime(time)}</span>
         </div>
       </div>
     );
