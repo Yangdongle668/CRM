@@ -4,7 +4,6 @@ import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './Sidebar';
-import EmailReadNotification from './EmailReadNotification';
 import ExchangeRates from './ExchangeRates';
 
 interface AppLayoutProps {
@@ -46,7 +45,6 @@ export default function AppLayout({ children }: AppLayoutProps) {
         {/* Top bar */}
         <div className="flex items-center justify-end gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
           <ExchangeRates />
-          <EmailReadNotification />
         </div>
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-6 py-6">{children}</div>
