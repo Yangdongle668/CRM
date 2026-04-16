@@ -6,7 +6,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
-import ComposeWindow from '@/components/emails/ComposeWindow';
+import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
 import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -31,6 +31,7 @@ interface ComposeForm {
   bodyHtml: string;
   customerId: string;
   inReplyTo: string;
+  attachments: ComposeAttachment[];
 }
 
 const emptyComposeForm: ComposeForm = {
@@ -41,6 +42,7 @@ const emptyComposeForm: ComposeForm = {
   bodyHtml: '',
   customerId: '',
   inReplyTo: '',
+  attachments: [],
 };
 
 interface TemplateForm {
@@ -371,6 +373,7 @@ export default function EmailsPage() {
       bodyHtml: buildQuotedBlock(selectedEmail),
       customerId: selectedEmail.customerId || '',
       inReplyTo: selectedEmail.id,
+      attachments: [],
     });
     setComposeOpen(true);
   };
@@ -916,6 +919,12 @@ export default function EmailsPage() {
           // 回复 / 转发场景下 inReplyTo 会由 handleReply 预置，带上就能
           // 让后端把这封新邮件归到原会话里。
           if (composeForm.inReplyTo) payload.inReplyTo = composeForm.inReplyTo;
+          // 附件：前端已经把文件通过 documentsApi.upload 落盘并拿到 id，
+          // 这里把 id 列表传给后端，让它绑到这封邮件上并当真正的 SMTP
+          // 附件发出去。
+          if (composeForm.attachments && composeForm.attachments.length > 0) {
+            payload.attachmentIds = composeForm.attachments.map((a) => a.id);
+          }
 
           await emailsApi.send(payload);
           toast.success(composeForm.inReplyTo ? '回复已发送' : '邮件已发送');

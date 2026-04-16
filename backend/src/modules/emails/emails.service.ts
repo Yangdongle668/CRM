@@ -8,6 +8,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 import * as Imap from 'imap';
+import * as fs from 'fs';
 import { simpleParser } from 'mailparser';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -323,6 +324,24 @@ export class EmailsService {
       },
     });
 
+    // 把上传过的附件文档挂到这封邮件上（relatedType='email' + relatedId
+    // = 邮件 id）。只接受当前用户上传的文件，防止用别人的 Document id
+    // 把他人的文件带出去。之后 deliverPendingEmail 会按同样的 where 找
+    // 这些附件。
+    if (dto.attachmentIds && dto.attachmentIds.length > 0) {
+      await this.prisma.document.updateMany({
+        where: {
+          id: { in: dto.attachmentIds },
+          ownerId: userId,
+        },
+        data: {
+          relatedType: 'email',
+          relatedId: emailRecord.id,
+          category: 'email-attachment',
+        },
+      });
+    }
+
     const requestOriginForTracking =
       process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
 
@@ -432,6 +451,33 @@ export class EmailsService {
     if (opts.inReplyToMessageId) {
       mailOptions.inReplyTo = opts.inReplyToMessageId;
       mailOptions.references = [opts.inReplyToMessageId];
+    }
+
+    // 装载附件 —— 查这封邮件关联的 Document 行。用磁盘路径的形式交给
+    // nodemailer，大文件不需要读进内存。丢失文件（比如 uploads 被清）
+    // 的行会被跳过并记日志，不让整封邮件失败。
+    const attachmentDocs = await this.prisma.document.findMany({
+      where: { relatedType: 'email', relatedId: emailRecord.id },
+      select: { id: true, fileName: true, filePath: true, mimeType: true },
+    });
+    if (attachmentDocs.length > 0) {
+      const nmAttachments: any[] = [];
+      for (const d of attachmentDocs) {
+        if (d.filePath && fs.existsSync(d.filePath)) {
+          nmAttachments.push({
+            filename: d.fileName,
+            path: d.filePath,
+            contentType: d.mimeType || undefined,
+          });
+        } else {
+          this.logger.warn(
+            `Attachment file missing on disk, skipping: ${d.fileName} (${d.filePath})`,
+          );
+        }
+      }
+      if (nmAttachments.length > 0) {
+        mailOptions.attachments = nmAttachments;
+      }
     }
 
     try {
