@@ -400,6 +400,27 @@ export class PIsService {
           doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.6).stroke();
 
         /**
+         * Map common full-width CJK punctuation to ASCII. Helvetica has no
+         * glyphs for these codepoints, so leaving them in would produce
+         * garbage ("y" placeholders) in the rendered PDF. We run every
+         * user-supplied string through this before drawing.
+         */
+        const norm = (s: string | null | undefined): string => {
+          if (!s) return '';
+          return String(s)
+            .replace(/：/g, ':')
+            .replace(/，/g, ',')
+            .replace(/；/g, ';')
+            .replace(/（/g, '(')
+            .replace(/）/g, ')')
+            .replace(/！/g, '!')
+            .replace(/？/g, '?')
+            .replace(/【/g, '[')
+            .replace(/】/g, ']')
+            .replace(/　/g, ' ');
+        };
+
+        /**
          * Shrink-to-fit: start from `baseSize` and reduce by 1 until the
          * string fits within `maxW` at the current font, down to `minSize`.
          * Returns the size that was ultimately applied. The caller is
@@ -450,12 +471,13 @@ export class PIsService {
             hasLabel?: boolean;
           } = {},
         ) => {
-          if (!txt) return;
+          const safe = norm(txt);
+          if (!safe) return;
           const { align = 'center', baseSize = 9.5, hasLabel = true } = opts;
-          const size = fitSize(txt, w - 8, false, baseSize, 6);
+          const size = fitSize(safe, w - 8, false, baseSize, 6);
           const reservedTop = hasLabel ? LABEL_HEIGHT : 0;
           const yOff = reservedTop + (h - reservedTop - size) / 2;
-          doc.fillColor(BLUE).text(txt, x + 4, y + yOff, {
+          doc.fillColor(BLUE).text(safe, x + 4, y + yOff, {
             width: w - 8,
             align,
             lineBreak: false,
@@ -470,9 +492,10 @@ export class PIsService {
           w: number,
           baseSize = 9,
         ) => {
-          if (!txt) return y;
+          const safe = norm(txt);
+          if (!safe) return y;
           setFont(false, baseSize);
-          doc.fillColor(BLUE).text(txt, x + 4, y, { width: w - 8 });
+          doc.fillColor(BLUE).text(safe, x + 4, y, { width: w - 8 });
           return doc.y;
         };
 
@@ -520,7 +543,7 @@ export class PIsService {
         let sellerY = cy + 14;
         if (pi.sellerId) {
           setFont(false, 9.5);
-          doc.fillColor(BLUE).text(pi.sellerId, L + 4, sellerY, {
+          doc.fillColor(BLUE).text(norm(pi.sellerId), L + 4, sellerY, {
             width: leftColW - 8,
           });
           sellerY = doc.y + 1;
@@ -572,7 +595,7 @@ export class PIsService {
         let conY = cy + 14;
         if (pi.consigneeName) {
           setFont(false, 9.5);
-          doc.fillColor(BLUE).text(pi.consigneeName, L + 4, conY, {
+          doc.fillColor(BLUE).text(norm(pi.consigneeName), L + 4, conY, {
             width: leftColW - 8,
           });
           conY = doc.y + 1;
@@ -626,10 +649,12 @@ export class PIsService {
         if (pi.termsOfDelivery) {
           // Multi-line text: wrap within the cell width, below the label.
           setFont(false, 9);
-          doc.fillColor(BLUE).text(pi.termsOfDelivery, midX + 4, rowG + 13, {
-            width: rCW - 8,
-            align: 'center',
-          });
+          doc
+            .fillColor(BLUE)
+            .text(norm(pi.termsOfDelivery), midX + 4, rowG + 13, {
+              width: rCW - 8,
+              align: 'center',
+            });
         }
 
         cy += consigneeH + 6;
@@ -851,7 +876,7 @@ export class PIsService {
         if (pi.countryOfOrigin) {
           setFont(false, 9.5);
           doc.fillColor(DARK).text(
-            `Country of Origin: ${pi.countryOfOrigin}`,
+            `Country of Origin: ${norm(pi.countryOfOrigin)}`,
             L,
             cy,
           );
@@ -860,7 +885,7 @@ export class PIsService {
 
         if (pi.notes) {
           setFont(false, 9);
-          doc.fillColor(DARK).text(pi.notes, L, cy, { width: CW });
+          doc.fillColor(DARK).text(norm(pi.notes), L, cy, { width: CW });
           cy = doc.y + 4;
         }
 
@@ -893,12 +918,15 @@ export class PIsService {
               cy = T;
             }
 
-            const match = line.match(/^([^:：]+[:：])\s*(.*)$/);
+            // Capture the label without its separator; always render an
+            // ASCII ": " after it so the generated PDF looks consistent
+            // regardless of whether the user typed an ASCII colon or a
+            // full-width Chinese colon "：" (which Helvetica can't render
+            // and would otherwise show up as a stray "y" glyph).
+            const match = line.match(/^([^:：]+)[:：]\s*(.*)$/);
             if (match && match[2]) {
-              const [, lbl, val] = match;
-              // Render label bold at start of line (no line break), then
-              // value regular immediately after it, wrapping into the
-              // remaining width if needed.
+              const lbl = `${norm(match[1])}:`;
+              const val = norm(match[2]);
               setFont(true, bankBaseSize);
               const lblW = doc.widthOfString(lbl + ' ');
               doc.fillColor(DARK).text(lbl, L, cy, { lineBreak: false });
@@ -910,7 +938,7 @@ export class PIsService {
             } else {
               // No separator or empty value — render as a plain line.
               setFont(false, bankBaseSize);
-              doc.fillColor(DARK).text(line, L, cy, { width: CW });
+              doc.fillColor(DARK).text(norm(line), L, cy, { width: CW });
               cy = doc.y + 1;
             }
           }
