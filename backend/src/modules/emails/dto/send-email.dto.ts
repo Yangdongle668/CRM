@@ -38,4 +38,9 @@ export class SendEmailDto {
   @IsUUID()
   @IsOptional()
   emailConfigId?: string;
+
+  /** Optional marketing / outreach campaign this email belongs to. */
+  @IsUUID()
+  @IsOptional()
+  campaignId?: string;
 }

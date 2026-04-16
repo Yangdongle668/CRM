@@ -4,6 +4,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
+import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
+import SignatureEditor from '@/components/emails/SignatureEditor';
 import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -110,6 +112,10 @@ export default function EmailsPage() {
   const [threadEmails, setThreadEmails] = useState<Email[]>([]);
   const [viewingThreadEmailId, setViewingThreadEmailId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Tracking + signature modals
+  const [trackingForEmailId, setTrackingForEmailId] = useState<string | null>(null);
+  const [signatureForAccount, setSignatureForAccount] =
+    useState<{ id: string; emailAddr: string } | null>(null);
 
   // Reply state
   const [replyOpen, setReplyOpen] = useState(false);
@@ -762,6 +768,23 @@ export default function EmailsPage() {
                       ? ` · 共打开 ${selectedEmail.viewCount} 次`
                       : ''}
                   </span>
+                  <button
+                    onClick={() => setTrackingForEmailId(selectedEmail.id)}
+                    className="ml-2 text-xs text-blue-600 hover:text-blue-800 underline"
+                  >
+                    查看追踪详情
+                  </button>
+                </div>
+              )}
+              {selectedEmail.direction === 'OUTBOUND' && !selectedEmail.viewedAt && (
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 w-16 flex-shrink-0">追踪：</span>
+                  <button
+                    onClick={() => setTrackingForEmailId(selectedEmail.id)}
+                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                  >
+                    查看追踪详情（图片 / 点击）
+                  </button>
                 </div>
               )}
             </div>
@@ -1530,6 +1553,17 @@ export default function EmailsPage() {
                             {testingAccountId === acct.id ? '测试中...' : '测试连接'}
                           </button>
                           <button
+                            onClick={() =>
+                              setSignatureForAccount({
+                                id: acct.id,
+                                emailAddr: acct.emailAddr,
+                              })
+                            }
+                            className="px-3 py-1 text-xs text-indigo-600 hover:text-indigo-800"
+                          >
+                            签名
+                          </button>
+                          <button
                             onClick={() => {
                               setAccountForm({
                                 ...emptyAccountForm,
@@ -1670,6 +1704,33 @@ export default function EmailsPage() {
         {renderComposeModal()}
         {renderTemplateModal()}
         {renderAccountManagerModal()}
+
+        {/* Tracking detail modal */}
+        <Modal
+          open={!!trackingForEmailId}
+          onClose={() => setTrackingForEmailId(null)}
+          title="邮件追踪详情"
+          maxWidth="3xl"
+        >
+          {trackingForEmailId && (
+            <EmailTrackingPanel emailId={trackingForEmailId} />
+          )}
+        </Modal>
+
+        {/* Signature editor modal */}
+        <Modal
+          open={!!signatureForAccount}
+          onClose={() => setSignatureForAccount(null)}
+          title="邮件签名设置"
+          maxWidth="4xl"
+        >
+          {signatureForAccount && (
+            <SignatureEditor
+              account={signatureForAccount}
+              onSaved={() => setSignatureForAccount(null)}
+            />
+          )}
+        </Modal>
       </div>
     </AppLayout>
   );

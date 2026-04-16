@@ -113,6 +113,7 @@ model User {
   documents       Document[]
   emailsSent      Email[]        @relation("SentEmails")
   emailConfigs    EmailConfig[]
+  campaignsCreated EmailCampaign[] @relation("CampaignsCreated")
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
@@ -308,19 +309,159 @@ model Email {
   flagged       Boolean        @default(false)
   sentAt        DateTime?      @map("sent_at")
   receivedAt    DateTime?      @map("received_at")
+  // Legacy fields kept for backward compat with the existing UI:
+  //   viewedAt  = first pixel load (any kind, incl. prefetch)
+  //   viewCount = raw pixel hit counter (may be inflated by proxies)
   viewedAt      DateTime?      @map("viewed_at")
   viewCount     Int            @default(0) @map("view_count")
+  // ---- Multi-signal tracking ----
+  // First time a HUMAN open signal was registered (not prefetch/proxy).
+  firstHumanOpenAt DateTime?   @map("first_human_open_at")
+  // Latest open (any kind).
+  lastOpenedAt     DateTime?   @map("last_opened_at")
+  // Total click-through events on any tracked link.
+  totalClicks      Int         @default(0) @map("total_clicks")
+  // 0..1 confidence that the recipient has actually read the email.
+  // Computed deterministically from open / click events — see
+  // EmailTrackingService.computeConfidence().
+  openConfidence   Float       @default(0) @map("open_confidence")
+  // ---- Campaign / recipient grouping ----
+  // Optional. Populated automatically on send:
+  //   recipientId — upserted EmailRecipient keyed by toAddr (for
+  //                 cross-email aggregation: "how many of john@foo.com's
+  //                 emails has he opened?").
+  //   campaignId  — set when SendEmailDto carries one (e.g. marketing blast).
+  campaignId       String?     @map("campaign_id")
+  recipientId      String?     @map("recipient_id")
   customerId    String?        @map("customer_id")
   senderId      String?        @map("sender_id")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  thread       EmailThread?  @relation(fields: [threadId], references: [id])
-  emailConfig  EmailConfig?  @relation("EmailAccount", fields: [emailConfigId], references: [id], onDelete: Cascade)
-  customer     Customer?     @relation(fields: [customerId], references: [id])
-  sender       User?         @relation("SentEmails", fields: [senderId], references: [id])
+  thread       EmailThread?    @relation(fields: [threadId], references: [id])
+  emailConfig  EmailConfig?    @relation("EmailAccount", fields: [emailConfigId], references: [id], onDelete: Cascade)
+  customer     Customer?       @relation(fields: [customerId], references: [id])
+  sender       User?           @relation("SentEmails", fields: [senderId], references: [id])
+  openEvents   EmailOpenEvent[]
+  clickEvents  EmailClickEvent[]
+  links        EmailLink[]
+  campaign     EmailCampaign?  @relation("CampaignEmails", fields: [campaignId], references: [id])
+  recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
 
+  @@index([campaignId])
+  @@index([recipientId])
   @@map("emails")
+}
+
+// ==================== 邮件活动 (Campaign) ====================
+// A campaign groups outbound emails that belong to the same outreach /
+// marketing batch. Use it when you want aggregate open/click stats like
+// "Q1 跟进 — 打开率 42%". Optional: regular 1-1 emails can skip it.
+model EmailCampaign {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  createdById String    @map("created_by_id")
+  status      String    @default("DRAFT")  // DRAFT | SENDING | SENT | ARCHIVED
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  creator User    @relation("CampaignsCreated", fields: [createdById], references: [id])
+  emails  Email[] @relation("CampaignEmails")
+
+  @@index([createdById])
+  @@map("email_campaigns")
+}
+
+// ==================== 邮件收件人 (Recipient) ====================
+// Canonical row per email address we've ever sent to. Auto-upserted at
+// send time so opens / clicks across *multiple* emails can be aggregated
+// per-person ("john@foo.com opened 4 of our 6 emails, clicked 2").
+// Optionally linked to a CRM Customer / Contact if the address matches.
+model EmailRecipient {
+  id            String    @id @default(uuid())
+  emailAddr     String    @unique @map("email_addr")
+  name          String?
+  customerId    String?   @map("customer_id")
+  contactId     String?   @map("contact_id")
+  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
+  lastSentAt    DateTime? @map("last_sent_at")
+  lastOpenedAt  DateTime? @map("last_opened_at")
+  lastClickedAt DateTime? @map("last_clicked_at")
+  totalSent     Int       @default(0) @map("total_sent")
+  totalOpens    Int       @default(0) @map("total_opens")
+  totalClicks   Int       @default(0) @map("total_clicks")
+
+  emails Email[] @relation("RecipientEmails")
+
+  @@map("email_recipients")
+}
+
+// ==================== 邮件追踪：打开事件 ====================
+// Every pixel hit (after dedup) produces a row here. Even Gmail proxy /
+// Apple Mail Privacy Protection prefetches are recorded — they just get
+// a non-HUMAN `kind`, which the confidence scorer weights lower.
+model EmailOpenEvent {
+  id        String   @id @default(uuid())
+  emailId   String   @map("email_id")
+  email     Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  openedAt  DateTime @default(now()) @map("opened_at")
+  ip        String?
+  userAgent String?  @map("user_agent") @db.Text
+  referer   String?  @db.Text
+  // HUMAN   : UA is a real mail client rendering images
+  // PROXY   : Gmail image proxy / Yahoo Mail proxy
+  // PREFETCH: Apple Mail Privacy Protection / background fetchers
+  // BOT     : link scanners / crawlers / security gateways
+  // DUP     : same IP+UA fired within the dedup window
+  kind      String   @default("HUMAN")
+  // Optional source marker: PIXEL (default) | CLICK_INFERRED
+  source    String   @default("PIXEL")
+
+  @@index([emailId])
+  @@index([openedAt])
+  @@map("email_open_events")
+}
+
+// ==================== 邮件追踪：点击事件 ====================
+// Produced by the click redirect endpoint. A click is the strongest
+// evidence of a real human read (images can be blocked, but following
+// a link requires the user to act).
+model EmailClickEvent {
+  id        String   @id @default(uuid())
+  emailId   String   @map("email_id")
+  email     Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  linkId    String   @map("link_id")
+  url       String   @db.Text
+  clickedAt DateTime @default(now()) @map("clicked_at")
+  ip        String?
+  userAgent String?  @map("user_agent") @db.Text
+  referer   String?  @db.Text
+  kind      String   @default("HUMAN")
+
+  @@index([emailId])
+  @@index([clickedAt])
+  @@map("email_click_events")
+}
+
+// ==================== 邮件追踪：被重写的链接 ====================
+// The HTML of outbound emails is rewritten at send-time so every <a href>
+// becomes /api/emails/track/:emailId/click/:linkId. We persist the
+// original URL + deterministic linkId so the click endpoint can redirect
+// and so admins can see "which links were in the email".
+model EmailLink {
+  id       String @id @default(uuid())
+  emailId  String @map("email_id")
+  email    Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  linkId   String @map("link_id")
+  url      String @db.Text
+  label    String? @db.Text
+  position Int    @default(0)
+
+  @@unique([emailId, linkId])
+  @@index([emailId])
+  @@map("email_links")
 }
 
 model EmailThread {
