@@ -10,7 +10,7 @@ import { BackupService } from './backup.service';
 /**
  * BullMQ worker for the "backup" queue.
  *
- * Handles long-running DB export + JSON serialization off the request
+ * Handles long-running CSV export + ZIP compression off the request
  * thread, writing the result under uploads/backups/.
  */
 @Processor(QUEUE_BACKUP)
