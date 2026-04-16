@@ -1,522 +1,284 @@
-# 外贸CRM系统 - 使用与配置文档
+# 外贸CRM系统 (Foreign Trade CRM)
+
+一款专为外贸团队打造的全功能客户关系管理系统，覆盖客户管理、销售线索、邮件营销、报价订单、任务协作、团队通讯等核心业务流程。中文界面，贴合国内外贸业务习惯。
 
 ## 目录
 
 - [系统概述](#系统概述)
 - [技术架构](#技术架构)
+- [功能模块](#功能模块)
+- [角色权限](#角色权限)
 - [快速部署](#快速部署)
 - [本地开发](#本地开发)
-- [环境变量配置](#环境变量配置)
-- [功能模块说明](#功能模块说明)
+- [环境变量](#环境变量)
 - [数据库设计](#数据库设计)
-- [API 接口](#api-接口)
+- [主要 API](#主要-api)
+- [目录结构](#目录结构)
 - [默认账户](#默认账户)
 - [常用运维命令](#常用运维命令)
-- [目录结构](#目录结构)
-- [常见问题](#常见问题)
+- [优化方向](#优化方向)
 
 ---
 
 ## 系统概述
 
-外贸CRM系统是一款专为外贸企业设计的客户关系管理平台，支持客户管理、销售线索跟踪、报价/订单管理、邮件营销、任务协作等核心业务流程。系统采用中文界面，贴合国内外贸团队使用习惯。
+### 核心亮点
 
-### 核心特性
+- **全流程外贸业务链路**：线索 → 客户 → 报价 → 形式发票 → 订单 → 交付
+- **多账户邮件集成**：一个用户可绑定多个邮箱（Gmail / Outlook / 企业邮箱），收发件统一归集
+- **客户时间线自动关联**：邮件根据域名自动匹配客户，无需手动挂接
+- **邮件已读追踪**：嵌入跟踪像素，检测客户何时何次打开邮件
+- **团队内即时通讯**：用户间一对一消息，含未读提醒、头像资料卡
+- **三级角色权限**：管理员 / 业务员 / 财务人员，细粒度接口管控
+- **自助个人资料**：所有用户可更换头像、修改密码、填写签名和联系方式
+- **PDF 形式发票生成**：可自定义公司抬头、银行信息、Logo
+- **全量数据备份与恢复**：JSON 一键导入导出
+- **Docker 一键部署 / 一键升级**
 
-- 客户与联系人管理（含客户详情页、活动时间线）
-- **邮件自动关联客户**：根据客户网站域名自动匹配收发邮件，并在时间线生成记录
-- 销售线索全生命周期管理（新线索 → 联系 → 资质确认 → 报价 → 谈判 → 成交/丢失）
-- 报价单 & 订单管理（含行项明细）
-- 邮件中心（分栏布局、收件箱/发件箱全量同步、在线回复/转发、邮件模板）
-- 邮件已读追踪（跟踪像素检测客户打开邮件，详情页显示已读时间和次数）
-- 客户时间线（价格讨论、订单意向、样品、模具费、付款、物流、投诉、拜访等）
-- 任务管理（优先级、状态、到期提醒）
-- 文件管理（上传/分类/关联客户）
-- 数据仪表盘（业务数据概览）
-- 全量数据备份导出与导入（JSON 格式，一键备份恢复）
-- 60+ 国家/地区选项，细分社交媒体来源（LinkedIn、Instagram、Facebook、TikTok 等）
-- Apple 风格简洁 UI（毛玻璃效果、圆角设计、流畅动画）
-- 角色权限控制（管理员 / 业务员）
-- Docker 一键部署，**一键升级**（`./deploy.sh upgrade`）
+### 业务流程图
+
+```
+销售线索 (Lead)
+    ↓ 转化
+客户 (Customer) ← 邮件自动关联 ← 邮件 (Email)
+    ↓ 建立
+联系人 (Contact)
+    ↓ 发起
+报价单 (Quotation) → 形式发票 (ProformaInvoice / PDF)
+    ↓ 确认
+订单 (Order) → 订单明细 (OrderItem) + 费用类型 + 公司底价
+    ↓ 关联
+任务 (Task) / 文件 (Document) / 活动 (Activity / 时间线)
+```
 
 ---
 
 ## 技术架构
 
-| 层级 | 技术栈 |
-|------|--------|
-| **前端** | Next.js 14 + React 18 + TypeScript + Tailwind CSS |
-| **后端** | NestJS 10 + TypeScript + Prisma ORM |
-| **数据库** | PostgreSQL 16 |
-| **缓存** | Redis 7 |
-| **反向代理** | Nginx |
-| **容器化** | Docker + Docker Compose |
+| 层 | 技术栈 |
+|---|---|
+| 前端 | Next.js 14 (App Router) + React 18 + TypeScript + Tailwind CSS |
+| 后端 | NestJS 10 + TypeScript + Prisma ORM |
+| 数据库 | PostgreSQL 16 |
+| 缓存 | Redis 7 |
+| 反向代理 | Nginx |
+| 容器编排 | Docker + Docker Compose |
 
-### 前端主要依赖
+### 关键依赖
 
-| 包名 | 用途 |
-|------|------|
-| `axios` | HTTP 请求 |
-| `swr` | 数据请求 & 缓存 |
-| `zustand` | 轻量状态管理 |
-| `chart.js` + `react-chartjs-2` | 数据图表 |
-| `react-hot-toast` | 消息提示 |
-| `react-icons` | 图标库 (Heroicons) |
-| `dayjs` | 日期处理 |
+**前端**：`axios` `swr` `zustand` `chart.js` `react-hot-toast` `react-icons` `dayjs`
 
-### 后端主要依赖
+**后端**：`@nestjs/jwt` + `passport-jwt` `@prisma/client` `bcryptjs` `nodemailer` `imap` + `mailparser` `pdfkit` `class-validator` `multer` `@nestjs/schedule`
 
-| 包名 | 用途 |
-|------|------|
-| `@nestjs/jwt` + `passport-jwt` | JWT 认证 |
-| `@prisma/client` | 数据库 ORM |
-| `bcryptjs` | 密码加密 |
-| `nodemailer` | 邮件发送 (SMTP) |
-| `imap` + `mailparser` | 邮件接收 (IMAP) |
-| `pdfkit` | PDF 报价单生成 |
-| `class-validator` | 请求参数校验 |
-| `@nestjs/swagger` | API 文档 |
+---
+
+## 功能模块
+
+### 1. 仪表盘
+业务数据总览：客户、线索、订单、邮件、任务等关键指标，含图表。
+
+### 2. 客户管理
+- 多字段客户档案（公司名、国家/地区、社交媒体来源、两个网站域名、备注）
+- 客户详情页含 **活动时间线**：价格讨论、订单、样品、模具费、付款、物流、投诉、拜访、邮件等
+- 根据客户网站自动匹配相关邮件
+- 60+ 国家地区 + LinkedIn / Instagram / Facebook / TikTok 等来源细分
+
+### 3. 联系人
+每个客户可挂多个联系人，记录职位、邮箱、电话、WhatsApp 等。
+
+### 4. 销售线索
+全生命周期状态机：新线索 → 联系中 → 资质确认 → 报价 → 谈判 → 成交/丢失。支持线索跟进记录（LeadActivity）。
+
+### 5. 邮件中心
+- **多账户支持**：每个用户可添加多个邮箱账户（IMAP 收件 + SMTP 发件）
+- 左右分栏布局：账户/文件夹 - 邮件列表 - 邮件内容
+- 收发件全量同步（收件箱 / 发件箱 / 已发送 / 草稿）
+- 支持回复、转发、附件上传
+- **跟踪像素**：每封发出邮件自动嵌入不可见像素，记录打开时间和次数
+- **邮件模板**：常用模板一键套用
+- 邮件 → 客户自动关联 + 时间线活动记录
+
+### 6. 形式发票 (PI)
+- 多行产品明细
+- 自定义公司信息、银行信息、Logo
+- 一键生成 PDF 下载
+- 审批流程（草稿 / 待审批 / 已批准 / 已拒绝）
+
+### 7. 订单管理
+- 订单明细（产品、数量、单价、小计）
+- 订单状态流：PENDING → CONFIRMED → IN_PRODUCTION → SHIPPED → DELIVERED / CANCELLED
+- 付款状态：UNPAID / PARTIAL / PAID / REFUNDED
+- **费用类型**（多选）：模具 / 认证 / 货物 / 设备 / NRE费用
+- **公司底价**：供内部参考的底价字段
+- 订单附件上传
+- 物流单号、发货/交付日期、发货地址
+
+### 8. 任务管理
+- 优先级（LOW / MEDIUM / HIGH / URGENT）、状态、截止时间
+- **管理员可将任务指派给业务员**（assigneeId）
+
+### 9. 消息中心（团队通讯）
+- 用户间一对一即时消息
+- 基于 HTTP 轮询（3s 活跃对话 / 10s 会话列表 / 15s 未读角标）
+- 侧边栏实时未读消息角标
+- **头像点击弹出资料卡**：姓名 / 角色 / 个性签名 / 邮箱 / 电话
+
+### 10. 文件管理
+- 上传、分类、按关联对象筛选（客户 / 订单 / PI 等）
+- 下载、删除、重命名
+
+### 11. 备忘录
+个人便签，记录工作要点。
+
+### 12. 管理中心（仅管理员）
+- 全局数据统计、用户活跃度
+- 系统状态监控
+
+### 13. 系统设置
+- **个人资料 tab**（所有用户）：头像、手机号、个性签名、密码修改；姓名和角色只读
+- **用户管理 tab**（管理员）：创建/编辑/禁用用户、分配角色
+- **系统参数 tab**（管理员）：公司信息、银行信息、Logo 上传（自动应用为浏览器标签图标）
+- **数据备份 tab**（管理员）：全量 JSON 备份 / 恢复
+
+---
+
+## 角色权限
+
+| 角色 | 代码 | 权限范围 |
+|---|---|---|
+| 管理员 | `ADMIN` | 全部功能 + 用户管理 + 系统参数 + 数据备份 |
+| 业务员 | `SALESPERSON` | 除用户/系统管理外的全部业务功能；只能看自己的订单和客户 |
+| 财务人员 | `FINANCE` | **只读所有订单**；写操作和其他模块全部禁止；可编辑自己的资料 |
+
+权限控制通过 `JwtAuthGuard` + `RolesGuard` + `@Roles(...)` 装饰器实现，订单的写接口显式限定 `@Roles('ADMIN', 'SALESPERSON')`。
 
 ---
 
 ## 快速部署
 
 ### 前置要求
-
 - Linux 服务器（Ubuntu 20.04+ / CentOS 7+ / Debian 10+）
 - 2GB+ 内存
-- Docker & Docker Compose（脚本会自动安装）
+- Docker & Docker Compose（脚本可自动安装）
 
 ### 一键部署
 
 ```bash
-# 克隆项目
 git clone https://github.com/Yangdongle668/CRM && cd CRM
-# 赋予执行权限并运行
 chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会自动完成以下步骤：
-1. 检测并安装 Docker / Docker Compose
+脚本会自动：
+1. 检测/安装 Docker
 2. 生成随机数据库密码和 JWT 密钥
-3. 创建 `.env` 和 `backend/.env` 配置文件
+3. 创建 `.env` 配置
 4. 构建镜像并启动所有容器
-5. 等待数据库就绪后执行迁移和数据初始化
-6. 显示访问地址和默认账户信息
+5. 执行数据库迁移和种子数据
+6. 显示访问地址
 
-部署完成后通过 `http://<服务器IP>` 访问系统。
+访问 `http://<服务器IP>` 进入系统。
+
+### 升级
+```bash
+./deploy.sh upgrade    # 拉取最新代码 → 重新构建 → 执行新迁移 → 重启
+```
 
 ---
 
 ## 本地开发
 
-### 前置要求
-
-- Node.js 18+
-- npm 或 yarn
-- Docker（用于运行 PostgreSQL 和 Redis）
-
-### 启动开发环境
-
 ```bash
-# 方式一：使用部署脚本的 dev 模式（推荐）
+# 启动 PostgreSQL + Redis + 安装依赖 + 初始化 DB
 ./deploy.sh dev
+
+# 或手动启动
+cd backend && npm install && npx prisma migrate dev && npm run start:dev
+cd frontend && npm install && npm run dev
 ```
 
-这会自动启动 PostgreSQL + Redis 容器，安装依赖，初始化数据库。
-
-```bash
-# 方式二：手动启动
-
-# 1. 启动数据库和缓存
-docker compose up -d postgres redis
-
-# 2. 配置后端环境变量
-cp backend/.env.example backend/.env
-# 编辑 backend/.env 修改配置
-
-# 3. 安装后端依赖并初始化数据库
-cd backend
-npm install
-npx prisma generate
-npx prisma migrate dev --name init
-npx prisma db seed
-cd ..
-
-# 4. 安装前端依赖
-cd frontend
-npm install
-cd ..
-```
-
-### 启动开发服务
-
-```bash
-# 终端 1：启动后端（热重载）
-cd backend
-npm run start:dev
-# 后端运行在 http://localhost:3001
-
-# 终端 2：启动前端（热重载）
-cd frontend
-npm run dev
-# 前端运行在 http://localhost:3000
-```
+- 前端：http://localhost:3000
+- 后端：http://localhost:3001
+- Swagger：http://localhost:3001/api/docs
 
 ---
 
-## 环境变量配置
+## 环境变量
 
-### 根目录 `.env`（Docker Compose 使用）
+### `backend/.env`
+```bash
+DATABASE_URL="postgresql://user:pass@localhost:5432/crm"
+JWT_SECRET="随机字符串"
+JWT_EXPIRES_IN="7d"
+PORT=3001
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DB_PASSWORD` | PostgreSQL 数据库密码 | `crm_password` |
-| `JWT_SECRET` | JWT 签名密钥 | `change-this-jwt-secret-in-production` |
-| `FRONTEND_PORT` | 前端端口 | `3000` |
-| `BACKEND_PORT` | 后端端口 | `3001` |
-| `NGINX_PORT` | Nginx 端口 | `80` |
-
-### 后端 `backend/.env`
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `DATABASE_URL` | PostgreSQL 连接字符串 | `postgresql://crm_user:crm_password@localhost:5432/trade_crm?schema=public` |
-| `REDIS_HOST` | Redis 地址 | `localhost` |
-| `REDIS_PORT` | Redis 端口 | `6379` |
-| `JWT_SECRET` | JWT 签名密钥 | — |
-| `JWT_EXPIRES_IN` | JWT 过期时间 | `7d` |
-| `PORT` | 后端监听端口 | `3001` |
-| `NODE_ENV` | 运行环境 | `development` |
-| `UPLOAD_DIR` | 文件上传目录 | `./uploads` |
-| `MAX_FILE_SIZE` | 最大上传文件大小 (字节) | `10485760` (10MB) |
-| `DEFAULT_SMTP_HOST` | 默认 SMTP 服务器 | `smtp.example.com` |
-| `DEFAULT_SMTP_PORT` | 默认 SMTP 端口 | `465` |
-| `DEFAULT_IMAP_HOST` | 默认 IMAP 服务器 | `imap.example.com` |
-| `DEFAULT_IMAP_PORT` | 默认 IMAP 端口 | `993` |
-
-### 前端 `frontend/.env.local`
-
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `NEXT_PUBLIC_API_URL` | 后端 API 地址 | `http://localhost:3001` |
-
-> **生产环境安全提示**：请务必修改 `JWT_SECRET` 和 `DB_PASSWORD` 为强随机字符串。使用 `./deploy.sh` 部署时会自动生成随机密钥。
-
----
-
-## 功能模块说明
-
-### 1. 仪表盘 (`/dashboard`)
-
-业务数据总览页面，展示关键业务指标和统计图表，包括客户总数、活跃线索、本月订单额、待办任务数等。
-
-### 2. 客户管理 (`/customers`)
-
-| 功能 | 说明 |
-|------|------|
-| 客户列表 | 支持按公司名搜索、按状态/来源/行业筛选、分页 |
-| 新建客户 | 填写公司名、国家（60+ 国家）、行业、规模、来源（细分社交平台）、网站等 |
-| 客户详情 (`/customers/[id]`) | 查看客户完整信息、联系人列表、活动时间线、关联邮件 |
-| 邮件自动关联 | 填写客户网站后，该域名的企业邮箱来往邮件自动关联并生成时间线记录 |
-| 状态管理 | 潜在客户 → 活跃客户 → 非活跃客户 / 黑名单 |
-
-**客户来源**：展会、阿里巴巴、Google广告、LinkedIn、Facebook、Instagram、TikTok、Twitter/X、YouTube、Pinterest、WhatsApp、客户推荐、电话开发、邮件开发、独立站、其他
-
-**客户状态说明：**
-- `POTENTIAL` - 潜在客户（新录入，尚未成交）
-- `ACTIVE` - 活跃客户（已有业务往来）
-- `INACTIVE` - 非活跃客户（长期未联系）
-- `BLACKLISTED` - 黑名单
-
-### 3. 联系人 (`/contacts`)
-
-管理客户公司下的联系人，支持设定主要联系人。记录姓名、职位、邮箱、电话、微信、WhatsApp 等联系方式。
-
-### 4. 销售线索 (`/leads`)
-
-| 阶段 | 英文标识 | 说明 |
-|------|---------|------|
-| 新线索 | `NEW` | 刚录入的潜在商机 |
-| 已联系 | `CONTACTED` | 已与客户取得联系 |
-| 已确认 | `QUALIFIED` | 确认客户有真实需求 |
-| 报价中 | `PROPOSAL` | 已向客户发送报价 |
-| 谈判中 | `NEGOTIATION` | 正在议价/协商条款 |
-| 已成交 | `CLOSED_WON` | 成功转化为订单 |
-| 已丢失 | `CLOSED_LOST` | 未能成交 |
-
-支持预期金额、预期成交日期、优先级、来源等字段。
-
-### 5. 邮件中心 (`/emails`)
-
-- **分栏布局**：左侧邮件列表（380px），右侧邮件详情与回复区
-- **收件箱 & 发件箱全量同步**：通过 IMAP 同步全部历史邮件（无日期限制），自动检测 Sent 文件夹（支持 Hostinger、网易企业邮箱、QQ、Gmail、Outlook 等 20+ 文件夹命名规则）
-- **邮件自动关联客户**：根据客户录入的公司网站域名，自动匹配收发邮件并关联到对应客户（排除 gmail/qq/163 等公共邮箱域名），同时在客户时间线自动生成邮件记录（含发件人姓名）
-- **在线回复/转发**：分栏内直接回复，自动引用原文并关联邮件线程
-- **邮件已读追踪**：发送的邮件嵌入跟踪像素，客户打开后自动记录已读时间和次数，发件箱详情页显示"收件人已读 · 时间 · 打开次数"
-- **已读通知**：页面右上角绿色信封图标，实时展示最近 24 小时内被客户打开的邮件
-- **未读提醒**：每 60 秒轮询，新邮件到达时弹窗通知
-- **邮件模板**：内置开发信、跟进、订单确认等模板
-- **统一账密**：SMTP/IMAP 使用同一组邮箱账号密码，无需重复填写
-
-用户需在 **系统设置 → 邮件配置** 中配置邮箱信息后方可使用。
-
-**已测试兼容的邮箱服务商**：Hostinger、网易企业邮箱(qiye.163.com)、QQ 邮箱、Gmail、Outlook
-
-### 6. 报价管理 (`/quotations`)
-
-- 创建报价单（含行项明细：产品名、数量、单价、总价）
-- 报价单状态：草稿 → 已发送 → 已查看 → 已接受/已拒绝/已过期
-- 支持多币种（默认 USD）
-- 支持生成 PDF 报价单
-- 报价单有效期设置
-
-### 7. 订单管理 (`/orders`)
-
-- 创建订单（含行项明细）
-- 订单状态流转：待确认 → 已确认 → 生产中 → 已发货 → 已交付 / 已取消
-- 付款状态跟踪：未付款 → 部分付款 → 已付款 / 已退款
-- 物流信息（收货地址、发货日期、快递单号）
-
-### 8. 任务管理 (`/tasks`)
-
-- 创建待办任务，可关联客户
-- 优先级：低 / 中 / 高 / 紧急
-- 状态：待处理 → 进行中 → 已完成 / 已取消
-- 到期日期设置
-
-### 9. 文件管理 (`/documents`)
-
-上传和管理业务文件，支持按分类、关联客户组织。记录文件名、大小、MIME 类型等元信息。
-
-### 10. 系统设置 (`/settings`，仅管理员)
-
-- **用户管理**：创建/编辑/删除用户账户，分配角色
-- **邮箱配置**：SMTP/IMAP 服务器参数、统一账密、发件人名称、邮件签名
-- **系统参数**：自定义 key-value 参数
-- **数据备份**：一键导出全量数据为 JSON 文件，支持从备份文件恢复
-
-### 11. 客户时间线
-
-客户详情页内的时间线功能，支持记录外贸业务全流程关键节点：
-
-| 类型 | 说明 |
-|------|------|
-| 备注 | 一般性备注记录 |
-| 电话 | 电话沟通记录 |
-| 会议 | 线上/线下会议 |
-| 邮件 | 邮件往来记录 |
-| 任务 | 任务关联记录 |
-| 状态变更 | 客户状态变化 |
-| 价格讨论 | 报价、议价沟通 |
-| 订单意向 | 客户下单意向确认 |
-| 样品 | 样品寄送、确认 |
-| 模具费 | 模具开发费用讨论 |
-| 付款 | 付款进度跟踪 |
-| 物流 | 发货、物流跟踪 |
-| 投诉 | 客户投诉处理 |
-| 拜访 | 客户拜访记录 |
+### 根目录 `.env`（Docker Compose 用）
+```bash
+POSTGRES_USER=crm
+POSTGRES_PASSWORD=自动生成
+POSTGRES_DB=crm
+JWT_SECRET=自动生成
+```
 
 ---
 
 ## 数据库设计
 
-系统使用 PostgreSQL，通过 Prisma ORM 管理。主要数据表：
+共 21 个模型，主要包括：
 
-| 表名 | 说明 | 关键字段 |
-|------|------|---------|
-| `users` | 用户 | email, name, role (ADMIN/SALESPERSON) |
-| `email_configs` | 邮箱配置 | smtp/imap 参数，关联 user |
-| `customers` | 客户 | companyName, country, industry, status, owner |
-| `contacts` | 联系人 | name, email, phone, wechat, whatsapp, 关联 customer |
-| `leads` | 销售线索 | title, stage, expectedAmount, 关联 customer/owner |
-| `emails` | 邮件 | subject, body, direction, status, viewedAt, viewCount, 关联 customer |
-| `email_threads` | 邮件会话 | 邮件线程分组 |
-| `email_templates` | 邮件模板 | name, subject, bodyHtml, category |
-| `quotations` | 报价单 | quotationNo, totalAmount, status, validUntil |
-| `quotation_items` | 报价明细 | productName, quantity, unitPrice, totalPrice |
-| `orders` | 订单 | orderNo, totalAmount, status, paymentStatus |
-| `order_items` | 订单明细 | productName, quantity, unitPrice, totalPrice |
-| `tasks` | 任务 | title, priority, status, dueDate |
-| `activities` | 活动记录 | type (NOTE/CALL/MEETING/EMAIL/TASK/PRICE_DISCUSSION/ORDER_INTENT/SAMPLE/MOLD_FEE/PAYMENT/SHIPPING/COMPLAINT/VISIT), content |
-| `documents` | 文件 | fileName, filePath, fileSize, mimeType |
-| `system_settings` | 系统设置 | key-value 键值对 |
+- **User**（用户，含 bio 个性签名）
+- **Customer / Contact / CustomerWebsite**
+- **Lead / LeadActivity**
+- **EmailConfig / Email / EmailTracking**（多账户邮件）
+- **Quotation / QuotationItem**
+- **ProformaInvoice / ProformaInvoiceItem**
+- **Order / OrderItem**（含 `costTypes[]` 和 `floorPrice`）
+- **Task**（含 `assigneeId`）
+- **Message**（团队消息）
+- **Document**（文件）
+- **Activity**（客户时间线）
+- **Memo**（备忘录）
+- **Setting**（系统参数 KV 存储）
 
-### 数据库管理命令
-
-```bash
-# 生成 Prisma Client
-npx prisma generate
-
-# 创建迁移（开发环境）
-npx prisma migrate dev --name <migration_name>
-
-# 执行迁移（生产环境）
-npx prisma migrate deploy
-
-# 初始化种子数据
-npx prisma db seed
-
-# 打开 Prisma Studio（可视化数据库管理）
-npx prisma studio
-```
+### 枚举类型
+- `Role`: `ADMIN` | `SALESPERSON` | `FINANCE`
+- `OrderStatus`: `PENDING` | `CONFIRMED` | `IN_PRODUCTION` | `SHIPPED` | `DELIVERED` | `CANCELLED`
+- `PaymentStatus`: `UNPAID` | `PARTIAL` | `PAID` | `REFUNDED`
+- `LeadStatus`: `NEW` | `CONTACTING` | `QUALIFIED` | `QUOTATION` | `NEGOTIATING` | `WON` | `LOST`
+- `TaskPriority`: `LOW` | `MEDIUM` | `HIGH` | `URGENT`
+- `TaskStatus`: `PENDING` | `IN_PROGRESS` | `COMPLETED` | `CANCELLED`
 
 ---
 
-## API 接口
+## 主要 API
 
-后端 API 基础路径为 `/api`，所有接口（除认证接口外）需在请求头携带 JWT Token：
+### 认证
+- `POST /auth/login` - 登录
+- `GET /auth/profile` - 获取当前用户资料
+- `PATCH /auth/profile` - 更新自己的资料（password / phone / bio / avatar）
+- `POST /auth/avatar` - 上传头像
 
-```
-Authorization: Bearer <token>
-```
+### 消息
+- `GET /messages/conversations` - 会话列表
+- `GET /messages/users` - 所有可对话的用户（含头像 / 资料）
+- `GET /messages/:userId/profile` - 获取某用户的资料卡
+- `GET /messages/:userId` - 与某用户的历史消息（自动标记已读）
+- `POST /messages` - 发送消息
+- `GET /messages/unread-count` - 未读数量
 
-### 认证模块
+### 订单（写操作仅限 ADMIN / SALESPERSON）
+- `GET /orders` - 列表（FINANCE / ADMIN 可见全部；业务员只看自己的）
+- `GET /orders/:id` - 详情
+- `POST /orders` - 新建
+- `PATCH /orders/:id` - 更新
+- `DELETE /orders/:id` - 删除
+- `PATCH /orders/:id/status` - 更新订单状态
+- `PATCH /orders/:id/payment` - 更新付款状态
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/login` | 登录（返回 JWT Token） |
-| POST | `/api/auth/register` | 注册新用户 |
-
-### 客户模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/customers` | 客户列表（支持分页、搜索、筛选） |
-| GET | `/api/customers/:id` | 客户详情 |
-| POST | `/api/customers` | 创建客户 |
-| PATCH | `/api/customers/:id` | 更新客户 |
-| DELETE | `/api/customers/:id` | 删除客户 |
-
-### 联系人模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/contacts` | 联系人列表 |
-| POST | `/api/contacts` | 创建联系人 |
-| PATCH | `/api/contacts/:id` | 更新联系人 |
-| DELETE | `/api/contacts/:id` | 删除联系人 |
-
-### 销售线索模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/leads` | 线索列表 |
-| POST | `/api/leads` | 创建线索 |
-| PATCH | `/api/leads/:id` | 更新线索 |
-| DELETE | `/api/leads/:id` | 删除线索 |
-
-### 报价单模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/quotations` | 报价单列表 |
-| GET | `/api/quotations/:id` | 报价单详情（含明细行） |
-| POST | `/api/quotations` | 创建报价单 |
-| PATCH | `/api/quotations/:id` | 更新报价单 |
-| DELETE | `/api/quotations/:id` | 删除报价单 |
-
-### 订单模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/orders` | 订单列表 |
-| GET | `/api/orders/:id` | 订单详情（含明细行） |
-| POST | `/api/orders` | 创建订单 |
-| PATCH | `/api/orders/:id` | 更新订单 |
-| DELETE | `/api/orders/:id` | 删除订单 |
-
-### 邮件模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/emails` | 邮件列表 |
-| POST | `/api/emails/send` | 发送邮件（支持 inReplyTo 回复关联） |
-| POST | `/api/emails/fetch` | 手动触发 IMAP 邮件同步 |
-| GET | `/api/emails/unread-count` | 获取未读邮件数 |
-| GET | `/api/emails/recently-viewed` | 获取最近 24 小时客户已读邮件 |
-| PATCH | `/api/emails/:id/read` | 标记邮件为已读 |
-| GET | `/api/emails/track/:id/pixel.png` | 邮件跟踪像素（公开接口，无需认证） |
-| GET | `/api/emails/templates` | 邮件模板列表 |
-| POST | `/api/emails/templates` | 创建邮件模板 |
-
-### 任务模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/tasks` | 任务列表 |
-| POST | `/api/tasks` | 创建任务 |
-| PATCH | `/api/tasks/:id` | 更新任务 |
-| DELETE | `/api/tasks/:id` | 删除任务 |
-
-### 其他模块
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | `/api/dashboard` | 仪表盘统计数据 |
-| GET | `/api/activities` | 活动记录列表 |
-| POST | `/api/activities` | 创建活动记录 |
-| POST | `/api/documents/upload` | 上传文件 |
-| GET | `/api/documents` | 文件列表 |
-| GET | `/api/users` | 用户列表 |
-| PATCH | `/api/users/:id` | 更新用户信息 |
-| GET | `/api/settings` | 获取系统设置 |
-| PUT | `/api/settings` | 更新系统设置 |
-| PUT | `/api/settings/email-config` | 更新邮箱配置 |
-| GET | `/api/backup/export` | 导出全量数据备份（JSON 下载） |
-| POST | `/api/backup/import` | 导入备份数据（覆盖现有数据） |
-
----
-
-## 默认账户
-
-系统初始化后提供以下测试账户：
-
-| 角色 | 邮箱 | 密码 | 说明 |
-|------|------|------|------|
-| 管理员 | `admin@crm.com` | `admin123` | 拥有全部权限，可访问系统设置 |
-| 业务员 | `zhangsan@crm.com` | `sales123` | 张三，普通业务员 |
-| 业务员 | `lisi@crm.com` | `sales123` | 李四，普通业务员 |
-
-> **安全提示**：首次登录后请立即修改默认密码！
-
-系统还附带示例数据：3 个客户（美国/德国/日本）、3 个联系人、3 条销售线索、3 个任务、4 条活动记录、3 个邮件模板。
-
----
-
-## 常用运维命令
-
-```bash
-# ==================== 一键操作 ====================
-./deploy.sh                     # 首次部署（完整安装）
-./deploy.sh upgrade             # 一键升级（拉取代码 + 重新构建 + 迁移）
-./deploy.sh dev                 # 启动本地开发环境
-./deploy.sh stop                # 停止所有服务
-./deploy.sh restart             # 重启所有服务
-./deploy.sh logs                # 查看所有日志
-./deploy.sh logs backend        # 查看后端日志
-./deploy.sh reset               # 完全重置（清除所有数据，慎用！）
-
-# ==================== Docker Compose ====================
-docker compose ps                   # 查看所有容器状态
-docker compose logs -f              # 查看实时日志
-docker compose logs -f backend      # 仅后端日志
-docker compose restart              # 重启所有服务
-docker compose restart backend      # 重启后端
-docker compose down                 # 停止并移除容器（保留数据）
-docker compose down -v              # 停止并清除所有数据卷
-
-# ==================== 数据库 ====================
-docker compose exec backend sh      # 进入后端容器
-docker compose exec postgres psql -U crm_user -d trade_crm  # 连接数据库
-
-# 数据库备份
-docker compose exec postgres pg_dump -U crm_user trade_crm > backup_$(date +%Y%m%d).sql
-
-# 数据库恢复
-cat backup.sql | docker compose exec -T postgres psql -U crm_user trade_crm
-```
+其余模块提供标准 CRUD，完整文档见 Swagger。
 
 ---
 
@@ -524,149 +286,164 @@ cat backup.sql | docker compose exec -T postgres psql -U crm_user trade_crm
 
 ```
 CRM/
-├── backend/                    # 后端 (NestJS)
+├── backend/
+│   ├── src/
+│   │   ├── modules/            # 业务模块（每个模块 controller/service/dto/module）
+│   │   │   ├── auth, users, customers, contacts, leads
+│   │   │   ├── emails, quotations, pis, orders
+│   │   │   ├── tasks, messages, documents, memos
+│   │   │   ├── activities, dashboard, settings, backup
+│   │   ├── common/             # Guards / Decorators / Interceptors / Filters
+│   │   ├── prisma/             # PrismaService
+│   │   └── main.ts
 │   ├── prisma/
-│   │   ├── schema.prisma       # 数据库模型定义
-│   │   └── seed.ts             # 种子数据
-│   ├── src/
-│   │   ├── common/             # 公共模块
-│   │   │   ├── decorators/     # 自定义装饰器 (CurrentUser, Roles)
-│   │   │   ├── filters/        # 异常过滤器
-│   │   │   ├── guards/         # 认证 & 角色守卫
-│   │   │   ├── interceptors/   # 响应转换拦截器
-│   │   │   └── pipes/          # 参数校验管道
-│   │   ├── config/             # 配置模块
-│   │   ├── modules/            # 业务模块
-│   │   │   ├── activities/     # 活动记录
-│   │   │   ├── auth/           # 认证 (JWT)
-│   │   │   ├── backup/         # 数据备份导入导出
-│   │   │   ├── contacts/       # 联系人
-│   │   │   ├── customers/      # 客户
-│   │   │   ├── dashboard/      # 仪表盘
-│   │   │   ├── documents/      # 文件管理
-│   │   │   ├── emails/         # 邮件
-│   │   │   ├── leads/          # 销售线索
-│   │   │   ├── orders/         # 订单
-│   │   │   ├── quotations/     # 报价单
-│   │   │   ├── settings/       # 系统设置
-│   │   │   ├── tasks/          # 任务
-│   │   │   └── users/          # 用户
-│   │   ├── prisma/             # Prisma 服务
-│   │   ├── app.module.ts       # 根模块
-│   │   └── main.ts             # 入口文件
-│   ├── .env.example            # 环境变量示例
-│   ├── Dockerfile              # 后端 Docker 镜像
-│   ├── package.json
-│   └── tsconfig.json
-├── frontend/                   # 前端 (Next.js)
-│   ├── src/
-│   │   ├── app/                # 页面路由 (App Router)
-│   │   │   ├── dashboard/      # 仪表盘
-│   │   │   ├── customers/      # 客户管理 (含 [id] 详情页)
-│   │   │   ├── leads/          # 销售线索
-│   │   │   ├── emails/         # 邮件中心
-│   │   │   ├── quotations/     # 报价管理
-│   │   │   ├── orders/         # 订单管理
-│   │   │   ├── tasks/          # 任务管理
-│   │   │   ├── documents/      # 文件管理
-│   │   │   ├── settings/       # 系统设置
-│   │   │   ├── login/          # 登录页
-│   │   │   ├── layout.tsx      # 根布局
-│   │   │   ├── page.tsx        # 首页 (重定向到 dashboard)
-│   │   │   └── globals.css     # 全局样式
-│   │   ├── components/
-│   │   │   ├── layout/         # 布局组件 (Sidebar, AppLayout)
-│   │   │   └── ui/             # 通用 UI 组件
-│   │   ├── contexts/           # React Context (Auth)
-│   │   ├── lib/                # 工具库 (API 客户端, 常量)
-│   │   └── types/              # TypeScript 类型定义
-│   ├── .env.local              # 前端环境变量
-│   ├── Dockerfile              # 前端 Docker 镜像
-│   ├── package.json
-│   ├── tailwind.config.ts
-│   └── tsconfig.json
-├── nginx/
-│   └── nginx.conf              # Nginx 反向代理配置
-├── docker-compose.yml          # Docker Compose 编排
+│   │   ├── schema.prisma       # 21 个模型
+│   │   └── migrations/         # 所有迁移文件
+│   └── uploads/                # 上传文件存储
+├── frontend/
+│   └── src/
+│       ├── app/                # Next.js 14 App Router 各页面
+│       ├── components/         # 可复用组件（Sidebar / Modal / Pagination...）
+│       ├── contexts/           # AuthContext / LogoContext
+│       ├── lib/                # API 客户端 / constants
+│       └── types/              # TypeScript 类型定义
+├── nginx/                      # Nginx 反向代理配置
+├── docker-compose.yml
 ├── deploy.sh                   # 一键部署脚本
-├── .gitignore
-└── README.md                   # 本文档
+└── README.md
 ```
 
 ---
 
-## 常见问题
+## 默认账户
 
-### Q: 启动后无法访问页面？
+首次部署时系统进入初始化流程，在登录页创建第一个管理员账户。
 
-1. 检查容器是否正常运行：`docker compose ps`
-2. 检查端口是否被占用：`ss -tlnp | grep -E '80|3000|3001'`
-3. 查看容器日志排查错误：`docker compose logs -f`
+---
 
-### Q: 数据库连接失败？
-
-1. 确认 PostgreSQL 容器已启动且健康：`docker compose ps postgres`
-2. 检查 `DATABASE_URL` 中的用户名、密码、端口是否正确
-3. 本地开发时确认使用 `localhost`，Docker 内使用服务名 `postgres`
-
-### Q: 邮件发送失败？
-
-1. 进入 **系统设置** → **邮箱配置**，确认 SMTP 参数填写正确
-2. 常见邮箱 SMTP/IMAP 配置：
-
-| 邮箱服务商 | SMTP 服务器 | SMTP 端口 | IMAP 服务器 | IMAP 端口 |
-|-----------|------------|----------|------------|----------|
-| Hostinger | `smtp.hostinger.com` | 465 | `imap.hostinger.com` | 993 |
-| 网易企业邮箱 | `smtp.qiye.163.com` | 465 | `imap.qiye.163.com` | 993 |
-| QQ 邮箱 | `smtp.qq.com` | 465 | `imap.qq.com` | 993 |
-| 网易 163 | `smtp.163.com` | 465 | `imap.163.com` | 993 |
-| Gmail | `smtp.gmail.com` | 465 | `imap.gmail.com` | 993 |
-| Outlook | `smtp.office365.com` | 587 | `outlook.office365.com` | 993 |
-| 阿里企业邮箱 | `smtp.mxhichina.com` | 465 | `imap.mxhichina.com` | 993 |
-
-> **注意**：QQ 邮箱和网易邮箱需先在邮箱设置中开启 SMTP/IMAP 服务并使用授权码（非登录密码）。Gmail 需开启应用密码。
-
-### Q: 如何修改 Nginx 监听端口？
-
-编辑 `docker-compose.yml` 中 nginx 服务的 ports 映射，例如将 `80:80` 改为 `8080:80`。
-
-### Q: 如何备份数据？
-
-**方式一：通过系统界面（推荐）**
-
-进入 **系统设置 → 数据备份**，点击「导出备份文件」即可下载包含所有业务数据的 JSON 文件。恢复时点击「选择备份文件导入」上传 JSON 文件即可。
-
-**方式二：数据库级别备份**
+## 常用运维命令
 
 ```bash
-# 数据库备份
-docker compose exec postgres pg_dump -U crm_user trade_crm > backup.sql
+# 查看日志
+docker compose logs -f backend
+docker compose logs -f frontend
 
-# 文件备份（上传的附件）
-docker compose cp crm-backend:/app/uploads ./uploads_backup
+# 进入数据库
+docker compose exec postgres psql -U crm -d crm
+
+# 执行迁移
+docker compose exec backend npx prisma migrate deploy
+
+# 重启服务
+docker compose restart backend
+
+# 完全重新构建
+docker compose down && docker compose up -d --build
 ```
 
-### Q: 如何升级系统？
+---
 
-**方式一：一键升级（推荐）**
+## 优化方向
 
-```bash
-./deploy.sh upgrade
-```
+以下是当前系统可进一步改进的方向，按优先级和性价比排序：
 
-该命令会自动完成：拉取最新代码 → 清除构建缓存 → 重新构建镜像 → 重启服务 → 等待就绪（数据库迁移在容器启动时自动执行）。
+### 高优先级 ⭐⭐⭐
 
-**方式二：手动升级**
+1. **WebSocket 替代消息轮询**
+   - 当前消息中心每 3 秒 HTTP 轮询，服务器压力大、延迟高
+   - 接入 `@nestjs/websockets` + Socket.io，实现真正的实时推送
+   - 顺便支持"正在输入..."、已读回执、在线状态等
 
-```bash
-git pull                          # 拉取最新代码
-docker compose build --no-cache   # 重新构建镜像（清除缓存）
-docker compose up -d              # 重启服务
-# 数据库迁移会在后端容器启动时自动执行
-```
+2. **邮件后台任务队列**
+   - 当前 IMAP 同步阻塞请求、SMTP 发送同步等待
+   - 引入 BullMQ（Redis 队列）异步处理邮件收发、PDF 生成、数据备份
+   - 前端轮询任务状态或通过 WebSocket 推送完成通知
+
+3. **文件存储迁移到对象存储**
+   - 当前头像、Logo、附件都存本地 `uploads/`，多实例部署和备份都不方便
+   - 接入 S3 兼容存储（阿里云 OSS / MinIO / AWS S3），含预签名 URL
+   - 顺便添加图片压缩和 CDN 加速
+
+4. **完善测试覆盖**
+   - 目前没有单元测试和 E2E 测试
+   - 添加 Jest 单测覆盖 `*.service.ts` 核心业务逻辑
+   - 用 Playwright 做关键路径 E2E（登录、创建订单、发邮件）
+
+### 中优先级 ⭐⭐
+
+5. **前端性能优化**
+   - 订单/客户列表用 `react-window` 虚拟滚动（大数据量场景）
+   - 客户详情页的时间线用分页或无限滚动
+   - 邮件列表 IntersectionObserver 懒加载正文
+   - Next.js 图片组件统一替换 `<img>`
+
+6. **权限体系升级为 RBAC**
+   - 当前基于三个固定角色硬编码，灵活度差
+   - 引入 Role-Permission 中间表，前端根据权限列表动态渲染按钮
+   - 新增角色不需要改代码
+
+7. **审计日志**
+   - 关键操作（删除订单、修改价格、导出数据）记入 `AuditLog` 表
+   - 含操作者、IP、时间、前后值对比
+   - 管理中心增加审计日志查看页
+
+8. **全文搜索**
+   - 当前搜索基于 `ILIKE`，客户/订单/邮件量大时性能下降
+   - 集成 PostgreSQL `tsvector` + `tsquery`，或引入 MeiliSearch/Elasticsearch
+   - 支持跨模块全局搜索
+
+9. **邮件模板引擎化**
+   - 当前模板是纯文本 + 简单变量
+   - 升级为 Handlebars/MJML，支持条件判断、列表渲染、响应式 HTML 邮件
+   - 模板变量自动从客户资料提取（称呼、公司名、国家）
+
+10. **API 限流**
+    - 未登录接口、登录接口接入 `@nestjs/throttler`
+    - 防止暴力破解和恶意刷接口
+
+### 低优先级 ⭐
+
+11. **多语言 i18n**
+    - 当前仅中文，外贸场景其实需要英文界面给海外同事或客户演示
+    - 引入 `next-intl`，支持中英切换
+
+12. **数据可视化增强**
+    - 仪表盘加入销售漏斗、客户地图分布、邮件打开率趋势图
+    - 订单按月/季度/国家维度统计报表
+
+13. **移动端适配**
+    - 当前响应式仅满足大屏，手机访问体验差
+    - 适配 iPad / 手机布局，或单独做 React Native 小程序
+
+14. **系统监控**
+    - 接入 Prometheus + Grafana 采集 API 响应时间、错误率
+    - Sentry 收集前后端异常
+
+15. **数据库性能优化**
+    - `Email`、`Activity`、`Message` 表随时间膨胀，加分区（按月）或归档
+    - 为常用查询字段增加复合索引（已有一部分，可继续优化）
+
+16. **CI/CD 流水线**
+    - GitHub Actions 做 lint + 测试 + Docker 镜像构建与推送
+    - 服务器端 Webhook 自动拉取新镜像重启（蓝绿部署或滚动更新）
+
+17. **安全加固**
+    - HTTPS 强制（Let's Encrypt 自动续签脚本）
+    - 安全响应头（CSP / HSTS / X-Frame-Options）
+    - 文件上传 MIME 校验 + 病毒扫描
+    - 二次验证（TOTP）
+
+### 产品层面 💡
+
+18. **客户标签系统**：自定义标签，快速筛选潜在客户
+19. **邮件合并发送**：批量群发定制化邮件（不同变量）
+20. **客户跟进提醒**：超过 N 天未联系自动提醒业务员
+21. **展会/询盘管理**：从广交会、阿里国际站等渠道导入询盘数据
+22. **汇率换算**：订单多币种换算到公司基准货币统计
+23. **佣金/提成计算**：按订单自动计算业务员提成
 
 ---
 
 ## License
 
-MIT
+Private project.
