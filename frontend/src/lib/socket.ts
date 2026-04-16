@@ -7,16 +7,34 @@ import { io, Socket } from 'socket.io-client';
  * as an `Authorization: Bearer …` header so the backend gateway can
  * authenticate the connection.
  *
- * The socket is created lazily on first call and reused across hooks.
- * Token refresh happens by disconnect()+connect() — the token is read
- * again from localStorage at connect time.
+ * URL resolution (browser-side):
+ *   1. `NEXT_PUBLIC_WS_URL` env var — set this to a browser-resolvable
+ *      websocket origin if the backend is on a different host (e.g.
+ *      "https://api.example.com"). Must NOT be a docker-internal name.
+ *   2. Otherwise same-origin — socket.io-client uses `window.location.origin`
+ *      and the request reaches the backend via Next.js rewrites
+ *      (next.config.js proxies /socket.io/* and /ws/*).
+ *
+ * We deliberately do NOT fall back to `NEXT_PUBLIC_API_URL` because that
+ * variable is commonly set to a docker-internal hostname (e.g.
+ * "http://backend:3001") for Next.js SSR fetches, which the browser
+ * cannot resolve.
  */
 let socket: Socket | null = null;
 
-const backendBase =
-  (typeof window !== 'undefined' && (window as any).__API_BASE__) ||
-  process.env.NEXT_PUBLIC_API_URL ||
-  '';
+/** Resolve the websocket base URL at call time, not module load time. */
+function resolveBase(): string {
+  // Read a dedicated WS env var; ignore NEXT_PUBLIC_API_URL (SSR-only).
+  const fromEnv = process.env.NEXT_PUBLIC_WS_URL;
+  if (fromEnv) return fromEnv.replace(/\/$/, '');
+  // Allow runtime override via window for docker-compose style deployments.
+  if (typeof window !== 'undefined') {
+    const fromWindow = (window as any).__WS_BASE__;
+    if (fromWindow) return String(fromWindow).replace(/\/$/, '');
+  }
+  // Same-origin: socket.io picks up window.location.origin when path is '/'.
+  return '';
+}
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -34,11 +52,11 @@ export function getMessagesSocket(): Socket {
     return socket;
   }
 
+  const base = resolveBase();
   const token = getToken() || '';
-  // If backendBase is empty we use same-origin (the Next.js dev server
-  // will proxy /api but websockets need a direct URL — backend mounts the
-  // namespace at backendBase + /ws/messages).
-  const url = backendBase ? `${backendBase}/ws/messages` : '/ws/messages';
+  // socket.io-client interprets '/namespace' as same-origin and
+  // '<absolute>/namespace' as explicit host.
+  const url = base ? `${base}/ws/messages` : '/ws/messages';
 
   socket = io(url, {
     path: '/socket.io',
