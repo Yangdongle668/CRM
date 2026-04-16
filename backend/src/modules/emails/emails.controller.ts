@@ -22,6 +22,7 @@ import { EmailsService } from './emails.service';
 import { EmailTrackingService } from './email-tracking.service';
 import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
+import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
 // 1x1 transparent GIF pixel
 const TRACKING_PIXEL = Buffer.from(
@@ -161,6 +162,64 @@ export class EmailsController {
       id,
       body?.signature ?? '',
     );
+  }
+
+  // ==================== Campaigns ====================
+
+  @Get('campaigns')
+  async listCampaigns(@CurrentUser() user: any) {
+    return this.emailsService.listCampaigns(user.id, user.role);
+  }
+
+  @Post('campaigns')
+  async createCampaign(
+    @CurrentUser() user: any,
+    @Body() dto: CreateCampaignDto,
+  ) {
+    return this.emailsService.createCampaign(user.id, dto);
+  }
+
+  @Put('campaigns/:id')
+  async updateCampaign(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateCampaignDto,
+  ) {
+    return this.emailsService.updateCampaign(id, user.id, user.role, dto);
+  }
+
+  @Delete('campaigns/:id')
+  async deleteCampaign(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    return this.emailsService.deleteCampaign(id, user.id, user.role);
+  }
+
+  /** Aggregate stats: sent / opened / opened-by-human / clicked / open rate. */
+  @Get('campaigns/:id/stats')
+  async campaignStats(@Param('id') id: string) {
+    return this.emailsService.getCampaignStats(id);
+  }
+
+  // ==================== Recipients ====================
+
+  @Get('recipients')
+  async listRecipients(
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.emailsService.listRecipients({
+      search,
+      page: page ? parseInt(page, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+    });
+  }
+
+  @Get('recipients/:id')
+  async getRecipient(@Param('id') id: string) {
+    return this.emailsService.getRecipientDetail(id);
   }
 
   // ==================== Email Operations ====================

@@ -164,6 +164,20 @@ export const emailsApi = {
     api.get(`/emails/accounts/${accountId}/signature`),
   updateSignature: (accountId: string, signature: string) =>
     api.put(`/emails/accounts/${accountId}/signature`, { signature }),
+
+  // Campaigns (group outgoing emails for aggregate open/click stats)
+  listCampaigns: () => api.get('/emails/campaigns'),
+  createCampaign: (data: { name: string; description?: string }) =>
+    api.post('/emails/campaigns', data),
+  updateCampaign: (id: string, data: { name?: string; description?: string; status?: string }) =>
+    api.put(`/emails/campaigns/${id}`, data),
+  deleteCampaign: (id: string) => api.delete(`/emails/campaigns/${id}`),
+  getCampaignStats: (id: string) => api.get(`/emails/campaigns/${id}/stats`),
+
+  // Recipients (one row per email address we've ever sent to)
+  listRecipients: (params?: { search?: string; page?: number; pageSize?: number }) =>
+    api.get('/emails/recipients', { params }),
+  getRecipient: (id: string) => api.get(`/emails/recipients/${id}`),
 };
 
 // ==================== Quotations API ====================

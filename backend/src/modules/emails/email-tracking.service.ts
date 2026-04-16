@@ -166,6 +166,97 @@ export class EmailTrackingService {
     return `${rewritten}${pixel}`;
   }
 
+  // ---------- Recipient upsert ----------
+
+  /**
+   * Upsert an EmailRecipient keyed by email address (case-insensitive
+   * comparison: we lowercase the stored key). Used at send-time so every
+   * outgoing email row is tagged with a stable recipient id.
+   *
+   * If a CRM customer / contact match is known (passed in explicitly or
+   * discoverable via the primary contact), we link it for the first time
+   * but don't overwrite existing links — the user may have manually
+   * re-linked the recipient to a different contact.
+   */
+  async resolveRecipient(
+    rawEmail: string,
+    opts: { name?: string; customerId?: string; contactId?: string } = {},
+  ) {
+    const addr = (rawEmail || '').trim().toLowerCase();
+    if (!addr) throw new Error('resolveRecipient: empty email address');
+
+    const existing = await this.prisma.emailRecipient.findUnique({
+      where: { emailAddr: addr },
+    });
+    if (existing) {
+      // Backfill link fields if they weren't set yet; don't clobber.
+      const patch: any = {};
+      if (!existing.customerId && opts.customerId) patch.customerId = opts.customerId;
+      if (!existing.contactId && opts.contactId) patch.contactId = opts.contactId;
+      if (!existing.name && opts.name) patch.name = opts.name;
+      if (Object.keys(patch).length > 0) {
+        return this.prisma.emailRecipient.update({
+          where: { id: existing.id },
+          data: patch,
+        });
+      }
+      return existing;
+    }
+
+    // Try to auto-link via Contact.email if no customerId was provided.
+    let contactId = opts.contactId;
+    let customerId = opts.customerId;
+    if (!customerId && !contactId) {
+      const contact = await this.prisma.contact.findFirst({
+        where: { email: { equals: addr, mode: 'insensitive' } },
+        select: { id: true, customerId: true, name: true },
+      });
+      if (contact) {
+        contactId = contact.id;
+        customerId = contact.customerId;
+      }
+    }
+
+    return this.prisma.emailRecipient.create({
+      data: {
+        emailAddr: addr,
+        name: opts.name || null,
+        customerId: customerId || null,
+        contactId: contactId || null,
+      },
+    });
+  }
+
+  /** Increment recipient aggregates after an open / click event. */
+  private async bumpRecipientStats(
+    emailId: string,
+    kind: 'OPEN' | 'CLICK',
+    isHumanSignal: boolean,
+  ) {
+    const email = await this.prisma.email.findUnique({
+      where: { id: emailId },
+      select: { recipientId: true },
+    });
+    if (!email?.recipientId) return;
+
+    const now = new Date();
+    await this.prisma.emailRecipient.update({
+      where: { id: email.recipientId },
+      data:
+        kind === 'OPEN'
+          ? {
+              totalOpens: { increment: 1 },
+              lastOpenedAt: isHumanSignal ? now : undefined,
+            }
+          : {
+              totalClicks: { increment: 1 },
+              lastClickedAt: now,
+              // A click is always considered human signal.
+              lastOpenedAt: now,
+            },
+    });
+  }
+
   // ---------- Record events ----------
 
   /**
@@ -252,6 +343,7 @@ export class EmailTrackingService {
       },
     });
     await this.updateConfidence(emailId);
+    await this.bumpRecipientStats(emailId, 'OPEN', isHuman);
     return { recorded: true, kind };
   }
 
@@ -332,6 +424,7 @@ export class EmailTrackingService {
       }
     }
     await this.updateConfidence(emailId);
+    await this.bumpRecipientStats(emailId, 'CLICK', true);
     return link.url;
   }
 

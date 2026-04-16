@@ -113,6 +113,7 @@ model User {
   documents       Document[]
   emailsSent      Email[]        @relation("SentEmails")
   emailConfigs    EmailConfig[]
+  campaignsCreated EmailCampaign[] @relation("CampaignsCreated")
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
@@ -324,6 +325,14 @@ model Email {
   // Computed deterministically from open / click events — see
   // EmailTrackingService.computeConfidence().
   openConfidence   Float       @default(0) @map("open_confidence")
+  // ---- Campaign / recipient grouping ----
+  // Optional. Populated automatically on send:
+  //   recipientId — upserted EmailRecipient keyed by toAddr (for
+  //                 cross-email aggregation: "how many of john@foo.com's
+  //                 emails has he opened?").
+  //   campaignId  — set when SendEmailDto carries one (e.g. marketing blast).
+  campaignId       String?     @map("campaign_id")
+  recipientId      String?     @map("recipient_id")
   customerId    String?        @map("customer_id")
   senderId      String?        @map("sender_id")
   createdAt     DateTime       @default(now()) @map("created_at")
@@ -336,8 +345,57 @@ model Email {
   openEvents   EmailOpenEvent[]
   clickEvents  EmailClickEvent[]
   links        EmailLink[]
+  campaign     EmailCampaign?  @relation("CampaignEmails", fields: [campaignId], references: [id])
+  recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
 
+  @@index([campaignId])
+  @@index([recipientId])
   @@map("emails")
+}
+
+// ==================== 邮件活动 (Campaign) ====================
+// A campaign groups outbound emails that belong to the same outreach /
+// marketing batch. Use it when you want aggregate open/click stats like
+// "Q1 跟进 — 打开率 42%". Optional: regular 1-1 emails can skip it.
+model EmailCampaign {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  createdById String    @map("created_by_id")
+  status      String    @default("DRAFT")  // DRAFT | SENDING | SENT | ARCHIVED
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  creator User    @relation("CampaignsCreated", fields: [createdById], references: [id])
+  emails  Email[] @relation("CampaignEmails")
+
+  @@index([createdById])
+  @@map("email_campaigns")
+}
+
+// ==================== 邮件收件人 (Recipient) ====================
+// Canonical row per email address we've ever sent to. Auto-upserted at
+// send time so opens / clicks across *multiple* emails can be aggregated
+// per-person ("john@foo.com opened 4 of our 6 emails, clicked 2").
+// Optionally linked to a CRM Customer / Contact if the address matches.
+model EmailRecipient {
+  id            String    @id @default(uuid())
+  emailAddr     String    @unique @map("email_addr")
+  name          String?
+  customerId    String?   @map("customer_id")
+  contactId     String?   @map("contact_id")
+  firstSeenAt   DateTime  @default(now()) @map("first_seen_at")
+  lastSentAt    DateTime? @map("last_sent_at")
+  lastOpenedAt  DateTime? @map("last_opened_at")
+  lastClickedAt DateTime? @map("last_clicked_at")
+  totalSent     Int       @default(0) @map("total_sent")
+  totalOpens    Int       @default(0) @map("total_opens")
+  totalClicks   Int       @default(0) @map("total_clicks")
+
+  emails Email[] @relation("RecipientEmails")
+
+  @@map("email_recipients")
 }
 
 // ==================== 邮件追踪：打开事件 ====================

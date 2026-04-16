@@ -275,6 +275,20 @@ export class EmailsService {
       category = 'customer';
     }
 
+    // Resolve / upsert the recipient (cross-email aggregation keyed by
+    // toAddr) and validate the campaign if the caller passed one.
+    const recipient = await this.tracking.resolveRecipient(dto.toAddr, {
+      customerId: customerId || undefined,
+    });
+    let campaignId: string | null = null;
+    if (dto.campaignId) {
+      const campaign = await this.prisma.emailCampaign.findUnique({
+        where: { id: dto.campaignId },
+        select: { id: true },
+      });
+      if (campaign) campaignId = campaign.id;
+    }
+
     const emailRecord = await this.prisma.email.create({
       data: {
         fromAddr: config.emailAddr,
@@ -290,8 +304,20 @@ export class EmailsService {
         senderId: userId,
         emailConfigId: config.id,
         threadId: threadId || null,
+        recipientId: recipient.id,
+        campaignId,
       },
       include: { customer: true },
+    });
+
+    // Bump recipient.totalSent + lastSentAt immediately so aggregates
+    // stay accurate even if the SMTP send later fails.
+    await this.prisma.emailRecipient.update({
+      where: { id: recipient.id },
+      data: {
+        totalSent: { increment: 1 },
+        lastSentAt: new Date(),
+      },
     });
 
     const requestOriginForTracking =
@@ -836,6 +862,168 @@ export class EmailsService {
       select: { id: true, emailAddr: true, fromName: true, signature: true },
     });
     return { config: updated };
+  }
+
+  // ==================== Campaigns ====================
+
+  async listCampaigns(userId: string, role: string) {
+    const where = role === 'ADMIN' ? {} : { createdById: userId };
+    const campaigns = await this.prisma.emailCampaign.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        creator: { select: { id: true, name: true, email: true } },
+        _count: { select: { emails: true } },
+      },
+    });
+    return { campaigns };
+  }
+
+  async createCampaign(
+    userId: string,
+    dto: { name: string; description?: string },
+  ) {
+    return this.prisma.emailCampaign.create({
+      data: {
+        name: dto.name,
+        description: dto.description || null,
+        createdById: userId,
+      },
+    });
+  }
+
+  async updateCampaign(
+    id: string,
+    userId: string,
+    role: string,
+    dto: { name?: string; description?: string; status?: string },
+  ) {
+    const campaign = await this.prisma.emailCampaign.findUnique({ where: { id } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    if (role !== 'ADMIN' && campaign.createdById !== userId) {
+      throw new BadRequestException('无权修改此活动');
+    }
+    const patch: any = {};
+    if (dto.name !== undefined) patch.name = dto.name;
+    if (dto.description !== undefined) patch.description = dto.description || null;
+    if (dto.status !== undefined) {
+      patch.status = dto.status;
+      if (dto.status === 'SENT' && !campaign.sentAt) patch.sentAt = new Date();
+    }
+    return this.prisma.emailCampaign.update({ where: { id }, data: patch });
+  }
+
+  async deleteCampaign(id: string, userId: string, role: string) {
+    const campaign = await this.prisma.emailCampaign.findUnique({ where: { id } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    if (role !== 'ADMIN' && campaign.createdById !== userId) {
+      throw new BadRequestException('无权删除此活动');
+    }
+    // FK on emails is ON DELETE SET NULL — emails are preserved.
+    await this.prisma.emailCampaign.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  /**
+   * Campaign aggregates.
+   * - sent: number of emails tagged with this campaign
+   * - delivered: of those, how many reached SENT status (SMTP OK)
+   * - opened: at least one non-DUP open event
+   * - openedByHuman: at least one HUMAN/PROXY open (stronger signal)
+   * - clicked: at least one click event
+   * - avgConfidence: mean of email.openConfidence
+   */
+  async getCampaignStats(campaignId: string) {
+    const campaign = await this.prisma.emailCampaign.findUnique({
+      where: { id: campaignId },
+    });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+
+    const emails = await this.prisma.email.findMany({
+      where: { campaignId },
+      select: {
+        id: true,
+        status: true,
+        viewCount: true,
+        firstHumanOpenAt: true,
+        totalClicks: true,
+        openConfidence: true,
+      },
+    });
+
+    const sent = emails.length;
+    const delivered = emails.filter((e) => e.status === 'SENT' || e.status === 'VIEWED').length;
+    const opened = emails.filter((e) => (e.viewCount ?? 0) > 0).length;
+    const openedByHuman = emails.filter((e) => e.firstHumanOpenAt).length;
+    const clicked = emails.filter((e) => (e.totalClicks ?? 0) > 0).length;
+    const avgConfidence = sent > 0
+      ? emails.reduce((s, e) => s + (e.openConfidence ?? 0), 0) / sent
+      : 0;
+
+    return {
+      campaign,
+      stats: {
+        sent,
+        delivered,
+        opened,
+        openedByHuman,
+        clicked,
+        openRate: sent > 0 ? opened / sent : 0,
+        humanOpenRate: sent > 0 ? openedByHuman / sent : 0,
+        clickRate: sent > 0 ? clicked / sent : 0,
+        avgConfidence: Math.round(avgConfidence * 100) / 100,
+      },
+    };
+  }
+
+  // ==================== Recipients ====================
+
+  async listRecipients(
+    q: { search?: string; page?: number; pageSize?: number } = {},
+  ) {
+    const page = Math.max(1, q.page || 1);
+    const pageSize = Math.min(200, Math.max(1, q.pageSize || 50));
+    const where: any = {};
+    if (q.search) {
+      where.OR = [
+        { emailAddr: { contains: q.search, mode: 'insensitive' } },
+        { name: { contains: q.search, mode: 'insensitive' } },
+      ];
+    }
+    const [items, total] = await Promise.all([
+      this.prisma.emailRecipient.findMany({
+        where,
+        orderBy: { lastSentAt: { sort: 'desc', nulls: 'last' } },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.emailRecipient.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
+  }
+
+  async getRecipientDetail(id: string) {
+    const recipient = await this.prisma.emailRecipient.findUnique({
+      where: { id },
+    });
+    if (!recipient) throw new NotFoundException('Recipient not found');
+    const emails = await this.prisma.email.findMany({
+      where: { recipientId: id },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+      select: {
+        id: true,
+        subject: true,
+        sentAt: true,
+        status: true,
+        openConfidence: true,
+        firstHumanOpenAt: true,
+        totalClicks: true,
+        viewCount: true,
+        campaignId: true,
+      },
+    });
+    return { recipient, emails };
   }
 
   async recordView(emailId: string) {
