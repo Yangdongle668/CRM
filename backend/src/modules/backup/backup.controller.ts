@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Post,
-  Body,
   Res,
   Req,
   UseGuards,
@@ -22,31 +21,29 @@ export class BackupController {
     private readonly auditService: AuditService,
   ) {}
 
+  /**
+   * Download a ZIP of CSVs for the core business tables (customers,
+   * contacts, leads, quotations, orders, tasks, activities, + the users
+   * those rows belong to). Streams straight to the response — safe for
+   * large datasets. Emails and other ephemera are intentionally excluded
+   * (see BackupService for the exact list).
+   */
   @Get('export')
   @RequirePermissions('backup:export')
   async exportBackup(@Res() res: Response, @Req() req: Request) {
-    const backup = await this.backupService.exportAll();
-    const filename = `crm-backup-${new Date().toISOString().slice(0, 10)}.json`;
-
+    const filename = `crm-backup-${new Date().toISOString().slice(0, 10)}.zip`;
     await this.auditService.logFromRequest(req, {
       action: 'backup.export',
       targetType: 'backup',
       targetLabel: filename,
-      metadata: {
-        mode: 'sync',
-        tables: Object.keys((backup as any).data || {}),
-      },
+      metadata: { mode: 'sync', format: 'csv-zip' },
     });
-
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(JSON.stringify(backup, null, 2));
+    await this.backupService.streamBackupZip(res, filename);
   }
 
   /**
-   * Async export: returns immediately with a jobId. The background worker
-   * writes the JSON file under uploads/backups/. Useful for large databases
-   * where the request would otherwise time out.
+   * Queue a background export (writes the ZIP under uploads/backups/)
+   * for large databases. Returns immediately with a jobId.
    */
   @Post('export/async')
   @RequirePermissions('backup:export')
@@ -56,34 +53,8 @@ export class BackupController {
       action: 'backup.export',
       targetType: 'backup',
       targetLabel: result?.jobId ? `job:${result.jobId}` : 'async',
-      metadata: { mode: 'async', jobId: result?.jobId },
+      metadata: { mode: 'async', format: 'csv-zip', jobId: result?.jobId },
     });
     return result;
-  }
-
-  @Post('import')
-  @RequirePermissions('backup:import')
-  async importBackup(@Body() body: any, @Req() req: Request) {
-    try {
-      const result = await this.backupService.importAll(body);
-      await this.auditService.logFromRequest(req, {
-        action: 'backup.import',
-        targetType: 'backup',
-        metadata: {
-          version: body?.version,
-          exportedAt: body?.exportedAt,
-          tables: body?.data ? Object.keys(body.data) : undefined,
-        },
-      });
-      return result;
-    } catch (err: any) {
-      await this.auditService.logFromRequest(req, {
-        action: 'backup.import',
-        targetType: 'backup',
-        status: 'FAILURE',
-        errorMessage: err?.message || String(err),
-      });
-      throw err;
-    }
   }
 }

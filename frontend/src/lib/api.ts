@@ -224,10 +224,13 @@ export const dashboardApi = {
 };
 
 // ==================== Backup API ====================
+// Backup format: a ZIP of CSVs (customers / contacts / leads / quotations /
+// orders / tasks / activities + the users that own them). Emails, system
+// messages, memos and settings are intentionally excluded.
 export const backupApi = {
   export: () =>
     api.get('/backup/export', { responseType: 'blob' }),
-  import: (data: any) => api.post('/backup/import', data),
+  exportAsync: () => api.post('/backup/export/async'),
 };
 
 // ==================== Memos API ====================
