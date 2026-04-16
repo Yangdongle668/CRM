@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
+import BankAccountsPanel from '@/components/settings/BankAccountsPanel';
+import PITemplatesPanel from '@/components/settings/PITemplatesPanel';
 import { useAuth } from '@/contexts/auth-context';
 import { useLogo } from '@/contexts/logo-context';
 import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
@@ -70,9 +72,6 @@ export default function SettingsPage() {
   const [newSettingValue, setNewSettingValue] = useState('');
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoUploading, setLogoUploading] = useState(false);
-  const [bankInfo, setBankInfo] = useState<any>({});
-  const [bankInfoLoading, setBankInfoLoading] = useState(false);
-  const [bankInfoSaving, setBankInfoSaving] = useState(false);
 
   // ==================== Backup tab ====================
   const [backupExporting, setBackupExporting] = useState(false);
@@ -281,18 +280,6 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const fetchBankInfo = useCallback(async () => {
-    setBankInfoLoading(true);
-    try {
-      const res: any = await settingsApi.getBankInfo();
-      setBankInfo(res.data || {});
-    } catch {
-      // ignore
-    } finally {
-      setBankInfoLoading(false);
-    }
-  }, []);
-
   const fetchCompanyInfo = useCallback(async () => {
     try {
       const res: any = await settingsApi.getCompanyInfo();
@@ -318,10 +305,9 @@ export default function SettingsPage() {
     if (isAdmin && activeTab === 'system') {
       fetchSystemSettings();
       fetchLogo();
-      fetchBankInfo();
       fetchCompanyInfo();
     }
-  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo, fetchBankInfo, fetchCompanyInfo]);
+  }, [isAdmin, activeTab, fetchSystemSettings, fetchLogo, fetchCompanyInfo]);
 
   const handleLogoUpload = () => {
     const input = document.createElement('input');
@@ -359,17 +345,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleBankInfoSave = async () => {
-    setBankInfoSaving(true);
-    try {
-      await settingsApi.updateBankInfo(bankInfo);
-      toast.success('银行信息已保存');
-    } catch {
-      toast.error('保存失败');
-    } finally {
-      setBankInfoSaving(false);
-    }
-  };
 
   const handleAddSetting = () => {
     if (!newSettingKey.trim()) {
@@ -764,36 +739,9 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            {/* Bank Info Section */}
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
-              <h3 className="text-base font-semibold text-gray-900 mb-4">银行信息</h3>
-              {bankInfoLoading ? (
-                <div className="flex h-32 items-center justify-center text-gray-500">加载中...</div>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">银行信息</label>
-                    <p className="text-xs text-gray-500 mb-2">请输入完整的银行信息，每行一条，将直接显示在形式发票（PI）的PDF中</p>
-                    <textarea
-                      value={bankInfo.bankInfoText || ''}
-                      onChange={(e) => setBankInfo({ ...bankInfo, bankInfoText: e.target.value })}
-                      rows={10}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                      placeholder={`Account number：123456789\nAccount name：Company Name\nSWIFT/BIC code：ABCDEFGH\nBank name：Bank of Example\nBank address：123 Main St\nCountry/region：China\nFor the payment of goods, please make a USD Payment`}
-                    />
-                  </div>
-                  <div className="border-t pt-4">
-                    <button
-                      onClick={handleBankInfoSave}
-                      disabled={bankInfoSaving}
-                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {bankInfoSaving ? '保存中...' : '保存银行信息'}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Bank accounts (multi) + PI templates */}
+            <BankAccountsPanel />
+            <PITemplatesPanel />
 
             {/* System Parameters Section */}
             <div className="rounded-lg border border-gray-200 bg-white p-6">

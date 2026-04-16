@@ -591,22 +591,96 @@ model ProformaInvoice {
   shippingCharge     Decimal         @default(0) @map("shipping_charge") @db.Decimal(12, 2)
   other              Decimal         @default(0) @db.Decimal(12, 2)
   totalAmount        Decimal         @default(0) @map("total_amount") @db.Decimal(12, 2)
+  bankAccountId      String?         @map("bank_account_id")
+  templateId         String?         @map("template_id")
   approverId         String?         @map("approver_id")
   approvedAt         DateTime?       @map("approved_at")
   rejectionReason    String?         @map("rejection_reason")
   createdAt          DateTime        @default(now()) @map("created_at")
   updatedAt          DateTime        @updatedAt @map("updated_at")
 
-  customer   Customer                @relation(fields: [customerId], references: [id])
-  owner      User                    @relation("PIsOwned", fields: [ownerId], references: [id])
-  approver   User?                   @relation("PIsApproved", fields: [approverId], references: [id])
-  items      ProformaInvoiceItem[]
+  customer    Customer                @relation(fields: [customerId], references: [id])
+  owner       User                    @relation("PIsOwned", fields: [ownerId], references: [id])
+  approver    User?                   @relation("PIsApproved", fields: [approverId], references: [id])
+  bankAccount BankAccount?            @relation(fields: [bankAccountId], references: [id])
+  template    PITemplate?             @relation(fields: [templateId], references: [id])
+  items       ProformaInvoiceItem[]
 
   @@index([piNo])
   @@index([customerId])
   @@index([ownerId])
   @@index([status])
+  @@index([bankAccountId])
+  @@index([templateId])
   @@map("proforma_invoices")
+}
+
+// ==================== 银行账户（收款账户） ====================
+// 公司可以同时拥有多个收款账户（例如：美元户、欧元户、人民币户），
+// 在开具 PI 时业务员可以按币种 / 客户需求选择对应银行信息。
+// alias 是给业务员在下拉里快速识别用的简称（如 "招行 USD"）。
+model BankAccount {
+  id            String   @id @default(uuid())
+  alias         String   // 简称，供下拉选择显示
+  accountName   String?  @map("account_name")
+  accountNumber String?  @map("account_number")
+  bankName      String?  @map("bank_name")
+  bankAddress   String?  @map("bank_address") @db.Text
+  swiftCode     String?  @map("swift_code")
+  currency      String?
+  country       String?
+  branchName    String?  @map("branch_name")
+  routingNumber String?  @map("routing_number")
+  iban          String?
+  paymentMemo   String?  @map("payment_memo") @db.Text
+  extraInfo     String?  @map("extra_info") @db.Text
+  isDefault     Boolean  @default(false) @map("is_default")
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  proformaInvoices ProformaInvoice[]
+  templates        PITemplate[]
+
+  @@index([isDefault])
+  @@index([sortOrder])
+  @@map("bank_accounts")
+}
+
+// ==================== 形式发票模板 ====================
+// 管理员可以预设多个 PI 模板（例如：海运默认、样品单、空运默认），
+// 每个模板记录该场景下常用的贸易条款、付款方式、运输方式等字段；
+// 业务员开 PI 时选一个模板即可自动填充，不用每次手动输入。
+model PITemplate {
+  id               String           @id @default(uuid())
+  name             String           // 模板名称（如："海运 CIF 模板"）
+  description      String?
+  isDefault        Boolean          @default(false) @map("is_default")
+
+  currency         String?          @default("USD")
+  tradeTerm        TradeTermType?   @map("trade_term")
+  paymentTerm      PaymentTermType? @map("payment_term")
+  shippingMethod   String?          @map("shipping_method")
+  paymentMethod    String?          @map("payment_method")
+  portOfLoading    String?          @map("port_of_loading")
+  portOfDischarge  String?          @map("port_of_discharge")
+  placeOfDelivery  String?          @map("place_of_delivery")
+  countryOfOrigin  String?          @map("country_of_origin")
+  termsOfDelivery  String?          @map("terms_of_delivery") @db.Text
+  notes            String?          @db.Text
+  validityPeriod   Int?             @map("validity_period")
+  bankAccountId    String?          @map("bank_account_id")
+
+  sortOrder        Int              @default(0) @map("sort_order")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  bankAccount      BankAccount?     @relation(fields: [bankAccountId], references: [id])
+  proformaInvoices ProformaInvoice[]
+
+  @@index([isDefault])
+  @@index([sortOrder])
+  @@map("pi_templates")
 }
 
 model ProformaInvoiceItem {

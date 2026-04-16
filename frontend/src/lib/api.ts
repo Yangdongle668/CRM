@@ -291,10 +291,36 @@ export const settingsApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
   getLogo: () => api.get('/settings/logo'),
+  // Legacy single-bank endpoint (kept for backwards compat with setup scripts)
   getBankInfo: () => api.get('/settings/bank-info'),
   updateBankInfo: (data: any) => api.put('/settings/bank-info', data),
   getCompanyInfo: () => api.get('/settings/company-info'),
   updateCompanyInfo: (data: any) => api.put('/settings/company-info', data),
+};
+
+// ==================== Bank Accounts API ====================
+// Multi-bank support: a company can maintain several accounts (USD / EUR /
+// CNY, different banks, etc.) and a PI picks one when it's issued.
+export const bankAccountsApi = {
+  list: () => api.get('/settings/bank-accounts'),
+  getById: (id: string) => api.get(`/settings/bank-accounts/${id}`),
+  create: (data: any) => api.post('/settings/bank-accounts', data),
+  update: (id: string, data: any) => api.put(`/settings/bank-accounts/${id}`, data),
+  delete: (id: string) => api.delete(`/settings/bank-accounts/${id}`),
+  setDefault: (id: string) => api.patch(`/settings/bank-accounts/${id}/default`, {}),
+};
+
+// ==================== PI Templates API ====================
+// Reusable PI presets (trade term, payment method, shipping method, default
+// bank account, ...). Salespeople pick one when creating a PI and the fields
+// get copied into the form.
+export const piTemplatesApi = {
+  list: () => api.get('/settings/pi-templates'),
+  getById: (id: string) => api.get(`/settings/pi-templates/${id}`),
+  create: (data: any) => api.post('/settings/pi-templates', data),
+  update: (id: string, data: any) => api.put(`/settings/pi-templates/${id}`, data),
+  delete: (id: string) => api.delete(`/settings/pi-templates/${id}`),
+  setDefault: (id: string) => api.patch(`/settings/pi-templates/${id}/default`, {}),
 };
 
 // ==================== Proforma Invoice (PI) API ====================
