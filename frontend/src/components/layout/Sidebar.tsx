@@ -23,6 +23,7 @@ import {
   HiOutlineBookOpen,
   HiOutlineChartBar,
   HiOutlineChatBubbleLeftRight,
+  HiOutlineShieldCheck,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -30,6 +31,8 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   adminOnly?: boolean;
+  /** Optional permission code; when set, the item shows only if user has it. */
+  permission?: string;
 }
 
 const navItems: NavItem[] = [
@@ -45,6 +48,7 @@ const navItems: NavItem[] = [
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
   { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
   { label: '管理中心', href: '/admin', icon: HiOutlineChartBar, adminOnly: true },
+  { label: '审计日志', href: '/admin/audit-logs', icon: HiOutlineShieldCheck, permission: 'audit:read' },
   { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth },
 ];
 
@@ -52,7 +56,7 @@ export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const { logoUrl } = useLogo();
 
   useEffect(() => {
@@ -104,8 +108,9 @@ export default function Sidebar() {
       <nav className="flex-1 overflow-y-auto px-3 py-3">
         <ul className="space-y-0.5">
           {navItems.map((item) => {
+            if (item.permission && can && !can(item.permission)) return null;
             if (item.adminOnly && user?.role !== 'ADMIN') return null;
-            if (user?.role === 'FINANCE' && item.href !== '/orders' && item.href !== '/settings') return null;
+            if (user?.role === 'FINANCE' && item.href !== '/orders' && item.href !== '/settings' && !item.permission) return null;
             const Icon = item.icon;
             const active = isActive(item.href);
 

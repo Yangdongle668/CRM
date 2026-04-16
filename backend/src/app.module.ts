@@ -23,6 +23,7 @@ import { MessagesModule } from './modules/messages/messages.module';
 import { RatesModule } from './modules/rates/rates.module';
 import { QueueModule } from './queue/queue.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
+import { AuditModule } from './modules/audit/audit.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { PermissionsModule } from './common/permissions/permissions.module';
     QueueModule,
     PrismaModule,
     PermissionsModule,
+    AuditModule,
     AuthModule,
     UsersModule,
     CustomersModule,

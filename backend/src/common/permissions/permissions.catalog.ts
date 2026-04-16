@@ -99,6 +99,9 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   // ---- RBAC ----
   { code: 'rbac:read',   name: '查看角色权限', category: 'rbac' },
   { code: 'rbac:update', name: '配置角色权限', category: 'rbac' },
+
+  // ---- Audit log ----
+  { code: 'audit:read', name: '查看审计日志', category: 'audit' },
 ];
 
 /**

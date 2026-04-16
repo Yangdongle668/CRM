@@ -4,8 +4,10 @@ import {
   Get,
   Put,
   Param,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { CurrentUser } from '../decorators/current-user.decorator';
@@ -14,6 +16,7 @@ import { PermissionsGuard } from './permissions.guard';
 import { RequirePermissions } from './require-permissions.decorator';
 import { PERMISSION_CATALOG } from './permissions.catalog';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../modules/audit/audit.service';
 
 /**
  * RBAC admin endpoints:
@@ -30,6 +33,7 @@ export class PermissionsController {
   constructor(
     private readonly permissionsService: PermissionsService,
     private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
   ) {}
 
   /** Any authenticated user can ask for their own effective permissions. */
@@ -57,6 +61,7 @@ export class PermissionsController {
   async setRolePermissions(
     @Param('role') role: string,
     @Body() body: { permissions: string[] },
+    @Req() req: Request,
   ) {
     if (role === 'ADMIN') {
       return {
@@ -65,6 +70,7 @@ export class PermissionsController {
         message: 'ADMIN 角色默认拥有全部权限，无需配置',
       };
     }
+    const before = await this.permissionsService.listForRole(role);
     const codes = Array.isArray(body?.permissions) ? body.permissions : [];
     const permissions = await this.prisma.permission.findMany({
       where: { code: { in: codes } },
@@ -80,9 +86,22 @@ export class PermissionsController {
     ]);
 
     this.permissionsService.invalidateRole(role);
+    const after = permissions.map((p) => p.code).sort();
+    await this.auditService.logFromRequest(req, {
+      action: 'rbac.role.update',
+      targetType: 'role',
+      targetId: role,
+      targetLabel: role,
+      metadata: {
+        before,
+        after,
+        added: after.filter((c) => !before.includes(c)),
+        removed: before.filter((c) => !after.includes(c)),
+      },
+    });
     return {
       role,
-      permissions: permissions.map((p) => p.code).sort(),
+      permissions: after,
     };
   }
 }

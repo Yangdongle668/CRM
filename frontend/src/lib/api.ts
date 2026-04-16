@@ -296,3 +296,8 @@ export const rbacApi = {
   setRolePermissions: (role: string, permissions: string[]) =>
     api.put(`/rbac/roles/${role}/permissions`, { permissions }),
 };
+
+// ==================== Audit Log API ====================
+export const auditApi = {
+  list: (params: Record<string, any>) => api.get('/audit-logs', { params }),
+};
