@@ -19,6 +19,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EmailsService } from './emails.service';
+import { EmailTrackingService } from './email-tracking.service';
 import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 
@@ -33,7 +34,10 @@ const TRACKING_PIXEL = Buffer.from(
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('emails')
 export class EmailsController {
-  constructor(private readonly emailsService: EmailsService) {}
+  constructor(
+    private readonly emailsService: EmailsService,
+    private readonly tracking: EmailTrackingService,
+  ) {}
 
   // ==================== Email Account Config ====================
 
@@ -74,12 +78,25 @@ export class EmailsController {
     return this.emailsService.fetchEmails(user.id, id);
   }
 
-  // ==================== Tracking Pixel ====================
+  // ==================== Tracking — Pixel ====================
 
+  /**
+   * Pixel open tracker. Public (no auth — the recipient's mail client
+   * fetches this). Never fails — any error is swallowed so we still
+   * serve the image (otherwise mail clients retry / report "broken image").
+   *
+   * Dedup, bot detection, and confidence updates happen inside
+   * EmailTrackingService.recordOpen().
+   */
   @Public()
   @Get('track/:id/pixel.png')
-  async trackOpen(@Param('id') id: string, @Res() res: Response) {
-    this.emailsService.recordView(id).catch(() => {});
+  async trackOpen(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    // fire-and-forget so the image returns instantly
+    this.tracking.recordOpen(id, req).catch(() => {});
 
     res.set({
       'Content-Type': 'image/gif',
@@ -89,6 +106,61 @@ export class EmailsController {
       Expires: '0',
     });
     res.end(TRACKING_PIXEL);
+  }
+
+  /**
+   * Click tracker. Public. Records the click, then 302s to the original URL.
+   * Requires a valid HMAC token (t=) — otherwise the user gets a 400 rather
+   * than redirecting anywhere, which prevents the endpoint from being used
+   * as an open-redirect.
+   */
+  @Public()
+  @Get('track/:id/click/:linkId')
+  async trackClick(
+    @Param('id') id: string,
+    @Param('linkId') linkId: string,
+    @Query('t') token: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const url = await this.tracking.recordClick(id, linkId, token, req);
+    if (!url) {
+      res.status(400).send('Invalid or expired tracking link');
+      return;
+    }
+    res.redirect(302, url);
+  }
+
+  /**
+   * Full tracking report for a single email — all opens + clicks +
+   * rewritten link list + confidence score. Gated by the usual auth.
+   */
+  @Get(':id/tracking')
+  async getTracking(@Param('id') id: string) {
+    return this.tracking.getTrackingDetail(id);
+  }
+
+  // ==================== Per-account Signature ====================
+
+  @Get('accounts/:id/signature')
+  async getSignature(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+  ) {
+    return this.emailsService.getAccountSignature(user.id, id);
+  }
+
+  @Put('accounts/:id/signature')
+  async updateSignature(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() body: { signature: string },
+  ) {
+    return this.emailsService.updateAccountSignature(
+      user.id,
+      id,
+      body?.signature ?? '',
+    );
   }
 
   // ==================== Email Operations ====================

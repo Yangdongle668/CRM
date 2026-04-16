@@ -17,6 +17,7 @@ import {
   QUEUE_EMAIL,
   EMAIL_JOB_SEND,
 } from '../../queue/queue.constants';
+import { EmailTrackingService } from './email-tracking.service';
 
 @Injectable()
 export class EmailsService {
@@ -24,6 +25,7 @@ export class EmailsService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly tracking: EmailTrackingService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -380,10 +382,14 @@ export class EmailsService {
       : config.emailAddr;
 
     const appUrl = opts.requestOrigin || '';
-    const trackingPixel = appUrl
-      ? `<img src="${appUrl}/api/emails/track/${emailRecord.id}/pixel.png" width="1" height="1" style="display:none;border:0;" alt="" />`
-      : '';
-    const htmlWithTracking = (emailRecord.bodyHtml || '') + trackingPixel;
+    // Multi-signal tracking: rewrite every <a href> through the click
+    // redirector AND append a 1×1 pixel. Pixel alone is blocked by Gmail
+    // proxy caching / Apple MPP; wrapped links pick up the slack.
+    const htmlWithTracking = await this.tracking.rewriteEmailHtml(
+      emailRecord.id,
+      emailRecord.bodyHtml || '',
+      appUrl,
+    );
 
     const mailOptions: any = {
       from: fromAddress,
@@ -796,6 +802,40 @@ export class EmailsService {
     }
 
     return email;
+  }
+
+  // ==================== Per-account Signature ====================
+
+  /** Load an account's signature (scoped to the caller). */
+  async getAccountSignature(userId: string, configId: string) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+      select: { id: true, emailAddr: true, fromName: true, signature: true },
+    });
+    if (!config) {
+      throw new NotFoundException('Email account not found');
+    }
+    return { config };
+  }
+
+  /** Replace an account's signature (HTML allowed). */
+  async updateAccountSignature(
+    userId: string,
+    configId: string,
+    signature: string,
+  ) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+    });
+    if (!config) {
+      throw new NotFoundException('Email account not found');
+    }
+    const updated = await this.prisma.emailConfig.update({
+      where: { id: configId },
+      data: { signature: signature || null },
+      select: { id: true, emailAddr: true, fromName: true, signature: true },
+    });
+    return { config: updated };
   }
 
   async recordView(emailId: string) {

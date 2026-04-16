@@ -308,19 +308,102 @@ model Email {
   flagged       Boolean        @default(false)
   sentAt        DateTime?      @map("sent_at")
   receivedAt    DateTime?      @map("received_at")
+  // Legacy fields kept for backward compat with the existing UI:
+  //   viewedAt  = first pixel load (any kind, incl. prefetch)
+  //   viewCount = raw pixel hit counter (may be inflated by proxies)
   viewedAt      DateTime?      @map("viewed_at")
   viewCount     Int            @default(0) @map("view_count")
+  // ---- Multi-signal tracking ----
+  // First time a HUMAN open signal was registered (not prefetch/proxy).
+  firstHumanOpenAt DateTime?   @map("first_human_open_at")
+  // Latest open (any kind).
+  lastOpenedAt     DateTime?   @map("last_opened_at")
+  // Total click-through events on any tracked link.
+  totalClicks      Int         @default(0) @map("total_clicks")
+  // 0..1 confidence that the recipient has actually read the email.
+  // Computed deterministically from open / click events — see
+  // EmailTrackingService.computeConfidence().
+  openConfidence   Float       @default(0) @map("open_confidence")
   customerId    String?        @map("customer_id")
   senderId      String?        @map("sender_id")
   createdAt     DateTime       @default(now()) @map("created_at")
   updatedAt     DateTime       @updatedAt @map("updated_at")
 
-  thread       EmailThread?  @relation(fields: [threadId], references: [id])
-  emailConfig  EmailConfig?  @relation("EmailAccount", fields: [emailConfigId], references: [id], onDelete: Cascade)
-  customer     Customer?     @relation(fields: [customerId], references: [id])
-  sender       User?         @relation("SentEmails", fields: [senderId], references: [id])
+  thread       EmailThread?    @relation(fields: [threadId], references: [id])
+  emailConfig  EmailConfig?    @relation("EmailAccount", fields: [emailConfigId], references: [id], onDelete: Cascade)
+  customer     Customer?       @relation(fields: [customerId], references: [id])
+  sender       User?           @relation("SentEmails", fields: [senderId], references: [id])
+  openEvents   EmailOpenEvent[]
+  clickEvents  EmailClickEvent[]
+  links        EmailLink[]
 
   @@map("emails")
+}
+
+// ==================== 邮件追踪：打开事件 ====================
+// Every pixel hit (after dedup) produces a row here. Even Gmail proxy /
+// Apple Mail Privacy Protection prefetches are recorded — they just get
+// a non-HUMAN `kind`, which the confidence scorer weights lower.
+model EmailOpenEvent {
+  id        String   @id @default(uuid())
+  emailId   String   @map("email_id")
+  email     Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  openedAt  DateTime @default(now()) @map("opened_at")
+  ip        String?
+  userAgent String?  @map("user_agent") @db.Text
+  referer   String?  @db.Text
+  // HUMAN   : UA is a real mail client rendering images
+  // PROXY   : Gmail image proxy / Yahoo Mail proxy
+  // PREFETCH: Apple Mail Privacy Protection / background fetchers
+  // BOT     : link scanners / crawlers / security gateways
+  // DUP     : same IP+UA fired within the dedup window
+  kind      String   @default("HUMAN")
+  // Optional source marker: PIXEL (default) | CLICK_INFERRED
+  source    String   @default("PIXEL")
+
+  @@index([emailId])
+  @@index([openedAt])
+  @@map("email_open_events")
+}
+
+// ==================== 邮件追踪：点击事件 ====================
+// Produced by the click redirect endpoint. A click is the strongest
+// evidence of a real human read (images can be blocked, but following
+// a link requires the user to act).
+model EmailClickEvent {
+  id        String   @id @default(uuid())
+  emailId   String   @map("email_id")
+  email     Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  linkId    String   @map("link_id")
+  url       String   @db.Text
+  clickedAt DateTime @default(now()) @map("clicked_at")
+  ip        String?
+  userAgent String?  @map("user_agent") @db.Text
+  referer   String?  @db.Text
+  kind      String   @default("HUMAN")
+
+  @@index([emailId])
+  @@index([clickedAt])
+  @@map("email_click_events")
+}
+
+// ==================== 邮件追踪：被重写的链接 ====================
+// The HTML of outbound emails is rewritten at send-time so every <a href>
+// becomes /api/emails/track/:emailId/click/:linkId. We persist the
+// original URL + deterministic linkId so the click endpoint can redirect
+// and so admins can see "which links were in the email".
+model EmailLink {
+  id       String @id @default(uuid())
+  emailId  String @map("email_id")
+  email    Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+  linkId   String @map("link_id")
+  url      String @db.Text
+  label    String? @db.Text
+  position Int    @default(0)
+
+  @@unique([emailId, linkId])
+  @@index([emailId])
+  @@map("email_links")
 }
 
 model EmailThread {

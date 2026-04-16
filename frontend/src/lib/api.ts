@@ -155,6 +155,15 @@ export const emailsApi = {
 
   // Threads
   getThreadEmails: (threadId: string) => api.get(`/emails/threads/${threadId}`),
+
+  // Tracking (open / click audit trail + confidence score)
+  getTracking: (id: string) => api.get(`/emails/${id}/tracking`),
+
+  // Per-account signature (dedicated endpoints — HTML signatures supported)
+  getSignature: (accountId: string) =>
+    api.get(`/emails/accounts/${accountId}/signature`),
+  updateSignature: (accountId: string, signature: string) =>
+    api.put(`/emails/accounts/${accountId}/signature`, { signature }),
 };
 
 // ==================== Quotations API ====================
