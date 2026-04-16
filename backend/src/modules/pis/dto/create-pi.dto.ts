@@ -105,6 +105,14 @@ export class CreatePIDto {
   @IsNumber()
   other?: number;
 
+  @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  templateId?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreatePIItemDto)

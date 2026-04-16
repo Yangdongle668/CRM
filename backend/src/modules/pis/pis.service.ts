@@ -78,6 +78,8 @@ export class PIsService {
         shippingCharge,
         other,
         totalAmount,
+        bankAccountId: dto.bankAccountId || null,
+        templateId: dto.templateId || null,
         items: {
           create: items,
         },
@@ -86,6 +88,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -126,6 +130,8 @@ export class PIsService {
           customer: { select: { id: true, companyName: true } },
           owner: { select: { id: true, name: true } },
           approver: { select: { id: true, name: true } },
+          bankAccount: { select: { id: true, alias: true, currency: true } },
+          template: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip,
@@ -144,6 +150,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -181,6 +189,8 @@ export class PIsService {
     if (dto.termsOfDelivery !== undefined) updateData.termsOfDelivery = dto.termsOfDelivery;
     if (dto.notes !== undefined) updateData.notes = dto.notes;
     if (dto.validityPeriod !== undefined) updateData.validityPeriod = dto.validityPeriod;
+    if (dto.bankAccountId !== undefined) updateData.bankAccountId = dto.bankAccountId || null;
+    if (dto.templateId !== undefined) updateData.templateId = dto.templateId || null;
 
     if (dto.items !== undefined) {
       await this.prisma.proformaInvoiceItem.deleteMany({ where: { piId: id } });
@@ -235,6 +245,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -264,6 +276,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -297,6 +311,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -330,6 +346,8 @@ export class PIsService {
         customer: true,
         owner: { select: { id: true, name: true, email: true } },
         approver: { select: { id: true, name: true } },
+        bankAccount: true,
+        template: true,
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
@@ -342,8 +360,10 @@ export class PIsService {
       throw new ForbiddenException('Cannot generate PDF for unapproved PIs');
     }
 
+    // If this PI picked a specific bank account, use it; otherwise fall back
+    // to the default bank account (getBankInfoForPi handles that).
     const [bankInfo, logoUrl] = await Promise.all([
-      this.settingsService.getBankInfo(),
+      this.settingsService.getBankInfoForPi(pi.bankAccountId),
       this.settingsService.getLogoUrl(),
     ]);
 

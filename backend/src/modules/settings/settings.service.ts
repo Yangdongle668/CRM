@@ -3,6 +3,54 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { BankInfoDto } from './dto/bank-info.dto';
 
+/**
+ * Format a BankAccount row as the multi-line text block that the PI PDF
+ * generator expects. Only non-empty fields are rendered, in a stable order
+ * mirroring what most shipping banks ask for.
+ */
+export function formatBankAccountAsText(account: {
+  alias?: string | null;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  bankName?: string | null;
+  bankAddress?: string | null;
+  swiftCode?: string | null;
+  branchName?: string | null;
+  routingNumber?: string | null;
+  iban?: string | null;
+  currency?: string | null;
+  country?: string | null;
+  paymentMemo?: string | null;
+  extraInfo?: string | null;
+}): string {
+  const lines: string[] = [];
+  const push = (label: string, value?: string | null) => {
+    if (value && value.trim()) lines.push(`${label}: ${value.trim()}`);
+  };
+
+  push('Account number', account.accountNumber);
+  push('Account name', account.accountName);
+  push('SWIFT/BIC code', account.swiftCode);
+  push('IBAN', account.iban);
+  push('Routing number', account.routingNumber);
+  push('Bank name', account.bankName);
+  push('Branch', account.branchName);
+  push('Bank address', account.bankAddress);
+  push('Country/region', account.country);
+  push('Currency', account.currency);
+
+  if (account.paymentMemo && account.paymentMemo.trim()) {
+    lines.push(account.paymentMemo.trim());
+  }
+  if (account.extraInfo && account.extraInfo.trim()) {
+    for (const line of account.extraInfo.split('\n')) {
+      if (line.trim()) lines.push(line.trim());
+    }
+  }
+
+  return lines.join('\n');
+}
+
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,21 +98,51 @@ export class SettingsService {
     return setting?.value || null;
   }
 
-  async getBankInfo(): Promise<any | null> {
+  /**
+   * Return the default bank info block used by the PI PDF generator when
+   * a PI does not reference a specific BankAccount. Falls back to the
+   * legacy `bank_info_text` system setting if no default BankAccount row
+   * exists yet (first-time install).
+   */
+  async getBankInfo(): Promise<{ bankInfoText: string } | null> {
+    const defaultAccount = await this.prisma.bankAccount.findFirst({
+      where: { isDefault: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    if (defaultAccount) {
+      const text = formatBankAccountAsText(defaultAccount);
+      return text ? { bankInfoText: text } : null;
+    }
+
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: 'bank_info_text' },
     });
+    if (!setting) return null;
+    return { bankInfoText: setting.value };
+  }
 
-    if (!setting) {
-      return null;
+  /**
+   * Resolve the bank info block to embed in a PI PDF:
+   *   1. If the PI picked a specific BankAccount → format & return it.
+   *   2. Otherwise fall back to the default BankAccount (getBankInfo).
+   */
+  async getBankInfoForPi(bankAccountId?: string | null): Promise<{ bankInfoText: string } | null> {
+    if (bankAccountId) {
+      const account = await this.prisma.bankAccount.findUnique({
+        where: { id: bankAccountId },
+      });
+      if (account) {
+        const text = formatBankAccountAsText(account);
+        return text ? { bankInfoText: text } : null;
+      }
     }
-
-    return {
-      bankInfoText: setting.value,
-    };
+    return this.getBankInfo();
   }
 
   async updateBankInfo(data: { bankInfoText?: string }) {
+    // Kept for backward compatibility with old admin setup scripts. New UI
+    // should use the `/settings/bank-accounts` endpoints instead.
     if (data.bankInfoText === undefined) {
       return this.getBankInfo();
     }

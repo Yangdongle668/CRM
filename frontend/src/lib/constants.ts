@@ -97,7 +97,72 @@ export const ROLE_MAP: Record<string, string> = {
 };
 
 // 货币
-export const CURRENCIES = ['USD', 'EUR', 'GBP', 'CNY', 'JPY'];
+export const CURRENCIES = ['USD', 'EUR', 'GBP', 'CNY', 'JPY', 'AUD', 'CAD', 'HKD', 'SGD'];
+
+// ==================== 形式发票 (PI) 选项 ====================
+
+// PI 状态
+export const PI_STATUS_MAP: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-700' },
+  PENDING_APPROVAL: { label: '待审核', color: 'bg-amber-100 text-amber-700' },
+  APPROVED: { label: '已批准', color: 'bg-emerald-100 text-emerald-700' },
+  REJECTED: { label: '已拒绝', color: 'bg-red-100 text-red-700' },
+};
+
+// 贸易术语（国际贸易 Incoterms）
+export const TRADE_TERMS: Array<{ value: string; label: string; desc: string }> = [
+  { value: 'EXW', label: 'EXW', desc: '工厂交货' },
+  { value: 'FCA', label: 'FCA', desc: '货交承运人' },
+  { value: 'FAS', label: 'FAS', desc: '船边交货' },
+  { value: 'FOB', label: 'FOB', desc: '船上交货' },
+  { value: 'CFR', label: 'CFR', desc: '成本加运费' },
+  { value: 'CIF', label: 'CIF', desc: '成本、保险加运费' },
+  { value: 'CIP', label: 'CIP', desc: '运费、保险费付至' },
+  { value: 'DPU', label: 'DPU', desc: '卸货地交货' },
+  { value: 'DDP', label: 'DDP', desc: '完税后交货' },
+];
+
+// 付款条款
+export const PAYMENT_TERMS: Array<{ value: string; label: string }> = [
+  { value: 'T_30', label: '30% 预付 / 70% 发货前付清' },
+  { value: 'T_50', label: '50% 预付 / 50% 发货前付清' },
+  { value: 'T_70', label: '70% 预付 / 30% 发货前付清' },
+  { value: 'T_100', label: '100% 预付' },
+];
+
+// 运输方式（下拉选择，中英文双显）
+export const SHIPPING_METHODS: Array<{ value: string; label: string }> = [
+  { value: 'By Sea', label: '海运 (By Sea)' },
+  { value: 'By Air', label: '空运 (By Air)' },
+  { value: 'By Express', label: '国际快递 (DHL / FedEx / UPS / TNT)' },
+  { value: 'By Land', label: '陆运 (By Truck)' },
+  { value: 'By Rail', label: '铁路运输 (By Rail)' },
+  { value: 'By Post', label: '邮寄 (By Post / EMS)' },
+  { value: 'Multimodal', label: '多式联运 (Multimodal Transport)' },
+];
+
+// 付款方式（下拉选择，以外贸常用方式为主）
+export const PAYMENT_METHODS: Array<{ value: string; label: string }> = [
+  { value: 'T/T', label: '电汇 (T/T - Telegraphic Transfer)' },
+  { value: 'L/C', label: '信用证 (L/C - Letter of Credit)' },
+  { value: 'L/C at sight', label: '即期信用证 (L/C at sight)' },
+  { value: 'D/P', label: '付款交单 (D/P - Documents against Payment)' },
+  { value: 'D/A', label: '承兑交单 (D/A - Documents against Acceptance)' },
+  { value: 'O/A', label: '赊账 (O/A - Open Account)' },
+  { value: 'PayPal', label: 'PayPal' },
+  { value: 'Western Union', label: '西联汇款 (Western Union)' },
+  { value: 'Alipay', label: '支付宝 (Alipay)' },
+  { value: 'Cash', label: '现金 (Cash)' },
+  { value: 'Other', label: '其他 (Other)' },
+];
+
+// 常用装货 / 卸货港口（中国主要港口 + 国际常见港口）
+export const COMMON_PORTS: string[] = [
+  'Shanghai, China', 'Shenzhen, China', 'Ningbo, China', 'Qingdao, China',
+  'Guangzhou, China', 'Tianjin, China', 'Xiamen, China', 'Dalian, China',
+  'Hong Kong', 'Singapore', 'Busan, Korea', 'Tokyo, Japan',
+  'Los Angeles, USA', 'New York, USA', 'Hamburg, Germany', 'Rotterdam, Netherlands',
+];
 
 // 国家/地区（按区域分组，覆盖主要外贸伙伴国）
 export const COUNTRIES = [

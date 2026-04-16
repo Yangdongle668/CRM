@@ -395,11 +395,18 @@ export interface ProformaInvoice {
   portOfDischarge?: string;
   placeOfDelivery?: string;
   paymentMethod?: string;
+  countryOfOrigin?: string;
+  termsOfDelivery?: string;
+  notes?: string;
   validityPeriod: number;
   subtotal: number;
   shippingCharge: number;
   other: number;
   totalAmount: number;
+  bankAccountId?: string | null;
+  bankAccount?: BankAccount | null;
+  templateId?: string | null;
+  template?: PITemplate | null;
   approverId?: string;
   approver?: User;
   approvedAt?: string;
@@ -409,6 +416,54 @@ export interface ProformaInvoice {
   updatedAt: string;
 }
 
+// ==================== 银行账户 ====================
+export interface BankAccount {
+  id: string;
+  alias: string;
+  accountName?: string | null;
+  accountNumber?: string | null;
+  bankName?: string | null;
+  bankAddress?: string | null;
+  swiftCode?: string | null;
+  currency?: string | null;
+  country?: string | null;
+  branchName?: string | null;
+  routingNumber?: string | null;
+  iban?: string | null;
+  paymentMemo?: string | null;
+  extraInfo?: string | null;
+  isDefault: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==================== PI 模板 ====================
+export interface PITemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  isDefault: boolean;
+  currency?: string | null;
+  tradeTerm?: TradeTermType | null;
+  paymentTerm?: PaymentTermType | null;
+  shippingMethod?: string | null;
+  paymentMethod?: string | null;
+  portOfLoading?: string | null;
+  portOfDischarge?: string | null;
+  placeOfDelivery?: string | null;
+  countryOfOrigin?: string | null;
+  termsOfDelivery?: string | null;
+  notes?: string | null;
+  validityPeriod?: number | null;
+  bankAccountId?: string | null;
+  bankAccount?: BankAccount | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Legacy — still referenced by a few places for the single bank info text.
 export interface BankInfo {
   accountNumber?: string;
   holderName?: string;

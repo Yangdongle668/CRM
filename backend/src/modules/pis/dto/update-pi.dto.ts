@@ -106,6 +106,14 @@ export class UpdatePIDto {
   other?: number;
 
   @IsOptional()
+  @IsString()
+  bankAccountId?: string;
+
+  @IsOptional()
+  @IsString()
+  templateId?: string;
+
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => UpdatePIItemDto)
