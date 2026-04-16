@@ -231,8 +231,9 @@ export default function PIDetailPage() {
 
     setSaving(true);
     try {
-      const submitData = {
-        customerId: formData.customerId,
+      // The UpdatePIDto doesn't accept customerId (the customer of a PI
+      // is fixed at creation time), so only include it for new PIs.
+      const submitData: Record<string, any> = {
         sellerId: formData.sellerId,
         sellerAddress: formData.sellerAddress,
         consigneeName: formData.consigneeName,
@@ -265,7 +266,10 @@ export default function PIDetailPage() {
       };
 
       if (isNew) {
-        const res: any = await pisApi.create(submitData);
+        const res: any = await pisApi.create({
+          ...submitData,
+          customerId: formData.customerId,
+        });
         const created = res.data || res;
         toast.success('PI创建成功');
         router.push(`/pis/${created.id}`);
