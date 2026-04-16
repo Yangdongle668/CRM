@@ -1,13 +1,11 @@
 import {
   IsBoolean,
   IsEmail,
-  IsEnum,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 
 export class UpdateUserDto {
   @ApiPropertyOptional({ example: 'user@example.com' })
@@ -26,10 +24,12 @@ export class UpdateUserDto {
   @IsOptional()
   name?: string;
 
-  @ApiPropertyOptional({ enum: Role, example: Role.SALESPERSON })
-  @IsEnum(Role)
+  // role 是 Role.code 字符串，运行期由 /admin/rbac 管理（含自定义角色）。
+  // 这里不做 enum 校验，改由 UsersService 与 RBAC API 负责校验有效性。
+  @ApiPropertyOptional({ example: 'SALESPERSON' })
+  @IsString()
   @IsOptional()
-  role?: Role;
+  role?: string;
 
   @ApiPropertyOptional({ example: '+1234567890' })
   @IsString()
