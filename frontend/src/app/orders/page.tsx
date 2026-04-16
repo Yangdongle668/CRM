@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
 import { ordersApi, customersApi, documentsApi } from '@/lib/api';
+import { useAuth } from '@/contexts/auth-context';
 import { ORDER_STATUS_MAP, PAYMENT_STATUS_MAP, CURRENCIES } from '@/lib/constants';
 import toast from 'react-hot-toast';
 import type {
@@ -42,6 +43,9 @@ const defaultForm = {
 };
 
 export default function OrdersPage() {
+  const { user } = useAuth();
+  const isFinance = user?.role === 'FINANCE';
+
   // ---------- list state ----------
   const [orders, setOrders] = useState<Order[]>([]);
   const [total, setTotal] = useState(0);
@@ -136,25 +140,31 @@ export default function OrdersPage() {
   };
 
   // ---------- open edit modal ----------
-  const openEdit = (o: Order) => {
-    setEditingId(o.id);
-    setForm({
-      customerId: o.customerId,
-      title: o.title,
-      currency: o.currency,
-      costTypes: o.costTypes ?? [],
-      floorPrice: o.floorPrice != null ? String(o.floorPrice) : '',
-      shippingAddr: o.shippingAddr ?? '',
-      shippingDate: o.shippingDate ? o.shippingDate.slice(0, 10) : '',
-      trackingNo: o.trackingNo ?? '',
-      remark: o.remark ?? '',
-    });
-    setItems(
-      o.items.length > 0
-        ? o.items.map((i) => ({ ...i }))
-        : [{ ...emptyItem }]
-    );
-    setModalOpen(true);
+  const openEdit = async (o: Order) => {
+    try {
+      const res: any = await ordersApi.getById(o.id);
+      const full: Order = res.data;
+      setEditingId(full.id);
+      setForm({
+        customerId: full.customerId,
+        title: full.title,
+        currency: full.currency,
+        costTypes: full.costTypes ?? [],
+        floorPrice: full.floorPrice != null ? String(full.floorPrice) : '',
+        shippingAddr: full.shippingAddr ?? '',
+        shippingDate: full.shippingDate ? full.shippingDate.slice(0, 10) : '',
+        trackingNo: full.trackingNo ?? '',
+        remark: full.remark ?? '',
+      });
+      setItems(
+        full.items?.length > 0
+          ? full.items.map((i) => ({ ...i }))
+          : [{ ...emptyItem }]
+      );
+      setModalOpen(true);
+    } catch {
+      // error handled by interceptor
+    }
   };
 
   // ---------- open detail ----------
@@ -326,12 +336,14 @@ export default function OrdersPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">订单管理</h1>
-          <button
-            onClick={openCreate}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            新建订单
-          </button>
+          {!isFinance && (
+            <button
+              onClick={openCreate}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              新建订单
+            </button>
+          )}
         </div>
 
         {/* Filters */}
@@ -455,18 +467,22 @@ export default function OrdersPage() {
                             >
                               查看
                             </button>
-                            <button
-                              onClick={() => openEdit(o)}
-                              className="text-indigo-600 hover:text-indigo-800"
-                            >
-                              编辑
-                            </button>
-                            <button
-                              onClick={() => handleDelete(o.id)}
-                              className="text-red-600 hover:text-red-800"
-                            >
-                              删除
-                            </button>
+                            {!isFinance && (
+                              <>
+                                <button
+                                  onClick={() => openEdit(o)}
+                                  className="text-indigo-600 hover:text-indigo-800"
+                                >
+                                  编辑
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(o.id)}
+                                  className="text-red-600 hover:text-red-800"
+                                >
+                                  删除
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -886,22 +902,24 @@ export default function OrdersPage() {
             <div className="border-t pt-4">
               <h4 className="mb-3 text-sm font-semibold text-gray-800">订单附件</h4>
 
-              {/* Upload area */}
-              <div className="mb-4 flex items-center gap-2">
-                <input
-                  type="file"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                  className="text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-600 hover:file:bg-blue-100"
-                  accept="*/*"
-                />
-                <button
-                  onClick={handleUploadAttachment}
-                  disabled={!selectedFile || uploadingAttachment}
-                  className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {uploadingAttachment ? '上传中...' : '上传'}
-                </button>
-              </div>
+              {/* Upload area — hidden for FINANCE */}
+              {!isFinance && (
+                <div className="mb-4 flex items-center gap-2">
+                  <input
+                    type="file"
+                    onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                    className="text-sm text-gray-600 file:mr-4 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-600 hover:file:bg-blue-100"
+                    accept="*/*"
+                  />
+                  <button
+                    onClick={handleUploadAttachment}
+                    disabled={!selectedFile || uploadingAttachment}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {uploadingAttachment ? '上传中...' : '上传'}
+                  </button>
+                </div>
+              )}
 
               {/* Attachments list */}
               {attachments.length > 0 ? (
@@ -921,12 +939,14 @@ export default function OrdersPage() {
                         >
                           下载
                         </button>
-                        <button
-                          onClick={() => handleDeleteAttachment(doc.id)}
-                          className="text-xs text-red-600 hover:text-red-800 underline"
-                        >
-                          删除
-                        </button>
+                        {!isFinance && (
+                          <button
+                            onClick={() => handleDeleteAttachment(doc.id)}
+                            className="text-xs text-red-600 hover:text-red-800 underline"
+                          >
+                            删除
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -936,47 +956,50 @@ export default function OrdersPage() {
               )}
             </div>
 
-            {/* Status update buttons */}
-            <div>
-              <h4 className="mb-2 text-sm font-semibold text-gray-800">更新订单状态</h4>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(ORDER_STATUS_MAP).map(([key, val]) => (
-                  <button
-                    key={key}
-                    onClick={() => handleUpdateStatus(detailOrder.id, key)}
-                    disabled={detailOrder.status === key}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                      detailOrder.status === key
-                        ? 'cursor-default bg-gray-200 text-gray-500'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {val.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            {/* Status update buttons — hidden for FINANCE */}
+            {!isFinance && (
+              <>
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold text-gray-800">更新订单状态</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(ORDER_STATUS_MAP).map(([key, val]) => (
+                      <button
+                        key={key}
+                        onClick={() => handleUpdateStatus(detailOrder.id, key)}
+                        disabled={detailOrder.status === key}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                          detailOrder.status === key
+                            ? 'cursor-default bg-gray-200 text-gray-500'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {val.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-            {/* Payment update buttons */}
-            <div>
-              <h4 className="mb-2 text-sm font-semibold text-gray-800">更新付款状态</h4>
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(PAYMENT_STATUS_MAP).map(([key, val]) => (
-                  <button
-                    key={key}
-                    onClick={() => handleUpdatePayment(detailOrder.id, key)}
-                    disabled={detailOrder.paymentStatus === key}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
-                      detailOrder.paymentStatus === key
-                        ? 'cursor-default bg-gray-200 text-gray-500'
-                        : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
-                    }`}
-                  >
-                    {val.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                <div>
+                  <h4 className="mb-2 text-sm font-semibold text-gray-800">更新付款状态</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(PAYMENT_STATUS_MAP).map(([key, val]) => (
+                      <button
+                        key={key}
+                        onClick={() => handleUpdatePayment(detailOrder.id, key)}
+                        disabled={detailOrder.paymentStatus === key}
+                        className={`rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                          detailOrder.paymentStatus === key
+                            ? 'cursor-default bg-gray-200 text-gray-500'
+                            : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {val.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="flex justify-end border-t pt-4">
               <button

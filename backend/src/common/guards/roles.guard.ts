@@ -10,6 +10,7 @@ import { ROLES_KEY, IS_PUBLIC_KEY } from '../decorators/roles.decorator';
 export enum Role {
   ADMIN = 'ADMIN',
   SALESPERSON = 'SALESPERSON',
+  FINANCE = 'FINANCE',
 }
 
 @Injectable()

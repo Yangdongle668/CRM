@@ -12,6 +12,7 @@ export class UsersService {
     role: true,
     phone: true,
     avatar: true,
+    bio: true,
     isActive: true,
     createdAt: true,
     updatedAt: true,

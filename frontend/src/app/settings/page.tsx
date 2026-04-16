@@ -11,12 +11,17 @@ import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
 import type { User, Role } from '@/types';
 
-type TabKey = 'users' | 'system' | 'backup';
+type TabKey = 'profile' | 'users' | 'system' | 'backup';
 
-const TABS: { key: TabKey; label: string }[] = [
+const ADMIN_TABS: { key: TabKey; label: string }[] = [
+  { key: 'profile', label: '个人资料' },
   { key: 'users', label: '用户管理' },
   { key: 'system', label: '系统参数' },
   { key: 'backup', label: '数据备份' },
+];
+
+const USER_TABS: { key: TabKey; label: string }[] = [
+  { key: 'profile', label: '个人资料' },
 ];
 
 const defaultUserForm = {
@@ -28,11 +33,16 @@ const defaultUserForm = {
 };
 
 export default function SettingsPage() {
-  const { user: currentUser, isAdmin, loading: authLoading } = useAuth();
+  const { user: currentUser, isAdmin, refreshUser, loading: authLoading } = useAuth();
   const { refreshLogo } = useLogo();
   const router = useRouter();
 
-  const [activeTab, setActiveTab] = useState<TabKey>('users');
+  const [activeTab, setActiveTab] = useState<TabKey>('profile');
+
+  // ==================== Profile tab ====================
+  const [profileForm, setProfileForm] = useState({ phone: '', bio: '', password: '', confirmPassword: '' });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   // ==================== Users tab ====================
   const [users, setUsers] = useState<User[]>([]);
@@ -121,13 +131,19 @@ export default function SettingsPage() {
     input.click();
   };
 
-  // Admin check
+  // Redirect unauthenticated users only
   useEffect(() => {
-    if (!authLoading && !isAdmin) {
-      toast.error('仅管理员可访问系统设置');
-      router.push('/dashboard');
+    if (!authLoading && !currentUser) {
+      router.push('/login');
     }
-  }, [authLoading, isAdmin, router]);
+  }, [authLoading, currentUser, router]);
+
+  // Sync profile form when user loads
+  useEffect(() => {
+    if (currentUser) {
+      setProfileForm({ phone: currentUser.phone || '', bio: currentUser.bio || '', password: '', confirmPassword: '' });
+    }
+  }, [currentUser]);
 
   // ==================== Users API ====================
   const fetchUsers = useCallback(async () => {
@@ -366,7 +382,55 @@ export default function SettingsPage() {
     return new Date(dateStr).toLocaleDateString('zh-CN');
   };
 
-  if (authLoading || !isAdmin) {
+  // ==================== Profile handlers ====================
+  const handleProfileSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (profileForm.password && profileForm.password !== profileForm.confirmPassword) {
+      toast.error('两次密码输入不一致');
+      return;
+    }
+    if (profileForm.password && profileForm.password.length < 6) {
+      toast.error('密码至少6位');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const payload: any = { phone: profileForm.phone, bio: profileForm.bio };
+      if (profileForm.password) payload.password = profileForm.password;
+      await authApi.updateProfile(payload);
+      await refreshUser();
+      setProfileForm((prev) => ({ ...prev, password: '', confirmPassword: '' }));
+      toast.success('个人资料已更新');
+    } catch {
+      // handled by interceptor
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('头像文件不能超过 2MB');
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      await authApi.uploadAvatar(fd);
+      await refreshUser();
+      toast.success('头像已更新');
+    } catch {
+      // handled by interceptor
+    } finally {
+      setAvatarUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  if (authLoading || !currentUser) {
     return (
       <AppLayout>
         <div className="flex h-64 items-center justify-center">
@@ -376,16 +440,18 @@ export default function SettingsPage() {
     );
   }
 
+  const tabs = isAdmin ? ADMIN_TABS : USER_TABS;
+
   return (
     <AppLayout>
       <div className="space-y-6">
         {/* Header */}
-        <h1 className="text-2xl font-bold text-gray-900">系统设置</h1>
+        <h1 className="text-2xl font-bold text-gray-900">设置</h1>
 
         {/* Tabs */}
         <div className="border-b border-gray-200">
           <nav className="flex gap-6">
-            {TABS.map((tab) => (
+            {tabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
@@ -400,6 +466,116 @@ export default function SettingsPage() {
             ))}
           </nav>
         </div>
+
+        {/* ==================== Profile Tab ==================== */}
+        {activeTab === 'profile' && (
+          <div className="max-w-lg space-y-6">
+            {/* Avatar */}
+            <div className="flex items-center gap-5">
+              <div className="relative">
+                {currentUser.avatar ? (
+                  <img
+                    src={currentUser.avatar}
+                    alt="头像"
+                    className="h-20 w-20 rounded-full object-cover ring-2 ring-gray-200"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 text-2xl font-bold text-white">
+                    {currentUser.name.charAt(0)}
+                  </div>
+                )}
+                {avatarUploading && (
+                  <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/40">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <label className="cursor-pointer rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                  {avatarUploading ? '上传中...' : '更换头像'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={avatarUploading}
+                    onChange={handleAvatarUpload}
+                  />
+                </label>
+                <p className="mt-1.5 text-xs text-gray-400">支持 JPG、PNG，最大 2MB</p>
+              </div>
+            </div>
+
+            {/* Read-only info */}
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">姓名</span>
+                <span className="font-medium text-gray-900">{currentUser.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">角色</span>
+                <span className="font-medium text-gray-900">{ROLE_MAP[currentUser.role] || currentUser.role}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">邮箱</span>
+                <span className="font-medium text-gray-900">{currentUser.email}</span>
+              </div>
+            </div>
+
+            {/* Editable fields */}
+            <form onSubmit={handleProfileSave} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">手机号</label>
+                <input
+                  type="text"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="请输入手机号"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">个性签名</label>
+                <textarea
+                  value={profileForm.bio}
+                  onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
+                  rows={3}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="写点什么介绍自己..."
+                />
+              </div>
+              <div className="border-t pt-4">
+                <p className="mb-3 text-sm font-medium text-gray-700">修改密码 <span className="font-normal text-gray-400">（不修改请留空）</span></p>
+                <div className="space-y-3">
+                  <input
+                    type="password"
+                    value={profileForm.password}
+                    onChange={(e) => setProfileForm({ ...profileForm, password: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="新密码（至少6位）"
+                    autoComplete="new-password"
+                  />
+                  <input
+                    type="password"
+                    value={profileForm.confirmPassword}
+                    onChange={(e) => setProfileForm({ ...profileForm, confirmPassword: e.target.value })}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="确认新密码"
+                    autoComplete="new-password"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={profileSaving}
+                  className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {profileSaving ? '保存中...' : '保存修改'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {/* ==================== Users Tab ==================== */}
         {activeTab === 'users' && (

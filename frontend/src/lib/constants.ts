@@ -93,6 +93,7 @@ export const ACTIVITY_TYPE_MAP: Record<string, { label: string; icon: string }> 
 export const ROLE_MAP: Record<string, string> = {
   ADMIN: '管理员',
   SALESPERSON: '业务员',
+  FINANCE: '财务人员',
 };
 
 // 货币

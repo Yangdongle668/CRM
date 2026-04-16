@@ -45,7 +45,7 @@ const navItems: NavItem[] = [
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
   { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
   { label: '管理中心', href: '/admin', icon: HiOutlineChartBar, adminOnly: true },
-  { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth, adminOnly: true },
+  { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth },
 ];
 
 export default function Sidebar() {
@@ -105,6 +105,7 @@ export default function Sidebar() {
         <ul className="space-y-0.5">
           {navItems.map((item) => {
             if (item.adminOnly && user?.role !== 'ADMIN') return null;
+            if (user?.role === 'FINANCE' && item.href !== '/orders' && item.href !== '/settings') return null;
             const Icon = item.icon;
             const active = isActive(item.href);
 
@@ -165,7 +166,7 @@ export default function Sidebar() {
                   {user?.name || '未知用户'}
                 </p>
                 <p className="truncate text-[11px] text-gray-500">
-                  {user?.role === 'ADMIN' ? '管理员' : '销售人员'}
+                  {user?.role === 'ADMIN' ? '管理员' : user?.role === 'FINANCE' ? '财务人员' : '销售人员'}
                 </p>
               </div>
             </div>

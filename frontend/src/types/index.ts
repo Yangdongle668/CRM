@@ -12,7 +12,7 @@ export interface PaginatedData<T> {
   pageSize: number;
 }
 
-export type Role = 'ADMIN' | 'SALESPERSON';
+export type Role = 'ADMIN' | 'SALESPERSON' | 'FINANCE';
 
 // ==================== 用户 ====================
 export interface User {
@@ -22,6 +22,7 @@ export interface User {
   role: Role;
   phone?: string;
   avatar?: string;
+  bio?: string;
   isActive: boolean;
   createdAt: string;
 }
