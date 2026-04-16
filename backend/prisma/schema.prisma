@@ -44,6 +44,39 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+// ==================== 审计日志 (Audit Log) ====================
+// 记录"谁、在哪、对什么、做了什么、什么时候"的事件，用于安全追溯与合规。
+// - action: 业务动作码，约定 "<resource>.<verb>"（如 customer.delete / order.price.update）
+// - targetType/targetId: 操作对象（可空，例如登录事件只有 user）
+// - metadata: 结构化上下文（变更前后快照 / 查询参数 / 备注）
+// - ip + userAgent: 请求来源，便于异常定位
+// - status: SUCCESS / FAILURE, 失败时 errorMessage 存原因
+model AuditLog {
+  id           String   @id @default(uuid())
+  userId       String?  @map("user_id")
+  userEmail    String?  @map("user_email")
+  userName     String?  @map("user_name")
+  userRole     String?  @map("user_role")
+  action       String
+  targetType   String?  @map("target_type")
+  targetId     String?  @map("target_id")
+  targetLabel  String?  @map("target_label")
+  method       String?
+  path         String?
+  ip           String?
+  userAgent    String?  @map("user_agent") @db.Text
+  status       String   @default("SUCCESS") // "SUCCESS" | "FAILURE"
+  errorMessage String?  @map("error_message") @db.Text
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique

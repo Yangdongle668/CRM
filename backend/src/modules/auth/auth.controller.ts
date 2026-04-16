@@ -6,12 +6,14 @@ import {
   HttpStatus,
   Patch,
   Post,
+  Req,
   UseGuards,
   UseInterceptors,
   UploadedFile,
   ParseFilePipe,
   MaxFileSizeValidator,
 } from '@nestjs/common';
+import { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { v4 as uuidv4 } from 'uuid';
@@ -29,6 +31,7 @@ import { SetupDto } from './dto/setup.dto';
 import { UsersService } from '../users/users.service';
 import { UpdateProfileDto } from '../users/dto/update-user.dto';
 import { PermissionsService } from '../../common/permissions/permissions.service';
+import { AuditService } from '../audit/audit.service';
 
 const avatarStorage = diskStorage({
   destination: (_req, _file, cb) => {
@@ -48,6 +51,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly usersService: UsersService,
     private readonly permissionsService: PermissionsService,
+    private readonly auditService: AuditService,
   ) {}
 
   @Get('check-init')
@@ -66,8 +70,39 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'User login' })
-  async login(@Body() dto: LoginDto) {
-    return this.authService.login(dto);
+  async login(@Body() dto: LoginDto, @Req() req: Request) {
+    try {
+      const result = await this.authService.login(dto);
+      // Record login *after* success; stamp the real user we matched.
+      await this.auditService.log({
+        action: 'auth.login',
+        userId: (result as any)?.user?.id ?? null,
+        userEmail: (result as any)?.user?.email ?? dto.email,
+        userName: (result as any)?.user?.name ?? null,
+        userRole: (result as any)?.user?.role ?? null,
+        method: req.method,
+        path: req.originalUrl || req.url,
+        ip: (AuditService as any).extractIp(req),
+        userAgent:
+          (req.headers['user-agent'] as string | undefined)?.slice(0, 500) ??
+          null,
+      });
+      return result;
+    } catch (err: any) {
+      await this.auditService.log({
+        action: 'auth.login',
+        status: 'FAILURE',
+        userEmail: dto?.email ?? null,
+        errorMessage: err?.message || 'login failed',
+        method: req.method,
+        path: req.originalUrl || req.url,
+        ip: (AuditService as any).extractIp(req),
+        userAgent:
+          (req.headers['user-agent'] as string | undefined)?.slice(0, 500) ??
+          null,
+      });
+      throw err;
+    }
   }
 
   @Post('register')
