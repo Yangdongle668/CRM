@@ -206,27 +206,52 @@ export default function OrdersPage() {
 
     setSubmitting(true);
     try {
-      const payload = {
-        ...form,
-        shippingDate: form.shippingDate || undefined,
-        floorPrice: form.floorPrice !== '' ? Number(form.floorPrice) : undefined,
-        totalAmount,
-        items: items.map((i, idx) => ({
-          productName: i.productName,
-          description: i.description,
-          unit: i.unit,
-          quantity: Number(i.quantity),
-          unitPrice: Number(i.unitPrice),
-          totalPrice: Number(i.totalPrice),
-          sortOrder: idx,
-        })),
-      };
-
       if (editingId) {
-        await ordersApi.update(editingId, payload);
+        // Only send fields that UpdateOrderDto accepts — no customerId or totalAmount
+        const updatePayload = {
+          title: form.title,
+          currency: form.currency,
+          costTypes: form.costTypes,
+          floorPrice: form.floorPrice !== '' ? Number(form.floorPrice) : undefined,
+          shippingAddr: form.shippingAddr || undefined,
+          shippingDate: form.shippingDate || undefined,
+          trackingNo: form.trackingNo || undefined,
+          remark: form.remark || undefined,
+          items: items.map((i, idx) => ({
+            productName: i.productName,
+            description: i.description || undefined,
+            unit: i.unit,
+            quantity: Number(i.quantity),
+            unitPrice: Number(i.unitPrice),
+            totalPrice: Number(i.totalPrice),
+            sortOrder: idx,
+          })),
+        };
+        await ordersApi.update(editingId, updatePayload);
         toast.success('订单已更新');
       } else {
-        await ordersApi.create(payload);
+        const createPayload = {
+          customerId: form.customerId,
+          title: form.title,
+          currency: form.currency,
+          costTypes: form.costTypes,
+          floorPrice: form.floorPrice !== '' ? Number(form.floorPrice) : undefined,
+          shippingAddr: form.shippingAddr || undefined,
+          shippingDate: form.shippingDate || undefined,
+          trackingNo: form.trackingNo || undefined,
+          remark: form.remark || undefined,
+          totalAmount,
+          items: items.map((i, idx) => ({
+            productName: i.productName,
+            description: i.description || undefined,
+            unit: i.unit,
+            quantity: Number(i.quantity),
+            unitPrice: Number(i.unitPrice),
+            totalPrice: Number(i.totalPrice),
+            sortOrder: idx,
+          })),
+        };
+        await ordersApi.create(createPayload);
         toast.success('订单已创建');
       }
       setModalOpen(false);
