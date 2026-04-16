@@ -22,6 +22,7 @@ import { PIsModule } from './modules/pis/pis.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { RatesModule } from './modules/rates/rates.module';
 import { QueueModule } from './queue/queue.module';
+import { PermissionsModule } from './common/permissions/permissions.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { QueueModule } from './queue/queue.module';
     ScheduleModule.forRoot(),
     QueueModule,
     PrismaModule,
+    PermissionsModule,
     AuthModule,
     UsersModule,
     CustomersModule,

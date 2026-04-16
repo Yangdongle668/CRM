@@ -14,8 +14,8 @@ import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { QueryCustomerDto } from './dto/query-customer.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles } from '../../common/decorators/roles.decorator';
+import { PermissionsGuard } from '../../common/permissions/permissions.guard';
+import { RequirePermissions } from '../../common/permissions/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @Controller('customers')
@@ -65,8 +65,8 @@ export class CustomersController {
   }
 
   @Delete(':id')
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
+  @UseGuards(PermissionsGuard)
+  @RequirePermissions('customer:delete')
   remove(
     @Param('id') id: string,
     @CurrentUser() user: { id: string; role: string },

@@ -11,9 +11,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
+import { PermissionsGuard } from '../../common/permissions/permissions.guard';
+import { RequirePermissions } from '../../common/permissions/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { Roles } from '../../common/decorators/roles.decorator';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto, UpdateOrderStatusDto, UpdatePaymentStatusDto } from './dto/update-order.dto';
@@ -21,13 +21,13 @@ import { QueryOrderDto } from './dto/query-order.dto';
 
 @ApiTags('订单')
 @ApiBearerAuth('JWT-auth')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Post()
-  @Roles('ADMIN', 'SALESPERSON')
+  @RequirePermissions('order:create')
   async create(
     @CurrentUser() user: any,
     @Body() dto: CreateOrderDto,
@@ -36,6 +36,7 @@ export class OrdersController {
   }
 
   @Get()
+  @RequirePermissions('order:read')
   async findAll(
     @CurrentUser() user: any,
     @Query() query: QueryOrderDto,
@@ -44,12 +45,13 @@ export class OrdersController {
   }
 
   @Get(':id')
+  @RequirePermissions('order:read')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
     return this.ordersService.findOne(id, user.id, user.role);
   }
 
   @Patch(':id')
-  @Roles('ADMIN', 'SALESPERSON')
+  @RequirePermissions('order:update')
   async update(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -59,13 +61,13 @@ export class OrdersController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN', 'SALESPERSON')
+  @RequirePermissions('order:delete')
   async remove(@CurrentUser() user: any, @Param('id') id: string) {
     return this.ordersService.remove(id, user.id, user.role);
   }
 
   @Patch(':id/status')
-  @Roles('ADMIN', 'SALESPERSON')
+  @RequirePermissions('order:status')
   async updateStatus(
     @CurrentUser() user: any,
     @Param('id') id: string,
@@ -75,7 +77,7 @@ export class OrdersController {
   }
 
   @Patch(':id/payment')
-  @Roles('ADMIN', 'SALESPERSON')
+  @RequirePermissions('order:payment')
   async updatePaymentStatus(
     @CurrentUser() user: any,
     @Param('id') id: string,

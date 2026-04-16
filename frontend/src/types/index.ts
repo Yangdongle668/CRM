@@ -25,6 +25,8 @@ export interface User {
   bio?: string;
   isActive: boolean;
   createdAt: string;
+  /** Permission codes granted to this user by their role (ADMIN ⇒ ["*"]). */
+  permissions?: string[];
 }
 
 // ==================== 客户 ====================

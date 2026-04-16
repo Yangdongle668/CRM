@@ -18,8 +18,9 @@ import { SettingsService } from './settings.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { BankInfoDto } from './dto/bank-info.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../common/guards/roles.guard';
-import { Roles, Public } from '../../common/decorators/roles.decorator';
+import { PermissionsGuard } from '../../common/permissions/permissions.guard';
+import { RequirePermissions } from '../../common/permissions/require-permissions.decorator';
+import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 const uploadStorage = diskStorage({
@@ -39,24 +40,24 @@ const uploadStorage = diskStorage({
 });
 
 @Controller('settings')
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SettingsController {
   constructor(private readonly settingsService: SettingsService) {}
 
   @Get()
-  @Roles('ADMIN')
+  @RequirePermissions('settings:read')
   getAllSettings() {
     return this.settingsService.getAllSettings();
   }
 
   @Put()
-  @Roles('ADMIN')
+  @RequirePermissions('settings:update')
   updateSettings(@Body() dto: UpdateSettingsDto) {
     return this.settingsService.updateSettings(dto);
   }
 
   @Post('logo')
-  @Roles('ADMIN')
+  @RequirePermissions('settings:update')
   @UseInterceptors(
     FileInterceptor('logo', {
       storage: uploadStorage,
@@ -85,13 +86,13 @@ export class SettingsController {
   }
 
   @Get('bank-info')
-  @Roles('ADMIN')
+  @RequirePermissions('settings:read')
   getBankInfo() {
     return this.settingsService.getBankInfo();
   }
 
   @Put('bank-info')
-  @Roles('ADMIN')
+  @RequirePermissions('settings:update')
   updateBankInfo(@Body() dto: BankInfoDto) {
     return this.settingsService.updateBankInfo(dto);
   }
@@ -102,7 +103,7 @@ export class SettingsController {
   }
 
   @Put('company-info')
-  @Roles('ADMIN')
+  @RequirePermissions('settings:update')
   updateCompanyInfo(@Body() data: Record<string, string>) {
     return this.settingsService.updateCompanyInfo(data);
   }
