@@ -336,7 +336,7 @@ export class EmailsService {
           inReplyToMessageId,
         },
         {
-          jobId: `send:${emailRecord.id}`,
+          jobId: `send-${emailRecord.id}`,
         },
       );
       return emailRecord;

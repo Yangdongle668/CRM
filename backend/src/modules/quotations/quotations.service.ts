@@ -369,7 +369,7 @@ export class QuotationsService {
       const job = await this.pdfQueue.add(
         PDF_JOB_SEND_QUOTATION,
         { quotationId: id, userId, role },
-        { jobId: `send-quotation:${id}:${Date.now()}` },
+        { jobId: `send-quotation-${id}-${Date.now()}` },
       );
       return {
         queued: true,
