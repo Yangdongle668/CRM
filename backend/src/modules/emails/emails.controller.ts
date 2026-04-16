@@ -79,6 +79,12 @@ export class EmailsController {
     return this.emailsService.fetchEmails(user.id, id);
   }
 
+  // 手动触发一次邮件活动时间戳修正（自动每小时执行一次）
+  @Post('reconcile-activity-timestamps')
+  async reconcileActivityTimestamps() {
+    return this.emailsService.reconcileEmailActivityTimestamps();
+  }
+
   // ==================== Tracking — Pixel ====================
 
   /**

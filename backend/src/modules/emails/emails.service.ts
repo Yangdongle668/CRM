@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Optional,
 } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 import * as Imap from 'imap';
 import { simpleParser } from 'mailparser';
@@ -1513,5 +1514,57 @@ export class EmailsService {
     }
 
     return this.prisma.emailTemplate.delete({ where: { id } });
+  }
+
+  // ==================== 邮件时间轴时间戳修正 ====================
+
+  // 防止多个执行重叠（例如手动触发时 cron 正好也触发）。
+  private reconcilingEmailActivityTimestamps = false;
+
+  /**
+   * 把 EMAIL 类型活动的 createdAt 对齐到对应邮件的实际收发时间。
+   *
+   * 修复老数据里因为同步时使用了 now() 而产生的时间轴错乱。每小时自动跑一次；
+   * 也可以通过 POST /emails/reconcile-activity-timestamps 手动触发。
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async reconcileEmailActivityTimestamps(): Promise<{ updated: number }> {
+    if (this.reconcilingEmailActivityTimestamps) {
+      this.logger.warn(
+        'Skipping email activity timestamp reconciliation: previous run still in progress',
+      );
+      return { updated: 0 };
+    }
+
+    this.reconcilingEmailActivityTimestamps = true;
+    try {
+      // 单条 SQL 搞定：把 activities.created_at 对齐到 emails 的实际时间，
+      // 只更新确实不一致的行，避免每小时都无意义地写整表。
+      const updated: number = await this.prisma.$executeRawUnsafe(
+        `UPDATE activities a
+         SET created_at = COALESCE(e.sent_at, e.received_at, e.created_at)
+         FROM emails e
+         WHERE a.type = 'EMAIL'
+           AND a.related_type = 'email'
+           AND a.related_id = e.id
+           AND a.created_at IS DISTINCT FROM COALESCE(e.sent_at, e.received_at, e.created_at)`,
+      );
+
+      if (updated > 0) {
+        this.logger.log(
+          `Reconciled ${updated} email activity timestamp(s) to match email sent/received time`,
+        );
+      }
+
+      return { updated };
+    } catch (err: any) {
+      this.logger.error(
+        `Failed to reconcile email activity timestamps: ${err?.message}`,
+        err?.stack,
+      );
+      return { updated: 0 };
+    } finally {
+      this.reconcilingEmailActivityTimestamps = false;
+    }
   }
 }
