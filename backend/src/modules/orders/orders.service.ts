@@ -138,13 +138,11 @@ export class OrdersService {
     if (dto.currency !== undefined) updateData.currency = dto.currency;
     if (dto.costTypes !== undefined) updateData.costTypes = dto.costTypes;
     if (dto.floorPrice !== undefined) updateData.floorPrice = dto.floorPrice;
-    if (dto.shippingAddr !== undefined) updateData.shippingAddr = dto.shippingAddr;
-    if (dto.shippingDate !== undefined)
-      updateData.shippingDate = new Date(dto.shippingDate);
-    if (dto.deliveryDate !== undefined)
-      updateData.deliveryDate = new Date(dto.deliveryDate);
-    if (dto.trackingNo !== undefined) updateData.trackingNo = dto.trackingNo;
-    if (dto.remark !== undefined) updateData.remark = dto.remark;
+    if (dto.shippingAddr !== undefined) updateData.shippingAddr = dto.shippingAddr || null;
+    if (dto.shippingDate !== undefined) updateData.shippingDate = new Date(dto.shippingDate);
+    if (dto.deliveryDate !== undefined) updateData.deliveryDate = new Date(dto.deliveryDate);
+    if (dto.trackingNo !== undefined) updateData.trackingNo = dto.trackingNo || null;
+    if (dto.remark !== undefined) updateData.remark = dto.remark || null;
 
     if (dto.items !== undefined) {
       await this.prisma.orderItem.deleteMany({
