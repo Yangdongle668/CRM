@@ -7,6 +7,15 @@ export default () => ({
     url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/trade_crm',
   },
 
+  // Redis for BullMQ async queues (email / PDF / backup) and future pub/sub.
+  redis: {
+    url: process.env.REDIS_URL,
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    password: process.env.REDIS_PASSWORD,
+    db: parseInt(process.env.REDIS_DB || '0', 10),
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || 'trade-crm-jwt-secret-change-in-production',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',

@@ -1,18 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MessagesGateway } from './messages.gateway';
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly gateway: MessagesGateway,
+  ) {}
 
   async send(fromId: string, toId: string, content: string) {
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: { fromId, toId, content },
       include: {
         from: { select: { id: true, name: true } },
         to:   { select: { id: true, name: true } },
       },
     });
+
+    // Push real-time over WebSocket to both participants.
+    // Also notify receiver to refresh their conversation list.
+    try {
+      this.gateway.emitNewMessage(message as any);
+      this.gateway.emitConversationUpdate(toId);
+      this.gateway.emitConversationUpdate(fromId);
+    } catch {
+      // gateway failure must not break the HTTP send
+    }
+
+    return message;
   }
 
   /** All messages between two users, oldest first */
@@ -33,6 +49,10 @@ export class MessagesService {
       where: { fromId: otherId, toId: userId, isRead: false },
       data: { isRead: true },
     });
+    // Push conversation-list refresh so unread badges clear in real time
+    try {
+      this.gateway.emitConversationUpdate(userId);
+    } catch {}
     return messages;
   }
 

@@ -21,6 +21,7 @@ import { MemosModule } from './modules/memos/memos.module';
 import { PIsModule } from './modules/pis/pis.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { RatesModule } from './modules/rates/rates.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { RatesModule } from './modules/rates/rates.module';
       envFilePath: ['.env.local', '.env'],
     }),
     ScheduleModule.forRoot(),
+    QueueModule,
     PrismaModule,
     AuthModule,
     UsersModule,

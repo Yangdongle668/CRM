@@ -12,6 +12,15 @@ const nextConfig = {
         source: '/uploads/:path*',
         destination: `${backendUrl}/uploads/:path*`,
       },
+      // Proxy Socket.IO handshake + upgrade to the backend gateway.
+      {
+        source: '/socket.io/:path*',
+        destination: `${backendUrl}/socket.io/:path*`,
+      },
+      {
+        source: '/ws/:path*',
+        destination: `${backendUrl}/ws/:path*`,
+      },
     ];
   },
 };

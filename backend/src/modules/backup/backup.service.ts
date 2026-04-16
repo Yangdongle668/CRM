@@ -1,9 +1,65 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
+import * as fs from 'fs';
+import * as path from 'path';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  QUEUE_BACKUP,
+  BACKUP_JOB_EXPORT,
+} from '../../queue/queue.constants';
 
 @Injectable()
 export class BackupService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(BackupService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    @Optional()
+    @InjectQueue(QUEUE_BACKUP)
+    private readonly backupQueue?: Queue,
+  ) {}
+
+  /**
+   * Enqueue a full backup export. Returns immediately with a job id.
+   * The worker writes the JSON file under uploads/backups/.
+   */
+  async queueExport(): Promise<{ queued: boolean; jobId?: string; message: string }> {
+    if (!this.backupQueue) {
+      throw new BadRequestException(
+        'Backup queue is not configured (Redis unavailable)',
+      );
+    }
+    const job = await this.backupQueue.add(
+      BACKUP_JOB_EXPORT,
+      { requestedAt: new Date().toISOString() },
+      { jobId: `export:${Date.now()}` },
+    );
+    return {
+      queued: true,
+      jobId: String(job.id),
+      message: 'Backup export queued',
+    };
+  }
+
+  /**
+   * Worker-side: runs the full export and writes the JSON file to disk.
+   * Returns the saved file path.
+   */
+  async exportToDisk(): Promise<{ filePath: string; fileName: string; size: number }> {
+    const data = await this.exportAll();
+    const dir = path.join(process.cwd(), 'uploads', 'backups');
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const fileName = `crm-backup-${stamp}.json`;
+    const filePath = path.join(dir, fileName);
+    const payload = JSON.stringify(data);
+    fs.writeFileSync(filePath, payload);
+    this.logger.log(`Backup written: ${filePath} (${payload.length} bytes)`);
+    return { filePath, fileName, size: payload.length };
+  }
 
   async exportAll() {
     const [

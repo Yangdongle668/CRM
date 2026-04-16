@@ -3,15 +3,22 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import * as PDFDocument from 'pdfkit';
 import * as path from 'path';
 import * as fs from 'fs';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailsService } from '../emails/emails.service';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { QueryQuotationDto } from './dto/query-quotation.dto';
+import {
+  QUEUE_PDF,
+  PDF_JOB_SEND_QUOTATION,
+} from '../../queue/queue.constants';
 
 @Injectable()
 export class QuotationsService {
@@ -20,6 +27,9 @@ export class QuotationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailsService: EmailsService,
+    @Optional()
+    @InjectQueue(QUEUE_PDF)
+    private readonly pdfQueue?: Queue,
   ) {}
 
   async create(userId: string, dto: CreateQuotationDto) {
@@ -346,7 +356,39 @@ export class QuotationsService {
     });
   }
 
+  /**
+   * Enqueue the quotation-send pipeline (PDF generation + SMTP send) so the
+   * HTTP request returns immediately. Falls back to synchronous delivery if
+   * the PDF queue is not configured.
+   */
   async sendQuotation(id: string, userId: string, role: string) {
+    // Access check first, so the user gets a 403/404 synchronously.
+    await this.findOne(id, userId, role);
+
+    if (this.pdfQueue) {
+      const job = await this.pdfQueue.add(
+        PDF_JOB_SEND_QUOTATION,
+        { quotationId: id, userId, role },
+        { jobId: `send-quotation:${id}:${Date.now()}` },
+      );
+      return {
+        queued: true,
+        jobId: job.id,
+        message: 'Quotation send queued',
+      };
+    }
+
+    this.logger.warn(
+      'PDF queue not configured — falling back to synchronous quotation send',
+    );
+    return this.deliverQuotation(id, userId, role);
+  }
+
+  /**
+   * Worker-side: actually generate the PDF + send the email. Used by the
+   * PDF processor, and also by sendQuotation when no queue is configured.
+   */
+  async deliverQuotation(id: string, userId: string, role: string) {
     const quotation = await this.findOne(id, userId, role);
 
     // Get primary contact email

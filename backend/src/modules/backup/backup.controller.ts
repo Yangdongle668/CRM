@@ -23,6 +23,16 @@ export class BackupController {
     res.send(JSON.stringify(backup, null, 2));
   }
 
+  /**
+   * Async export: returns immediately with a jobId. The background worker
+   * writes the JSON file under uploads/backups/. Useful for large databases
+   * where the request would otherwise time out.
+   */
+  @Post('export/async')
+  async exportBackupAsync() {
+    return this.backupService.queueExport();
+  }
+
   @Post('import')
   async importBackup(@Body() body: any) {
     return this.backupService.importAll(body);
