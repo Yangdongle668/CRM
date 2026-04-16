@@ -1298,6 +1298,10 @@ export class EmailsService {
                     ? `收到邮件 - 发件人: ${senderLabel}，主题: ${parsed.subject || '(无主题)'}`
                     : `发送邮件 - 收件人: ${toAddr}，主题: ${parsed.subject || '(无主题)'}`;
 
+                  // 使用邮件的实际收发时间作为活动时间，避免同步时所有历史邮件都被标成
+                  // 当前时刻，导致时间轴顺序错乱。
+                  const activityTime = parsed.date || new Date();
+
                   await this.prisma.activity.create({
                     data: {
                       type: 'EMAIL',
@@ -1306,6 +1310,7 @@ export class EmailsService {
                       ownerId: userId,
                       relatedType: 'email',
                       relatedId: newEmail.id,
+                      createdAt: activityTime,
                     },
                   }).catch(() => {});
                 }
