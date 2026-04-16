@@ -64,6 +64,12 @@ export default function PIDetailPage() {
     items: [],
   });
 
+  // Cache so the seller "重置为公司信息" button can re-pull without refetching.
+  const [companyInfo, setCompanyInfo] = useState<{
+    companyName?: string;
+    companyAddress?: string;
+  } | null>(null);
+
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -80,11 +86,19 @@ export default function PIDetailPage() {
         setBanks(bankList);
         setTemplates(tplList);
 
+        const company = (companyRes as any)?.data || companyRes || null;
+        setCompanyInfo(company);
+
         if (piRes) {
           const piData = (piRes as any).data || piRes;
           setPI(piData);
+          // For existing PIs, fall back to company info only when the saved
+          // seller fields are empty (legacy / older PIs created before
+          // company info was set up).
           setFormData({
             ...piData,
+            sellerId: piData.sellerId || company?.companyName || '',
+            sellerAddress: piData.sellerAddress || company?.companyAddress || '',
             shippingCharge: Number(piData.shippingCharge || 0),
             other: Number(piData.other || 0),
             subtotal: Number(piData.subtotal || 0),
@@ -97,7 +111,6 @@ export default function PIDetailPage() {
             })),
           });
         } else if (isNew) {
-          const companyInfo = (companyRes as any)?.data || companyRes;
           const defaultBank = bankList.find((b) => b.isDefault) || bankList[0];
           const defaultTpl = tplList.find((t) => t.isDefault);
 
@@ -107,8 +120,8 @@ export default function PIDetailPage() {
             shippingCharge: 0,
             other: 0,
             items: [],
-            sellerId: companyInfo?.companyName || '',
-            sellerAddress: companyInfo?.companyAddress || '',
+            sellerId: company?.companyName || '',
+            sellerAddress: company?.companyAddress || '',
             bankAccountId: defaultBank?.id || null,
           };
 
@@ -129,6 +142,19 @@ export default function PIDetailPage() {
     fetchData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [piId, isNew]);
+
+  const resetSellerFromCompany = () => {
+    if (!companyInfo) {
+      toast.error('未配置公司信息，请先到系统设置填写');
+      return;
+    }
+    setFormData((prev) => ({
+      ...prev,
+      sellerId: companyInfo.companyName || '',
+      sellerAddress: companyInfo.companyAddress || '',
+    }));
+    toast.success('已重置为公司信息');
+  };
 
   const handleField = (field: string, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -423,7 +449,6 @@ export default function PIDetailPage() {
                     {banks.map((b) => (
                       <option key={b.id} value={b.id}>
                         {b.alias}
-                        {b.currency ? `  ·  ${b.currency}` : ''}
                         {b.isDefault ? '（默认）' : ''}
                       </option>
                     ))}
@@ -435,17 +460,9 @@ export default function PIDetailPage() {
                   <div className="mb-1 text-[11px] uppercase tracking-wider text-gray-400">
                     将出现在 PDF 下方的收款信息
                   </div>
-                  {[
-                    selectedBank.accountName && `Account name: ${selectedBank.accountName}`,
-                    selectedBank.accountNumber && `Account number: ${selectedBank.accountNumber}`,
-                    selectedBank.swiftCode && `SWIFT/BIC: ${selectedBank.swiftCode}`,
-                    selectedBank.bankName && `Bank: ${selectedBank.bankName}`,
-                    selectedBank.bankAddress && `Address: ${selectedBank.bankAddress}`,
-                  ]
-                    .filter(Boolean)
-                    .map((line, i) => (
-                      <div key={i}>{line}</div>
-                    ))}
+                  <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-gray-700">
+                    {selectedBank.bankInfoText}
+                  </pre>
                 </div>
               )}
             </Section>
@@ -511,9 +528,25 @@ export default function PIDetailPage() {
             </Section>
 
             {/* Parties */}
-            <Section title="买卖双方">
+            <Section
+              title="买卖双方"
+              action={
+                companyInfo && (
+                  <button
+                    type="button"
+                    onClick={resetSellerFromCompany}
+                    className="text-[12px] font-medium text-primary-600 hover:underline"
+                  >
+                    重置为公司信息
+                  </button>
+                )
+              }
+            >
               <div className="grid grid-cols-2 gap-4">
-                <Field label="卖方名称">
+                <Field
+                  label="卖方名称"
+                  hint={companyInfo?.companyName ? '默认从「系统设置 · 公司信息」拉取，可手动修改' : undefined}
+                >
                   <input
                     type="text"
                     value={formData.sellerId || ''}
@@ -898,10 +931,12 @@ function Field({
   label,
   children,
   required,
+  hint,
 }: {
   label: string;
   children: React.ReactNode;
   required?: boolean;
+  hint?: string;
 }) {
   return (
     <label className="block">
@@ -910,6 +945,7 @@ function Field({
         {required && <span className="ml-0.5 text-red-500">*</span>}
       </span>
       {children}
+      {hint && <p className="mt-1 text-[11px] text-gray-400">{hint}</p>}
     </label>
   );
 }

@@ -1,19 +1,10 @@
 -- ==================== BankAccount ====================
+-- One row per receiving account; `bank_info_text` is the multi-line block
+-- that will be embedded verbatim into the PI PDF.
 CREATE TABLE "bank_accounts" (
     "id" TEXT NOT NULL,
     "alias" TEXT NOT NULL,
-    "account_name" TEXT,
-    "account_number" TEXT,
-    "bank_name" TEXT,
-    "bank_address" TEXT,
-    "swift_code" TEXT,
-    "currency" TEXT,
-    "country" TEXT,
-    "branch_name" TEXT,
-    "routing_number" TEXT,
-    "iban" TEXT,
-    "payment_memo" TEXT,
-    "extra_info" TEXT,
+    "bank_info_text" TEXT NOT NULL,
     "is_default" BOOLEAN NOT NULL DEFAULT false,
     "sort_order" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -70,14 +61,14 @@ ALTER TABLE "proforma_invoices" ADD CONSTRAINT "proforma_invoices_bank_account_i
 ALTER TABLE "proforma_invoices" ADD CONSTRAINT "proforma_invoices_template_id_fkey"
     FOREIGN KEY ("template_id") REFERENCES "pi_templates"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
--- ==================== Backfill: migrate single bank_info_text to a default bank account ====================
+-- ==================== Backfill: legacy bank_info_text → default account ====================
 DO $$
 DECLARE
     legacy TEXT;
 BEGIN
     SELECT "value" INTO legacy FROM "system_settings" WHERE "key" = 'bank_info_text';
     IF legacy IS NOT NULL AND length(trim(legacy)) > 0 THEN
-        INSERT INTO "bank_accounts" ("id", "alias", "extra_info", "is_default", "sort_order", "created_at", "updated_at")
+        INSERT INTO "bank_accounts" ("id", "alias", "bank_info_text", "is_default", "sort_order", "created_at", "updated_at")
         VALUES (gen_random_uuid()::text, '默认银行账户', legacy, true, 0, now(), now());
     END IF;
 END $$;

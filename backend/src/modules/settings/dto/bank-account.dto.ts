@@ -5,53 +5,8 @@ export class CreateBankAccountDto {
   @MaxLength(60)
   alias: string;
 
-  @IsOptional()
   @IsString()
-  accountName?: string;
-
-  @IsOptional()
-  @IsString()
-  accountNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  bankName?: string;
-
-  @IsOptional()
-  @IsString()
-  bankAddress?: string;
-
-  @IsOptional()
-  @IsString()
-  swiftCode?: string;
-
-  @IsOptional()
-  @IsString()
-  currency?: string;
-
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @IsOptional()
-  @IsString()
-  branchName?: string;
-
-  @IsOptional()
-  @IsString()
-  routingNumber?: string;
-
-  @IsOptional()
-  @IsString()
-  iban?: string;
-
-  @IsOptional()
-  @IsString()
-  paymentMemo?: string;
-
-  @IsOptional()
-  @IsString()
-  extraInfo?: string;
+  bankInfoText: string;
 
   @IsOptional()
   @IsBoolean()
@@ -62,8 +17,21 @@ export class CreateBankAccountDto {
   sortOrder?: number;
 }
 
-export class UpdateBankAccountDto extends CreateBankAccountDto {
+export class UpdateBankAccountDto {
   @IsOptional()
   @IsString()
-  declare alias: string;
+  @MaxLength(60)
+  alias?: string;
+
+  @IsOptional()
+  @IsString()
+  bankInfoText?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
 }

@@ -3,54 +3,6 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { BankInfoDto } from './dto/bank-info.dto';
 
-/**
- * Format a BankAccount row as the multi-line text block that the PI PDF
- * generator expects. Only non-empty fields are rendered, in a stable order
- * mirroring what most shipping banks ask for.
- */
-export function formatBankAccountAsText(account: {
-  alias?: string | null;
-  accountName?: string | null;
-  accountNumber?: string | null;
-  bankName?: string | null;
-  bankAddress?: string | null;
-  swiftCode?: string | null;
-  branchName?: string | null;
-  routingNumber?: string | null;
-  iban?: string | null;
-  currency?: string | null;
-  country?: string | null;
-  paymentMemo?: string | null;
-  extraInfo?: string | null;
-}): string {
-  const lines: string[] = [];
-  const push = (label: string, value?: string | null) => {
-    if (value && value.trim()) lines.push(`${label}: ${value.trim()}`);
-  };
-
-  push('Account number', account.accountNumber);
-  push('Account name', account.accountName);
-  push('SWIFT/BIC code', account.swiftCode);
-  push('IBAN', account.iban);
-  push('Routing number', account.routingNumber);
-  push('Bank name', account.bankName);
-  push('Branch', account.branchName);
-  push('Bank address', account.bankAddress);
-  push('Country/region', account.country);
-  push('Currency', account.currency);
-
-  if (account.paymentMemo && account.paymentMemo.trim()) {
-    lines.push(account.paymentMemo.trim());
-  }
-  if (account.extraInfo && account.extraInfo.trim()) {
-    for (const line of account.extraInfo.split('\n')) {
-      if (line.trim()) lines.push(line.trim());
-    }
-  }
-
-  return lines.join('\n');
-}
-
 @Injectable()
 export class SettingsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -111,8 +63,9 @@ export class SettingsService {
     });
 
     if (defaultAccount) {
-      const text = formatBankAccountAsText(defaultAccount);
-      return text ? { bankInfoText: text } : null;
+      return defaultAccount.bankInfoText
+        ? { bankInfoText: defaultAccount.bankInfoText }
+        : null;
     }
 
     const setting = await this.prisma.systemSetting.findUnique({
@@ -124,17 +77,18 @@ export class SettingsService {
 
   /**
    * Resolve the bank info block to embed in a PI PDF:
-   *   1. If the PI picked a specific BankAccount → format & return it.
+   *   1. If the PI picked a specific BankAccount → use its `bankInfoText`.
    *   2. Otherwise fall back to the default BankAccount (getBankInfo).
    */
-  async getBankInfoForPi(bankAccountId?: string | null): Promise<{ bankInfoText: string } | null> {
+  async getBankInfoForPi(
+    bankAccountId?: string | null,
+  ): Promise<{ bankInfoText: string } | null> {
     if (bankAccountId) {
       const account = await this.prisma.bankAccount.findUnique({
         where: { id: bankAccountId },
       });
-      if (account) {
-        const text = formatBankAccountAsText(account);
-        return text ? { bankInfoText: text } : null;
+      if (account?.bankInfoText) {
+        return { bankInfoText: account.bankInfoText };
       }
     }
     return this.getBankInfo();
