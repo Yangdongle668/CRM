@@ -1,8 +1,9 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { emailsApi } from '@/lib/api';
+import RichTextEditor, { RichTextEditorHandle } from './RichTextEditor';
 
 interface SignatureAccount {
   id: string;
@@ -12,13 +13,13 @@ interface SignatureAccount {
 }
 
 /**
- * Per-account signature editor.
+ * 每个邮箱账户单独的签名编辑器。
  *
- * HTML is allowed (raw) — the textarea is monospace so users can see their
- * tags. We render a live preview on the right so they know what the
- * recipient will see. Signature is appended to outgoing emails server-side
- * by EmailsService.deliverPendingEmail (after the body, above tracking
- * pixel).
+ * 改造前是一个原始 HTML textarea（用户必须手敲 <p>、<a> 标签），
+ * 现在换成所见即所得的 RichTextEditor —— 界面上"看到什么、发出去就是什么"。
+ *
+ * 签名在数据库里仍然存 HTML，服务器端外发时把它拼到正文后面
+ * （EmailsService.deliverPendingEmail），所以这里输出的 html 跟旧的一致。
  */
 export default function SignatureEditor({
   account,
@@ -31,6 +32,7 @@ export default function SignatureEditor({
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const editorRef = useRef<RichTextEditorHandle | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -38,7 +40,11 @@ export default function SignatureEditor({
       const res: any = await emailsApi.getSignature(account.id);
       const cfg: SignatureAccount = res.data?.config;
       setData(cfg);
-      setValue(cfg?.signature || '');
+      const sig = cfg?.signature || '';
+      setValue(sig);
+      // 编辑器内容是通过 ref 覆盖设置的，避免 value prop 与 contenteditable
+      // 的 re-render 冲突。
+      editorRef.current?.setHtml(sig);
     } catch {
       /* toast by interceptor */
     } finally {
@@ -66,6 +72,12 @@ export default function SignatureEditor({
     }
   };
 
+  const reset = () => {
+    const orig = data?.signature || '';
+    setValue(orig);
+    editorRef.current?.setHtml(orig);
+  };
+
   const dirty = (data?.signature || '') !== value;
 
   return (
@@ -73,56 +85,29 @@ export default function SignatureEditor({
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-gray-900">邮件签名</h3>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="mt-0.5 text-xs text-gray-500">
             为邮箱 <span className="font-mono text-gray-700">{account.emailAddr}</span> 单独配置。
-            每封外发邮件会在正文后自动附上该签名。支持 HTML。
+            每封外发邮件会在正文后自动附上此签名。可视化编辑，所见即所得。
           </p>
         </div>
         {loading && <div className="text-xs text-gray-400">加载中...</div>}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        {/* Editor */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">
-            HTML 源码
-          </label>
-          <textarea
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            rows={10}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            placeholder={`示例：\n<p><strong>张三</strong> · 外贸销售</p>\n<p>📧 sales@company.com · 📱 +86 138 0000 0000</p>\n<p><a href="https://company.com">company.com</a></p>`}
-            spellCheck={false}
-          />
-          <div className="mt-1 text-[11px] text-gray-400">
-            提示：签名内的链接也会被自动转换为追踪链接。
-          </div>
-        </div>
+      <RichTextEditor
+        ref={editorRef}
+        value={value}
+        onChange={setValue}
+        placeholder="在这里设计你的签名，例如姓名、职位、联系方式、公司 Logo 等"
+        minHeight={260}
+      />
 
-        {/* Preview */}
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">
-            预览
-          </label>
-          <div className="min-h-[240px] rounded-lg border border-gray-200 bg-white p-3 text-sm overflow-auto">
-            <div className="text-gray-400 text-xs mb-1">... 邮件正文 ...</div>
-            <hr className="my-2" />
-            {value ? (
-              <div
-                // Trusted: signature only comes from the authenticated account owner
-                dangerouslySetInnerHTML={{ __html: value }}
-              />
-            ) : (
-              <div className="text-gray-400 text-xs italic">（未设置签名）</div>
-            )}
-          </div>
-        </div>
+      <div className="text-[11px] text-gray-400">
+        提示：签名里的链接会被自动转换为追踪链接，可以统计客户点击情况。
       </div>
 
       <div className="flex items-center justify-end gap-2">
         <button
-          onClick={() => setValue(data?.signature || '')}
+          onClick={reset}
           disabled={!dirty || saving}
           className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
         >

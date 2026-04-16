@@ -232,7 +232,9 @@ export class EmailsService {
     }
 
     let htmlBody = dto.bodyHtml;
-    if (config.signature) {
+    // 如果前端已经显式把签名嵌入到了正文里（例如 ComposeWindow 的可视化
+    // 编辑器），就不要再次追加，否则收件人会看到两份签名。
+    if (config.signature && !dto.skipSignatureAppend) {
       htmlBody += `<br/><br/>--<br/>${config.signature}`;
     }
 

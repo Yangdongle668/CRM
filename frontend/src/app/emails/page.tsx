@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
+import ComposeWindow from '@/components/emails/ComposeWindow';
 import { emailsApi, customersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -99,7 +100,6 @@ export default function EmailsPage() {
   const [loading, setLoading] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
-  const [signature, setSignature] = useState<string>('');
 
   // Multi-account support
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -117,12 +117,7 @@ export default function EmailsPage() {
   const [signatureForAccount, setSignatureForAccount] =
     useState<{ id: string; emailAddr: string } | null>(null);
 
-  // Reply state
-  const [replyOpen, setReplyOpen] = useState(false);
-  const [replyForm, setReplyForm] = useState<ComposeForm>(emptyComposeForm);
-  const [replySending, setReplySending] = useState(false);
-
-  // Compose modal (for new emails)
+  // Compose window state（新邮件 + 回复 + 转发 都复用同一个窗口）
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState<ComposeForm>(emptyComposeForm);
   const [sending, setSending] = useState(false);
@@ -294,7 +289,6 @@ export default function EmailsPage() {
   // View email detail (with thread loading)
   const handleViewEmail = async (email: Email, threadId?: string | null) => {
     setDetailLoading(true);
-    setReplyOpen(false);
     setThreadEmails([]);
     setViewingThreadEmailId(null);
     try {
@@ -353,113 +347,37 @@ export default function EmailsPage() {
     }
   };
 
-  // Handle reply
+  // 回复 —— 复用同一个 ComposeWindow，预先把被引用的原邮件放进正文
+  // （用 data-role="quoted" 标记），之后 ComposeWindow 会自动在 quoted
+  // 之前插入签名，布局是"回复正文 → 签名 → 引用原文"。
+  const buildQuotedBlock = (email: Email) =>
+    `<br/><br/><div data-role="quoted" style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;"><p><strong>${email.fromAddr}</strong> 于 ${formatTime(email.sentAt || email.receivedAt || email.createdAt)} 写道：</p>${email.bodyHtml || `<pre>${email.bodyText || ''}</pre>`}</div>`;
+
   const handleReply = () => {
     if (!selectedEmail) return;
-    const replyTo = selectedEmail.direction === 'INBOUND'
-      ? selectedEmail.fromAddr
-      : selectedEmail.toAddr;
+    const replyTo =
+      selectedEmail.direction === 'INBOUND'
+        ? selectedEmail.fromAddr
+        : selectedEmail.toAddr;
     const subject = selectedEmail.subject.startsWith('Re:')
       ? selectedEmail.subject
       : `Re: ${selectedEmail.subject}`;
 
-    const quotedContent = `
-<br/><br/>
-<div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;">
-  <p><strong>${selectedEmail.fromAddr}</strong> 于 ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)} 写道：</p>
-  ${selectedEmail.bodyHtml || `<pre>${selectedEmail.bodyText || ''}</pre>`}
-</div>`;
-
-    const sigBlock = signature ? `<br/><br/>--<br/>${signature}` : '';
-    setReplyForm({
+    setComposeForm({
       toAddr: replyTo,
       cc: '',
       bcc: '',
       subject,
-      bodyHtml: sigBlock,
+      bodyHtml: buildQuotedBlock(selectedEmail),
       customerId: selectedEmail.customerId || '',
       inReplyTo: selectedEmail.id,
     });
-    setReplyOpen(true);
+    setComposeOpen(true);
   };
 
-  // Send reply
-  const handleSendReply = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!replyForm.toAddr.trim()) {
-      toast.error('请输入收件人地址');
-      return;
-    }
-    setReplySending(true);
-
-    // Build the reply body with quoted content
-    const quotedContent = selectedEmail
-      ? `<br/><br/><div style="border-left: 2px solid #ccc; padding-left: 12px; margin-left: 0; color: #666;"><p><strong>${selectedEmail.fromAddr}</strong> 于 ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)} 写道：</p>${selectedEmail.bodyHtml || `<pre>${selectedEmail.bodyText || ''}</pre>`}</div>`
-      : '';
-
-    try {
-      const payload: any = {
-        toAddr: replyForm.toAddr,
-        subject: replyForm.subject,
-        bodyHtml: replyForm.bodyHtml + quotedContent,
-        inReplyTo: replyForm.inReplyTo || undefined,
-        emailConfigId: selectedAccountId || undefined,
-      };
-      if (replyForm.cc) payload.cc = replyForm.cc;
-      if (replyForm.bcc) payload.bcc = replyForm.bcc;
-      if (replyForm.customerId) payload.customerId = replyForm.customerId;
-
-      await emailsApi.send(payload);
-      toast.success('回复已发送');
-      setReplyOpen(false);
-      setReplyForm(emptyComposeForm);
-      // Refresh if on outbound
-      if (activeFolder === 'sent') {
-        fetchEmails();
-      }
-    } catch {
-      // handled by interceptor
-    } finally {
-      setReplySending(false);
-    }
-  };
-
-  // Send new email
-  const handleSendEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!composeForm.toAddr.trim()) {
-      toast.error('请输入收件人地址');
-      return;
-    }
-    if (!composeForm.subject.trim()) {
-      toast.error('请输入邮件主题');
-      return;
-    }
-    setSending(true);
-    try {
-      const payload: any = {
-        toAddr: composeForm.toAddr,
-        subject: composeForm.subject,
-        bodyHtml: composeForm.bodyHtml,
-        emailConfigId: selectedAccountId || undefined,
-      };
-      if (composeForm.cc) payload.cc = composeForm.cc;
-      if (composeForm.bcc) payload.bcc = composeForm.bcc;
-      if (composeForm.customerId) payload.customerId = composeForm.customerId;
-
-      await emailsApi.send(payload);
-      toast.success('邮件已发送');
-      setComposeOpen(false);
-      setComposeForm(emptyComposeForm);
-      if (activeFolder === 'sent') {
-        fetchEmails();
-      }
-    } catch {
-      // handled by interceptor
-    } finally {
-      setSending(false);
-    }
-  };
+  // 发送新邮件的逻辑已经移到 ComposeWindow 的 onSend 回调里
+  // （renderComposeModal），那边能直接访问最新的 composeForm 和
+  // skipSignatureAppend 标志。
 
   // Fetch IMAP
   const handleFetchImap = async () => {
@@ -820,7 +738,9 @@ export default function EmailsPage() {
                 const fwdSubject = selectedEmail.subject.startsWith('Fwd:')
                   ? selectedEmail.subject
                   : `Fwd: ${selectedEmail.subject}`;
-                const fwdBody = `<br/><br/>---------- 转发的邮件 ----------<br/>发件人: ${selectedEmail.fromAddr}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${selectedEmail.subject}<br/>收件人: ${selectedEmail.toAddr}<br/><br/>${selectedEmail.bodyHtml || selectedEmail.bodyText || ''}`;
+                // 用 data-role="quoted" 包起来，ComposeWindow 会把签名
+                // 插到这一段之前。
+                const fwdBody = `<br/><br/><div data-role="quoted">---------- 转发的邮件 ----------<br/>发件人: ${selectedEmail.fromAddr}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${selectedEmail.subject}<br/>收件人: ${selectedEmail.toAddr}<br/><br/>${selectedEmail.bodyHtml || selectedEmail.bodyText || ''}</div>`;
                 setComposeForm({
                   ...emptyComposeForm,
                   subject: fwdSubject,
@@ -894,73 +814,8 @@ export default function EmailsPage() {
           </div>
         </div>
 
-        {/* Inline reply form */}
-        {replyOpen && (
-          <div className="border-t bg-white flex-shrink-0 px-6 py-4">
-            <form onSubmit={handleSendReply} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-gray-700">回复邮件</h3>
-                <button
-                  type="button"
-                  onClick={() => setReplyOpen(false)}
-                  className="text-gray-400 hover:text-gray-600"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-4 text-sm">
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-gray-500 flex-shrink-0">收件人：</span>
-                  <input
-                    type="text"
-                    value={replyForm.toAddr}
-                    onChange={(e) => setReplyForm({ ...replyForm, toAddr: e.target.value })}
-                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-                <div className="flex items-center gap-2 flex-1">
-                  <span className="text-gray-500 flex-shrink-0">抄送：</span>
-                  <input
-                    type="text"
-                    value={replyForm.cc}
-                    onChange={(e) => setReplyForm({ ...replyForm, cc: e.target.value })}
-                    className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                    placeholder="可选"
-                  />
-                </div>
-              </div>
-
-              <textarea
-                value={replyForm.bodyHtml}
-                onChange={(e) => setReplyForm({ ...replyForm, bodyHtml: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                rows={4}
-                placeholder="输入回复内容..."
-                autoFocus
-              />
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setReplyOpen(false)}
-                  className="px-3 py-1.5 text-sm text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={replySending}
-                  className="px-4 py-1.5 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {replySending ? '发送中...' : '发送回复'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
+        {/* 回复 / 转发都走同一个 ComposeWindow —— 见 handleReply、
+            转发按钮、renderComposeModal。这里不再内嵌回复表单。 */}
       </div>
     );
   };
@@ -1026,126 +881,60 @@ export default function EmailsPage() {
     </div>
   );
 
-  // ==================== Compose Modal ====================
+  // ==================== Compose Window（浮动、可拖拽、可最大化/最小化） ====================
   const renderComposeModal = () => (
-    <Modal
-      isOpen={composeOpen}
+    <ComposeWindow
+      open={composeOpen}
       onClose={() => setComposeOpen(false)}
-      title="写邮件"
-      size="3xl"
-    >
-      <form onSubmit={handleSendEmail} className="space-y-4">
-        {accounts.length > 1 && (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">发件账户</label>
-            <select
-              value={selectedAccountId || ''}
-              onChange={(e) => setSelectedAccountId(e.target.value || null)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="">默认账户</option>
-              {accounts.map((acct: any) => (
-                <option key={acct.id} value={acct.id}>{acct.emailAddr}</option>
-              ))}
-            </select>
-          </div>
-        )}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            收件人 <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={composeForm.toAddr}
-            onChange={(e) => setComposeForm({ ...composeForm, toAddr: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="请输入收件人邮箱"
-          />
-        </div>
+      value={composeForm}
+      onChange={setComposeForm}
+      onSend={async () => {
+        // 复用已有的发送逻辑 —— handleSendEmail 需要一个 FormEvent，
+        // 这里自己构造一次发送动作，避免伪造事件对象。
+        if (!composeForm.toAddr.trim()) {
+          toast.error('请输入收件人地址');
+          return;
+        }
+        if (!composeForm.subject.trim()) {
+          toast.error('请输入邮件主题');
+          return;
+        }
+        setSending(true);
+        try {
+          const payload: any = {
+            toAddr: composeForm.toAddr,
+            subject: composeForm.subject,
+            bodyHtml: composeForm.bodyHtml,
+            emailConfigId: selectedAccountId || undefined,
+            // ComposeWindow 已经把签名可视化插入到正文里了，告诉服务器
+            // 不要再追加一次，否则收件人看到的就是两份签名。
+            skipSignatureAppend: true,
+          };
+          if (composeForm.cc) payload.cc = composeForm.cc;
+          if (composeForm.bcc) payload.bcc = composeForm.bcc;
+          if (composeForm.customerId) payload.customerId = composeForm.customerId;
+          // 回复 / 转发场景下 inReplyTo 会由 handleReply 预置，带上就能
+          // 让后端把这封新邮件归到原会话里。
+          if (composeForm.inReplyTo) payload.inReplyTo = composeForm.inReplyTo;
 
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">抄送</label>
-            <input
-              type="text"
-              value={composeForm.cc}
-              onChange={(e) => setComposeForm({ ...composeForm, cc: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="抄送邮箱"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">密送</label>
-            <input
-              type="text"
-              value={composeForm.bcc}
-              onChange={(e) => setComposeForm({ ...composeForm, bcc: e.target.value })}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="密送邮箱"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            主题 <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={composeForm.subject}
-            onChange={(e) => setComposeForm({ ...composeForm, subject: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="请输入邮件主题"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            关联客户
-          </label>
-          <select
-            value={composeForm.customerId}
-            onChange={(e) => setComposeForm({ ...composeForm, customerId: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">不关联客户</option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.companyName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">正文</label>
-          <textarea
-            value={composeForm.bodyHtml}
-            onChange={(e) => setComposeForm({ ...composeForm, bodyHtml: e.target.value })}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            rows={12}
-            placeholder="请输入邮件内容（支持 HTML）"
-          />
-        </div>
-
-        <div className="flex justify-end gap-3 pt-4 border-t">
-          <button
-            type="button"
-            onClick={() => setComposeOpen(false)}
-            className="px-4 py-2 text-sm text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-          >
-            取消
-          </button>
-          <button
-            type="submit"
-            disabled={sending}
-            className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-          >
-            {sending ? '发送中...' : '发送'}
-          </button>
-        </div>
-      </form>
-    </Modal>
+          await emailsApi.send(payload);
+          toast.success(composeForm.inReplyTo ? '回复已发送' : '邮件已发送');
+          setComposeOpen(false);
+          setComposeForm(emptyComposeForm);
+          if (activeFolder === 'sent') fetchEmails();
+        } catch {
+          /* handled by interceptor */
+        } finally {
+          setSending(false);
+        }
+      }}
+      sending={sending}
+      accounts={accounts}
+      selectedAccountId={selectedAccountId}
+      onAccountChange={setSelectedAccountId}
+      customers={customers}
+      templates={templates}
+    />
   );
 
   // ==================== Template Modal ====================
@@ -1460,8 +1249,9 @@ export default function EmailsPage() {
             </button>
             <button
               onClick={() => {
-                const body = signature ? `<br/><br/>--<br/>${signature}` : '';
-                setComposeForm({ ...emptyComposeForm, bodyHtml: body });
+                // 正文初始化为空，ComposeWindow 会根据选中的发件账户自动
+                // 拉签名并可视化追加到正文末尾。
+                setComposeForm({ ...emptyComposeForm });
                 setComposeOpen(true);
               }}
               className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
@@ -1483,7 +1273,6 @@ export default function EmailsPage() {
                     setActiveFolder(folder.key);
                     setPage(1);
                     setSelectedEmail(null);
-                    setReplyOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
                     activeFolder === folder.key
