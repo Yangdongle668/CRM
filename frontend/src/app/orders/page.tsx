@@ -140,25 +140,31 @@ export default function OrdersPage() {
   };
 
   // ---------- open edit modal ----------
-  const openEdit = (o: Order) => {
-    setEditingId(o.id);
-    setForm({
-      customerId: o.customerId,
-      title: o.title,
-      currency: o.currency,
-      costTypes: o.costTypes ?? [],
-      floorPrice: o.floorPrice != null ? String(o.floorPrice) : '',
-      shippingAddr: o.shippingAddr ?? '',
-      shippingDate: o.shippingDate ? o.shippingDate.slice(0, 10) : '',
-      trackingNo: o.trackingNo ?? '',
-      remark: o.remark ?? '',
-    });
-    setItems(
-      o.items.length > 0
-        ? o.items.map((i) => ({ ...i }))
-        : [{ ...emptyItem }]
-    );
-    setModalOpen(true);
+  const openEdit = async (o: Order) => {
+    try {
+      const res: any = await ordersApi.getById(o.id);
+      const full: Order = res.data;
+      setEditingId(full.id);
+      setForm({
+        customerId: full.customerId,
+        title: full.title,
+        currency: full.currency,
+        costTypes: full.costTypes ?? [],
+        floorPrice: full.floorPrice != null ? String(full.floorPrice) : '',
+        shippingAddr: full.shippingAddr ?? '',
+        shippingDate: full.shippingDate ? full.shippingDate.slice(0, 10) : '',
+        trackingNo: full.trackingNo ?? '',
+        remark: full.remark ?? '',
+      });
+      setItems(
+        full.items?.length > 0
+          ? full.items.map((i) => ({ ...i }))
+          : [{ ...emptyItem }]
+      );
+      setModalOpen(true);
+    } catch {
+      // error handled by interceptor
+    }
   };
 
   // ---------- open detail ----------
