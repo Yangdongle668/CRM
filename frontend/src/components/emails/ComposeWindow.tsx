@@ -26,7 +26,6 @@ import {
   HiOutlineDocumentText,
   HiOutlineSparkles,
   HiOutlinePencilSquare,
-  HiOutlineClock,
   HiChevronDown,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
@@ -120,11 +119,17 @@ export default function ComposeWindow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // 打开时 & 账户切换时自动拉签名并可视化插入到正文末尾
+  // 打开时 & 账户切换时自动拉签名并可视化插入。
+  //
+  // 位置规则（模仿 Gmail / Outlook）：
+  //   - 已有签名块（data-role="signature"）→ 原地替换
+  //   - 正文里有被引用的原始邮件（data-role="quoted"，回复/转发时由
+  //     父组件预先放进 bodyHtml）→ 签名插入到该块的"前面"，这样布局是
+  //     "用户正在写的正文 → 签名 → 引用的原始邮件"
+  //   - 否则 → 追加到正文末尾
   const loadedSigRef = useRef<{ accountId: string | null; html: string } | null>(null);
   useEffect(() => {
     if (!open) return;
-    // 如果正文已经带了签名标记（例如从回复/转发进入时已拼好），就不重复追加
     const accountId = selectedAccountId;
     let cancelled = false;
     (async () => {
@@ -140,21 +145,22 @@ export default function ComposeWindow({
         }
         if (cancelled || !sigHtml) return;
 
-        const prev = loadedSigRef.current;
-        const marker = '<!--sig-->';
-        const wrapped = `<div data-role="signature" contenteditable="true">${marker}<br/>--<br/>${sigHtml}</div>`;
+        const wrapped = `<div data-role="signature"><br/>--<br/>${sigHtml}</div>`;
+        const cur = editorRef.current?.getHtml() || '';
+        const sigRe = /<div[^>]*data-role="signature"[\s\S]*?<\/div>/;
+        const quotedRe = /<div[^>]*data-role="quoted"[\s\S]*$/; // 到末尾
 
-        // 首次打开：追加；切换账户：替换旧签名块
-        if (!prev) {
-          editorRef.current?.insertHtml(`<br/>${wrapped}`);
-        } else if (prev.accountId !== accountId) {
-          const cur = editorRef.current?.getHtml() || '';
-          const next = cur.replace(
-            /<div[^>]*data-role="signature"[\s\S]*?<\/div>/,
-            wrapped,
+        if (sigRe.test(cur)) {
+          // 已有签名块：原地替换
+          editorRef.current?.setHtml(cur.replace(sigRe, wrapped));
+        } else if (quotedRe.test(cur)) {
+          // 有 quoted：插到 quoted 之前
+          editorRef.current?.setHtml(
+            cur.replace(quotedRe, (m) => `${wrapped}${m}`),
           );
-          if (next !== cur) editorRef.current?.setHtml(next);
-          else editorRef.current?.insertHtml(`<br/>${wrapped}`);
+        } else {
+          // 纯新邮件：追加到末尾
+          editorRef.current?.insertHtml(`<br/>${wrapped}`);
         }
         loadedSigRef.current = { accountId, html: sigHtml };
       } catch {
@@ -333,15 +339,6 @@ export default function ComposeWindow({
         {/* 右侧控件 */}
         <button
           type="button"
-          title="定时发送（预留）"
-          className="rounded-full p-1 text-gray-400 hover:bg-gray-200 hover:text-gray-600"
-          onClick={() => toast('定时发送功能暂未开放')}
-        >
-          <HiOutlineClock className="h-4 w-4" />
-        </button>
-
-        <button
-          type="button"
           onClick={() => setMode(mode === 'minimized' ? 'normal' : 'minimized')}
           className="rounded-full p-1 text-gray-500 hover:bg-gray-200"
           title="最小化"
@@ -397,9 +394,6 @@ export default function ComposeWindow({
                   抄送
                 </button>
               )}
-              <span className="text-xs text-gray-400 hover:text-blue-600 cursor-pointer" title="通讯录（预留）">
-                通讯录
-              </span>
             </div>
 
             {showCcBcc && (
@@ -437,9 +431,6 @@ export default function ComposeWindow({
                 placeholder="请输入邮件主题"
                 className="flex-1 border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
               />
-              <span className="text-xs text-gray-400 cursor-default" title="快速选择会议邀请类型（预留）">
-                会议邀请
-              </span>
             </div>
 
             {/* 关联客户 */}
