@@ -20,6 +20,7 @@ import { BackupModule } from './modules/backup/backup.module';
 import { MemosModule } from './modules/memos/memos.module';
 import { PIsModule } from './modules/pis/pis.module';
 import { MessagesModule } from './modules/messages/messages.module';
+import { RatesModule } from './modules/rates/rates.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { MessagesModule } from './modules/messages/messages.module';
     MemosModule,
     PIsModule,
     MessagesModule,
+    RatesModule,
   ],
 })
 export class AppModule {}
