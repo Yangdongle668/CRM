@@ -237,7 +237,13 @@ export default function SettingsPage() {
       toast.error('不能删除自己的账户');
       return;
     }
-    if (!confirm('确定要删除该用户吗？')) return;
+    if (
+      !confirm(
+        '确定要删除该用户吗？\n\n该用户名下的客户、订单、线索、PI 等数据会自动转移到超级管理员名下，不会丢失。',
+      )
+    ) {
+      return;
+    }
     try {
       await usersApi.delete(id);
       toast.success('用户已删除');
@@ -603,7 +609,19 @@ export default function SettingsPage() {
                   ) : (
                     users.map((u) => (
                       <tr key={u.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900">{u.name}</td>
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                          <div className="flex items-center gap-1.5">
+                            {u.name}
+                            {u.isSuperAdmin && (
+                              <span
+                                title="超级管理员：系统首次部署创建的账号，不可删除"
+                                className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                              >
+                                超级管理员
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="px-4 py-3 text-sm text-gray-500">{u.email}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">
                           {ROLE_MAP[u.role] || u.role}
@@ -628,12 +646,21 @@ export default function SettingsPage() {
                             >
                               编辑
                             </button>
-                            <button
-                              onClick={() => handleDeleteUser(u.id)}
-                              className="text-sm text-red-600 hover:text-red-800"
-                            >
-                              删除
-                            </button>
+                            {u.isSuperAdmin ? (
+                              <span
+                                title="超级管理员不可删除"
+                                className="text-sm text-gray-300 cursor-not-allowed"
+                              >
+                                删除
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => handleDeleteUser(u.id)}
+                                className="text-sm text-red-600 hover:text-red-800"
+                              >
+                                删除
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
