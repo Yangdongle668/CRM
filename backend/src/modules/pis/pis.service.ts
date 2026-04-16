@@ -383,9 +383,11 @@ export class PIsService {
         const T = 30;             // top margin
         const PW = 595;           // page width (A4)
         const CW = PW - L * 2;    // content width = 515
-        const leftColW = 215;     // Seller / Consignee column width
-        const rCW = CW - leftColW;          // right section = 300
-        const rHalfW = rCW / 2;             // each right sub-cell = 150
+        // Split the info grid down the middle so the seller/consignee
+        // column is the same width as the right-side info pairs combined.
+        const leftColW = Math.floor(CW / 2);     // 257
+        const rCW = CW - leftColW;               // 258
+        const rHalfW = rCW / 2;                  // 129
         const midX = L + leftColW;
 
         const BLUE = '#1155CC';
