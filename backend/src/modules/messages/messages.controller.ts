@@ -24,6 +24,11 @@ export class MessagesController {
     return this.messagesService.getConversations(user.id);
   }
 
+  @Get(':userId/profile')
+  getUserProfile(@Param('userId') userId: string) {
+    return this.messagesService.getUserProfile(userId);
+  }
+
   @Get(':userId')
   getHistory(@CurrentUser() user: any, @Param('userId') otherId: string) {
     return this.messagesService.getHistory(user.id, otherId);

@@ -279,4 +279,6 @@ export const messagesApi = {
   getHistory: (userId: string) => api.get(`/messages/${userId}`),
   send: (toId: string, content: string) => api.post('/messages', { toId, content }),
   getUnreadCount: () => api.get('/messages/unread-count'),
+  getUsers: () => api.get('/messages/users'),
+  getUserProfile: (userId: string) => api.get(`/messages/${userId}/profile`),
 };
