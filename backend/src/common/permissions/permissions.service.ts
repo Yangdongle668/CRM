@@ -1,8 +1,18 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  PERMISSION_CATALOG,
+  BUILTIN_ROLES,
+  BUILTIN_ROLE_CODES,
   DEFAULT_ROLE_PERMISSIONS,
+  PERMISSION_CATALOG,
   WILDCARD,
 } from './permissions.catalog';
 
@@ -31,18 +41,12 @@ export class PermissionsService implements OnModuleInit {
   }
 
   /**
-   * Inserts the catalog + default mappings if the tables are empty.
-   * Safe to call multiple times — uses upsert on `code`.
+   * Inserts the catalog + built-in roles + default mappings on boot.
+   * Safe to call multiple times — uses upsert semantics.
    */
   async seedIfEmpty(): Promise<void> {
     try {
-      const existing = await this.prisma.permission.count();
-      if (existing === 0) {
-        this.logger.log(
-          `Seeding ${PERMISSION_CATALOG.length} permissions + default role mappings`,
-        );
-      }
-      // Always upsert so new catalog entries appear without wiping custom rows.
+      // 1) Permissions catalog
       for (const p of PERMISSION_CATALOG) {
         await this.prisma.permission.upsert({
           where: { code: p.code },
@@ -55,9 +59,25 @@ export class PermissionsService implements OnModuleInit {
         });
       }
 
-      // Seed default role -> permission mappings only if *that role* has
-      // no rows yet. This lets admins customise mappings without the seed
-      // overwriting their edits on next boot.
+      // 2) Built-in roles — upsert name/description, force isBuiltin=true.
+      for (const r of BUILTIN_ROLES) {
+        await this.prisma.role.upsert({
+          where: { code: r.code },
+          update: {
+            name: r.name,
+            description: r.description,
+            isBuiltin: true,
+          },
+          create: {
+            code: r.code,
+            name: r.name,
+            description: r.description,
+            isBuiltin: true,
+          },
+        });
+      }
+
+      // 3) Default role -> permission mappings only if that role has no rows.
       for (const [role, codes] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
         const count = await this.prisma.rolePermission.count({
           where: { role },
@@ -81,6 +101,105 @@ export class PermissionsService implements OnModuleInit {
         `Permission seeding skipped: ${err?.message || err}`,
       );
     }
+  }
+
+  // -------- Role CRUD --------
+
+  /**
+   * List every role in the system (built-ins + custom) with its permission
+   * count. Admin role is reported as having "all" permissions.
+   */
+  async listRoles() {
+    const roles = await this.prisma.role.findMany({
+      orderBy: [{ isBuiltin: 'desc' }, { code: 'asc' }],
+    });
+    const counts = await this.prisma.rolePermission.groupBy({
+      by: ['role'],
+      _count: { _all: true },
+    });
+    const countMap = new Map(counts.map((c) => [c.role, c._count._all]));
+    const userCounts = await this.prisma.user.groupBy({
+      by: ['role'],
+      _count: { _all: true },
+    });
+    const userMap = new Map(userCounts.map((c) => [c.role, c._count._all]));
+
+    return roles.map((r) => ({
+      code: r.code,
+      name: r.name,
+      description: r.description,
+      isBuiltin: r.isBuiltin,
+      permissionCount: r.code === 'ADMIN' ? -1 : countMap.get(r.code) || 0,
+      userCount: userMap.get(r.code) || 0,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    }));
+  }
+
+  async getRole(code: string) {
+    const role = await this.prisma.role.findUnique({ where: { code } });
+    if (!role) throw new NotFoundException(`角色不存在: ${code}`);
+    return role;
+  }
+
+  async createRole(input: { code: string; name: string; description?: string }) {
+    const code = (input.code || '').trim().toUpperCase();
+    if (!/^[A-Z][A-Z0-9_]{1,31}$/.test(code)) {
+      throw new BadRequestException(
+        '角色 code 必须为 2~32 位大写字母/数字/下划线，且以字母开头',
+      );
+    }
+    if (!input.name?.trim()) {
+      throw new BadRequestException('角色名称不能为空');
+    }
+    const existing = await this.prisma.role.findUnique({ where: { code } });
+    if (existing) {
+      throw new ConflictException(`角色 code 已存在: ${code}`);
+    }
+    return this.prisma.role.create({
+      data: {
+        code,
+        name: input.name.trim(),
+        description: input.description?.trim() || null,
+        isBuiltin: false,
+      },
+    });
+  }
+
+  async updateRole(
+    code: string,
+    input: { name?: string; description?: string | null },
+  ) {
+    await this.getRole(code);
+    return this.prisma.role.update({
+      where: { code },
+      data: {
+        name: input.name?.trim(),
+        description:
+          input.description === undefined
+            ? undefined
+            : input.description?.trim() || null,
+      },
+    });
+  }
+
+  async deleteRole(code: string) {
+    const role = await this.getRole(code);
+    if (role.isBuiltin || BUILTIN_ROLE_CODES.includes(code)) {
+      throw new ForbiddenException('内置角色不可删除');
+    }
+    const userCount = await this.prisma.user.count({ where: { role: code } });
+    if (userCount > 0) {
+      throw new BadRequestException(
+        `该角色还有 ${userCount} 个用户在使用，请先迁移用户后再删除`,
+      );
+    }
+    await this.prisma.$transaction([
+      this.prisma.rolePermission.deleteMany({ where: { role: code } }),
+      this.prisma.role.delete({ where: { code } }),
+    ]);
+    this.invalidateRole(code);
+    return { deleted: true };
   }
 
   /**

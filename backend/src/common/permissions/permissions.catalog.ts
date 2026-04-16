@@ -104,6 +104,36 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'audit:read', name: '查看审计日志', category: 'audit' },
 ];
 
+export interface BuiltinRoleDef {
+  code: string;
+  name: string;
+  description: string;
+}
+
+/**
+ * Built-in roles — seeded on first boot and not deletable.
+ * ADMIN is additionally special: always granted the `*` wildcard.
+ */
+export const BUILTIN_ROLES: BuiltinRoleDef[] = [
+  {
+    code: 'ADMIN',
+    name: '系统管理员',
+    description: '内置角色，拥有全部权限（通配符 *）',
+  },
+  {
+    code: 'SALESPERSON',
+    name: '销售员',
+    description: '内置角色：客户 / 线索 / 报价 / 订单管理',
+  },
+  {
+    code: 'FINANCE',
+    name: '财务人员',
+    description: '内置角色：订单 / 回款 / 形式发票',
+  },
+];
+
+export const BUILTIN_ROLE_CODES = BUILTIN_ROLES.map((r) => r.code);
+
 /**
  * Default role-permission mapping. Seeded on app boot if tables are empty.
  * ADMIN gets the `*` wildcard via special-case logic — no rows needed.

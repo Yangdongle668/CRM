@@ -292,6 +292,12 @@ export const ratesApi = {
 export const rbacApi = {
   myPermissions: () => api.get('/auth/me/permissions'),
   catalog: () => api.get('/rbac/catalog'),
+  listRoles: () => api.get('/rbac/roles'),
+  createRole: (data: { code: string; name: string; description?: string }) =>
+    api.post('/rbac/roles', data),
+  updateRole: (code: string, data: { name?: string; description?: string | null }) =>
+    api.patch(`/rbac/roles/${code}`, data),
+  deleteRole: (code: string) => api.delete(`/rbac/roles/${code}`),
   getRolePermissions: (role: string) => api.get(`/rbac/roles/${role}/permissions`),
   setRolePermissions: (role: string, permissions: string[]) =>
     api.put(`/rbac/roles/${role}/permissions`, { permissions }),

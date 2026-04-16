@@ -1,13 +1,11 @@
 import {
   IsEmail,
-  IsEnum,
   IsNotEmpty,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 
 export class RegisterDto {
   @ApiProperty({ example: 'user@example.com' })
@@ -26,10 +24,11 @@ export class RegisterDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ enum: Role, example: Role.SALESPERSON })
-  @IsEnum(Role)
+  // role 是 Role.code（运行时可由管理员在 /admin/rbac 新增）。
+  @ApiProperty({ example: 'SALESPERSON' })
+  @IsString()
   @IsNotEmpty()
-  role: Role;
+  role: string;
 
   @ApiPropertyOptional({ example: '+1234567890' })
   @IsString()

@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Patch,
+  Post,
   Put,
   Param,
   Req,
@@ -49,6 +52,74 @@ export class PermissionsController {
     return { permissions: PERMISSION_CATALOG };
   }
 
+  /** List every role (built-in + custom) with permission & user counts. */
+  @Get('rbac/roles')
+  @RequirePermissions('rbac:read')
+  async listRoles() {
+    const roles = await this.permissionsService.listRoles();
+    return { roles };
+  }
+
+  @Post('rbac/roles')
+  @RequirePermissions('rbac:update')
+  async createRole(
+    @Body() body: { code: string; name: string; description?: string },
+    @Req() req: Request,
+  ) {
+    const role = await this.permissionsService.createRole(body);
+    await this.auditService.logFromRequest(req, {
+      action: 'rbac.role.create',
+      targetType: 'role',
+      targetId: role.code,
+      targetLabel: role.name,
+      metadata: { description: role.description },
+    });
+    return { role };
+  }
+
+  @Patch('rbac/roles/:role')
+  @RequirePermissions('rbac:update')
+  async updateRole(
+    @Param('role') code: string,
+    @Body() body: { name?: string; description?: string | null },
+    @Req() req: Request,
+  ) {
+    const role = await this.permissionsService.updateRole(code, body);
+    await this.auditService.logFromRequest(req, {
+      action: 'rbac.role.update.meta',
+      targetType: 'role',
+      targetId: role.code,
+      targetLabel: role.name,
+      metadata: { changed: body },
+    });
+    return { role };
+  }
+
+  @Delete('rbac/roles/:role')
+  @RequirePermissions('rbac:update')
+  async deleteRole(@Param('role') code: string, @Req() req: Request) {
+    try {
+      const result = await this.permissionsService.deleteRole(code);
+      await this.auditService.logFromRequest(req, {
+        action: 'rbac.role.delete',
+        targetType: 'role',
+        targetId: code,
+        targetLabel: code,
+      });
+      return result;
+    } catch (err: any) {
+      await this.auditService.logFromRequest(req, {
+        action: 'rbac.role.delete',
+        targetType: 'role',
+        targetId: code,
+        targetLabel: code,
+        status: 'FAILURE',
+        errorMessage: err?.message || String(err),
+      });
+      throw err;
+    }
+  }
+
   @Get('rbac/roles/:role/permissions')
   @RequirePermissions('rbac:read')
   async getRolePermissions(@Param('role') role: string) {
@@ -70,6 +141,9 @@ export class PermissionsController {
         message: 'ADMIN 角色默认拥有全部权限，无需配置',
       };
     }
+    // Enforce that the role actually exists so admins can't accidentally
+    // create "ghost" permission sets.
+    await this.permissionsService.getRole(role);
     const before = await this.permissionsService.listForRole(role);
     const codes = Array.isArray(body?.permissions) ? body.permissions : [];
     const permissions = await this.prisma.permission.findMany({
