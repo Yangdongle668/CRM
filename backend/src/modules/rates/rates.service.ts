@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-interface RatesPayload {
+export interface RatesPayload {
   base: string;
   updatedAt: string;
   rates: { USD_CNY: number; EUR_CNY: number; EUR_USD: number };
