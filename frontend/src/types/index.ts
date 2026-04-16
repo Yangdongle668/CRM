@@ -24,6 +24,9 @@ export interface User {
   avatar?: string;
   bio?: string;
   isActive: boolean;
+  /** True for the system's super admin — the protected root account
+   *  created on first install. Cannot be deleted or demoted. */
+  isSuperAdmin?: boolean;
   createdAt: string;
   /** Permission codes granted to this user by their role (ADMIN ⇒ ["*"]). */
   permissions?: string[];

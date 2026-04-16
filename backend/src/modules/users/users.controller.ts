@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -86,18 +87,20 @@ export class UsersController {
   @RequirePermissions('user:delete')
   @ApiOperation({ summary: 'Delete user' })
   async remove(@Param('id') id: string, @Req() req: Request) {
+    const requesterId = (req as any).user?.id;
     let label: string | null = null;
     try {
       const existing = await this.usersService.findOne(id);
       label = (existing as any)?.email ?? null;
     } catch {}
     try {
-      const result = await this.usersService.remove(id);
+      const result = await this.usersService.remove(id, requesterId);
       await this.auditService.logFromRequest(req, {
         action: 'user.delete',
         targetType: 'user',
         targetId: id,
         targetLabel: label,
+        metadata: { transferredTo: (result as any)?.transferredTo },
       });
       return result;
     } catch (err: any) {
@@ -111,5 +114,28 @@ export class UsersController {
       });
       throw err;
     }
+  }
+
+  @Post(':id/super-admin')
+  @RequirePermissions('user:update')
+  @ApiOperation({ summary: 'Transfer super admin status to this user' })
+  async transferSuperAdmin(@Param('id') id: string, @Req() req: Request) {
+    const requester = (req as any).user;
+    if (!requester?.isSuperAdmin) {
+      // Re-fetch to get the fresh flag (JwtStrategy doesn't select it).
+      const me = await this.usersService.findOne(requester.id);
+      if (!(me as any).isSuperAdmin) {
+        throw new (require('@nestjs/common').ForbiddenException)(
+          '只有当前超级管理员可以转移权限',
+        );
+      }
+    }
+    const result = await this.usersService.transferSuperAdmin(requester.id, id);
+    await this.auditService.logFromRequest(req, {
+      action: 'user.transfer_super_admin',
+      targetType: 'user',
+      targetId: id,
+    });
+    return result;
   }
 }

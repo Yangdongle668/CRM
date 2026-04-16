@@ -40,6 +40,10 @@ export class AuthService {
         name: dto.name,
         role: 'ADMIN',
         phone: dto.phone,
+        // The very first user on a fresh install is the super admin:
+        // protected from deletion/demotion and used as the default
+        // transfer target when other users are removed.
+        isSuperAdmin: true,
       },
       select: {
         id: true,
@@ -49,6 +53,7 @@ export class AuthService {
         phone: true,
         avatar: true,
         isActive: true,
+        isSuperAdmin: true,
         createdAt: true,
       },
     });

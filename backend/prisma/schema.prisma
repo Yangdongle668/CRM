@@ -99,6 +99,11 @@ model User {
   avatar    String?
   bio       String?
   isActive  Boolean  @default(true)
+  // 超级管理员 = 系统部署后创建的第一个账号（或最早的 ADMIN）。
+  // 不可删除、不可降级、不可停用；删除其他用户时被删用户名下的所有
+  // 客户 / 订单 / 线索 / 任务等数据会自动转移到超级管理员名下，从而
+  // 避免因为外键约束导致删不掉用户。
+  isSuperAdmin Boolean @default(false) @map("is_super_admin")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
