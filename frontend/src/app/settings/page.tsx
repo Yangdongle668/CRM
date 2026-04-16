@@ -76,6 +76,8 @@ export default function SettingsPage() {
 
   // ==================== Backup tab ====================
   const [backupExporting, setBackupExporting] = useState(false);
+  const [backupImporting, setBackupImporting] = useState(false);
+  const [backupImportResult, setBackupImportResult] = useState<any>(null);
 
   const handleExportBackup = async () => {
     setBackupExporting(true);
@@ -101,6 +103,43 @@ export default function SettingsPage() {
     } finally {
       setBackupExporting(false);
     }
+  };
+
+  const handleImportBackup = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip,application/zip,application/x-zip-compressed';
+    input.onchange = async (e: any) => {
+      const file = e.target.files?.[0] as File | undefined;
+      if (!file) return;
+
+      if (
+        !window.confirm(
+          `确认要从备份文件「${file.name}」恢复数据吗？\n\n` +
+            '⚠️ 此操作将覆盖现有的客户、联系人、线索、报价、订单、任务、跟进记录，\n' +
+            '    并清除与之关联的邮件、形式发票、文档、备忘录、系统消息等数据。\n' +
+            '    系统设置、角色权限、审计日志会保留。\n' +
+            '    当前登录账号也会保留以免你被登出。\n\n' +
+            '此操作不可撤销！',
+        )
+      ) {
+        return;
+      }
+
+      setBackupImporting(true);
+      setBackupImportResult(null);
+      try {
+        const res: any = await backupApi.import(file);
+        setBackupImportResult(res.data || res);
+        toast.success('数据已成功恢复');
+      } catch (err: any) {
+        const msg = err?.response?.data?.message || '恢复失败，请检查文件格式';
+        toast.error(typeof msg === 'string' ? msg : msg[0] || '恢复失败');
+      } finally {
+        setBackupImporting(false);
+      }
+    };
+    input.click();
   };
 
   // Redirect unauthenticated users only
@@ -838,7 +877,7 @@ export default function SettingsPage() {
         {/* ==================== Backup Tab ==================== */}
         {activeTab === 'backup' && (
           <div className="rounded-lg border border-gray-200 bg-white p-6">
-            <div className="space-y-6">
+            <div className="space-y-8">
               {/* Export */}
               <div>
                 <h3 className="text-base font-semibold text-gray-900 mb-2">
@@ -869,6 +908,72 @@ export default function SettingsPage() {
                 >
                   {backupExporting ? '导出中...' : '导出 CSV 备份包'}
                 </button>
+              </div>
+
+              <div className="border-t border-gray-200" />
+
+              {/* Restore */}
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 mb-2">
+                  从备份恢复数据
+                </h3>
+                <p className="text-sm text-gray-500 mb-3">
+                  上传之前导出的 ZIP 备份文件，系统会自动解析并恢复业务数据。
+                </p>
+                <div className="rounded-lg bg-red-50 border border-red-200 p-4 mb-4 text-sm text-red-700 space-y-1">
+                  <p className="font-semibold">⚠️ 操作不可撤销，请务必先导出一份当前数据作为保险：</p>
+                  <ul className="list-disc pl-5 space-y-0.5">
+                    <li>
+                      <strong>会被替换</strong>：客户、联系人、线索、报价、订单、任务、跟进记录
+                    </li>
+                    <li>
+                      <strong>会被清空</strong>（因为引用关系）：邮件、邮箱配置、形式发票、文档、备忘录、系统消息
+                    </li>
+                    <li>
+                      <strong>会被保留</strong>：系统设置、角色权限、审计日志、你当前登录的账号
+                    </li>
+                    <li>
+                      新恢复出来的用户（非当前账号）需要走"忘记密码"流程重置密码
+                    </li>
+                  </ul>
+                </div>
+                <button
+                  onClick={handleImportBackup}
+                  disabled={backupImporting}
+                  className="rounded-lg border border-red-300 bg-white px-5 py-2.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                >
+                  {backupImporting ? '恢复中，请稍候...' : '选择 ZIP 备份文件恢复'}
+                </button>
+
+                {backupImportResult && (
+                  <div className="mt-4 rounded-lg bg-green-50 border border-green-200 p-4 text-sm text-green-800">
+                    <p className="font-semibold mb-2">✅ 恢复成功</p>
+                    {backupImportResult.imported && (
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1">
+                        {Object.entries(backupImportResult.imported as Record<string, number>).map(
+                          ([k, v]) => (
+                            <div key={k} className="flex justify-between">
+                              <span className="text-green-700">{k}</span>
+                              <span className="font-mono">{v}</span>
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                    {Array.isArray(backupImportResult.skipped) &&
+                      backupImportResult.skipped.length > 0 && (
+                        <p className="mt-2 text-xs text-green-700">
+                          备份中未包含的表：{backupImportResult.skipped.join(', ')}
+                        </p>
+                      )}
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="mt-3 text-sm text-green-700 hover:text-green-900 underline"
+                    >
+                      刷新页面以查看新数据
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
