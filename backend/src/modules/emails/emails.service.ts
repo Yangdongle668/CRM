@@ -330,6 +330,7 @@ export class EmailsService {
     const emailRecord = await this.prisma.email.create({
       data: {
         fromAddr: config.emailAddr,
+        fromName: config.fromName || null,
         toAddr: dto.toAddr,
         cc: dto.cc,
         bcc: dto.bcc,
@@ -1475,13 +1476,16 @@ export class EmailsService {
                 }
 
                 const fromAddr = parsed.from?.value?.[0]?.address || 'unknown';
-                const toAddr = parsed.to?.value?.map((v) => v.address).join(', ') || '';
-                const ccAddr = parsed.cc?.value?.map((v) => v.address).join(', ') || null;
+                const fromName = parsed.from?.value?.[0]?.name || null;
+                // Store to/cc with display names so the frontend can show
+                // "Tom Harvey" instead of just "tom@foo.com".
+                const fmtAddr = (v: { name?: string; address?: string }) =>
+                  v.name ? `${v.name} <${v.address}>` : (v.address || '');
+                const toAddr = parsed.to?.value?.map(fmtAddr).join(', ') || '';
+                const ccAddr = parsed.cc?.value?.map(fmtAddr).join(', ') || null;
 
-                const matchEmail = direction === 'INBOUND' ? fromAddr : toAddr.split(',')[0]?.trim();
+                const matchEmail = direction === 'INBOUND' ? fromAddr : (parsed.to?.value?.[0]?.address || '');
                 const customer = matchEmail ? await this.autoMatchCustomer(matchEmail) : null;
-
-                const fromName = parsed.from?.value?.[0]?.name || '';
 
                 const status = direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
                 let category = 'inbox';
@@ -1510,6 +1514,7 @@ export class EmailsService {
                   data: {
                     messageId,
                     fromAddr,
+                    fromName: fromName || null,
                     toAddr,
                     cc: ccAddr,
                     subject: rawSubject,

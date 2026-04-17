@@ -302,6 +302,7 @@ model Email {
   threadId      String?        @map("thread_id")
   emailConfigId String?        @map("email_config_id")
   fromAddr      String         @map("from_addr")
+  fromName      String?        @map("from_name")
   toAddr        String         @map("to_addr")
   cc            String?
   bcc           String?
