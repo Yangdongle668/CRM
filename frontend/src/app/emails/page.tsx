@@ -346,6 +346,11 @@ export default function EmailsPage() {
 
   // Switch to a different email within a thread
   const handleViewThreadEmail = async (email: Email) => {
+    // Toggle: click the same item again to collapse it
+    if (viewingThreadEmailId === email.id) {
+      setViewingThreadEmailId(null);
+      return;
+    }
     setViewingThreadEmailId(email.id);
     try {
       const res: any = await emailsApi.getById(email.id);
