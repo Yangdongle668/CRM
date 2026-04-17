@@ -1600,6 +1600,44 @@ export class EmailsService {
   // ==================== 邮件时间轴时间戳修正 ====================
 
   // 防止多个执行重叠（例如手动触发时 cron 正好也触发）。
+  // ==================== Background IMAP Polling ====================
+  private isFetchingAll = false;
+
+  /**
+   * Automatically fetch new emails for ALL configured IMAP accounts
+   * every 60 seconds. A lock prevents overlapping runs — if the
+   * previous fetch is still in progress, the tick is silently skipped.
+   */
+  @Cron('*/1 * * * *')
+  async backgroundFetchAll(): Promise<void> {
+    if (this.isFetchingAll) return;
+    this.isFetchingAll = true;
+    try {
+      const configs = await this.prisma.emailConfig.findMany({
+        select: { id: true, userId: true, emailAddr: true },
+      });
+
+      for (const cfg of configs) {
+        try {
+          const result = await this.fetchEmails(cfg.userId, cfg.id);
+          if (result.fetched > 0) {
+            this.logger.log(
+              `[Auto] Fetched ${result.fetched} new email(s) for ${cfg.emailAddr}`,
+            );
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `[Auto] Failed to fetch ${cfg.emailAddr}: ${err.message}`,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`[Auto] backgroundFetchAll error: ${err.message}`);
+    } finally {
+      this.isFetchingAll = false;
+    }
+  }
+
   private reconcilingEmailActivityTimestamps = false;
 
   /**
