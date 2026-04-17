@@ -1872,14 +1872,30 @@ export default function EmailsPage() {
                             签名
                           </button>
                           <button
-                            onClick={() => {
-                              setAccountForm({
-                                ...emptyAccountForm,
-                                emailAddr: acct.emailAddr,
-                                fromName: acct.fromName || '',
-                              });
-                              setEditingAccountId(acct.id);
-                              setShowAccountManager(true);
+                            onClick={async () => {
+                              try {
+                                const res: any = await emailsApi.getAccount(acct.id);
+                                const d = res.data || res;
+                                setAccountForm({
+                                  emailAddr: d.emailAddr || '',
+                                  fromName: d.fromName || '',
+                                  signature: d.signature || '',
+                                  smtpHost: d.smtpHost || '',
+                                  smtpPort: String(d.smtpPort || 465),
+                                  smtpUser: d.smtpUser || '',
+                                  smtpPass: '',
+                                  smtpSecure: d.smtpSecure !== false,
+                                  imapHost: d.imapHost || '',
+                                  imapPort: String(d.imapPort || 993),
+                                  imapUser: d.imapUser || '',
+                                  imapPass: '',
+                                  imapSecure: d.imapSecure !== false,
+                                });
+                                setEditingAccountId(acct.id);
+                                setShowAccountManager(true);
+                              } catch {
+                                toast.error('加载账户信息失败');
+                              }
                             }}
                             className="px-3 py-1 text-xs text-blue-600 hover:text-blue-800"
                           >

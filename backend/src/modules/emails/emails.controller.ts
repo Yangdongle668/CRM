@@ -47,6 +47,11 @@ export class EmailsController {
     return this.emailsService.listEmailAccounts(user.id);
   }
 
+  @Get('accounts/:id')
+  async getAccount(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getEmailAccount(user.id, id);
+  }
+
   @Post('accounts')
   async createAccount(@CurrentUser() user: any, @Body() body: any) {
     return this.emailsService.createEmailAccount(user.id, body);

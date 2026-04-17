@@ -126,6 +126,7 @@ export const leadsApi = {
 export const emailsApi = {
   // Account management
   listAccounts: () => api.get('/emails/accounts'),
+  getAccount: (id: string) => api.get(`/emails/accounts/${id}`),
   createAccount: (data: any) => api.post('/emails/accounts', data),
   updateAccount: (id: string, data: any) => api.put(`/emails/accounts/${id}`, data),
   deleteAccount: (id: string) => api.delete(`/emails/accounts/${id}`),
