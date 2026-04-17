@@ -108,6 +108,9 @@ export default function EmailsPage() {
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [accountsLoading, setAccountsLoading] = useState(false);
   const [showAccountManager, setShowAccountManager] = useState(false);
+  // Tree-view expansion state — which account branches are open in the
+  // sidebar. Defaults to "all expanded" once accounts load.
+  const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
 
   // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -153,8 +156,12 @@ export default function EmailsPage() {
       const res: any = await emailsApi.listAccounts();
       const accts = res.data?.accounts || [];
       setAccounts(accts);
-      // Just mark as initialized; don't auto-select an account so the inbox
-      // defaults to "全部账户" and shows emails from all accounts.
+      // Expand all accounts in the sidebar tree by default, so the user
+      // immediately sees their inboxes without having to click chevrons.
+      setExpandedAccounts((prev) => {
+        if (prev.size > 0) return prev; // preserve manual collapse state
+        return new Set(accts.map((a: any) => a.id));
+      });
       accountsInitialized.current = true;
     } catch {
       // handled by interceptor
@@ -668,15 +675,19 @@ export default function EmailsPage() {
     return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
   };
 
-  // ==================== Sidebar Folders ====================
-  const folders: { key: FolderType; label: string; icon: string; badge?: number }[] = [
-    { key: 'inbox', label: '收件箱', icon: 'inbox', badge: unreadCount > 0 ? unreadCount : undefined },
+  // ==================== Sidebar structure ====================
+  // Folders that live under each email account (tree children).
+  const accountFolders: { key: FolderType; label: string; icon: string }[] = [
+    { key: 'inbox', label: '收件箱', icon: 'inbox' },
+    { key: 'customer', label: '客户', icon: 'customer' },
     { key: 'unread', label: '未读邮件', icon: 'unread' },
     { key: 'sent', label: '已发送', icon: 'sent' },
-    { key: 'customer', label: '客户', icon: 'customer' },
     { key: 'advertisement', label: '广告邮件', icon: 'advertisement' },
-    { key: 'trash', label: '垃圾箱', icon: 'trash' },
     { key: 'spam', label: '垃圾邮件', icon: 'spam' },
+    { key: 'trash', label: '垃圾箱', icon: 'trash' },
+  ];
+  // Global sidebar entries — don't belong to any account.
+  const globalFolders: { key: FolderType; label: string; icon: string }[] = [
     { key: 'templates', label: '邮件模板', icon: 'templates' },
     { key: 'settings', label: '邮箱设置', icon: 'settings' },
   ];
@@ -1631,23 +1642,13 @@ export default function EmailsPage() {
         <div className="flex items-center justify-between px-0 py-4 flex-shrink-0">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-gray-900">邮件中心</h1>
-            {accounts.length > 0 && (
-              <select
-                value={selectedAccountId || ''}
-                onChange={(e) => {
-                  setSelectedAccountId(e.target.value);
-                  setPage(1);
-                  setSelectedEmail(null);
-                }}
-                className="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">全部账户</option>
-                {accounts.map((acct: any) => (
-                  <option key={acct.id} value={acct.id}>
-                    {acct.emailAddr}
-                  </option>
-                ))}
-              </select>
+            {selectedAccountId && (
+              <span className="text-sm text-gray-500">
+                当前账户：
+                <span className="text-gray-900 font-medium">
+                  {accounts.find((a: any) => a.id === selectedAccountId)?.emailAddr || ''}
+                </span>
+              </span>
             )}
           </div>
           <div className="flex items-center gap-3">
@@ -1673,32 +1674,140 @@ export default function EmailsPage() {
 
         {/* Main 3-column layout: sidebar | email list | detail */}
         <div className="flex flex-1 bg-white rounded-lg shadow overflow-hidden border">
-          {/* Folder sidebar */}
-          <aside className="w-[200px] bg-gray-50 border-r flex-shrink-0 flex flex-col">
-            <nav className="py-2 flex-1">
-              {folders.map((folder) => (
+          {/* Folder sidebar — tree: accounts → folders */}
+          <aside className="w-[220px] bg-gray-50 border-r flex-shrink-0 flex flex-col">
+            <nav className="py-3 flex-1 overflow-y-auto">
+              {/* ── 邮箱 section header ─────────────────────────── */}
+              <div className="flex items-center justify-between px-4 pb-2">
+                <span className="text-[13px] font-medium text-gray-500">邮箱</span>
                 <button
-                  key={folder.key}
-                  onClick={() => {
-                    setActiveFolder(folder.key);
-                    setPage(1);
-                    setSelectedEmail(null);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
-                    activeFolder === folder.key
-                      ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-600'
-                      : 'text-gray-600 hover:bg-gray-100'
-                  }`}
+                  onClick={() => setShowAccountManager(true)}
+                  title="添加邮箱账户"
+                  className="flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 transition-colors"
                 >
-                  <span className="flex-shrink-0">{folderIcons[folder.icon]}</span>
-                  <span className="flex-1 text-left truncate">{folder.label}</span>
-                  {folder.badge && folder.badge > 0 && (
-                    <span className="text-[11px] bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[18px] text-center font-bold">
-                      {folder.badge > 99 ? '99+' : folder.badge}
-                    </span>
-                  )}
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
                 </button>
-              ))}
+              </div>
+
+              {/* ── Account tree ───────────────────────────────── */}
+              {accounts.length === 0 ? (
+                <div className="px-4 py-2 text-[12px] text-gray-400">
+                  尚未添加邮箱
+                </div>
+              ) : (
+                accounts.map((acct: any) => {
+                  const isOpen = expandedAccounts.has(acct.id);
+                  const isActiveAccount =
+                    selectedAccountId === acct.id && activeFolder !== 'templates' && activeFolder !== 'settings';
+                  return (
+                    <div key={acct.id} className="mb-0.5">
+                      {/* Account row */}
+                      <button
+                        onClick={() => {
+                          setExpandedAccounts((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(acct.id)) next.delete(acct.id);
+                            else next.add(acct.id);
+                            return next;
+                          });
+                          // Also select this account + default to inbox
+                          setSelectedAccountId(acct.id);
+                          setActiveFolder('inbox');
+                          setPage(1);
+                          setSelectedEmail(null);
+                        }}
+                        className={`w-full flex items-center gap-1.5 pl-2 pr-3 py-1.5 text-[13px] transition-colors rounded-r-md ${
+                          isActiveAccount && !isOpen
+                            ? 'bg-blue-50 text-blue-700 font-medium'
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        {/* Chevron */}
+                        <svg
+                          className={`h-3 w-3 flex-shrink-0 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                        </svg>
+                        {/* Mail icon */}
+                        <svg className="h-4 w-4 flex-shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                        </svg>
+                        <span className="truncate flex-1 text-left">
+                          {acct.emailAddr}
+                        </span>
+                      </button>
+
+                      {/* Folders under this account */}
+                      {isOpen && (
+                        <div>
+                          {accountFolders.map((folder) => {
+                            const isActive =
+                              selectedAccountId === acct.id &&
+                              activeFolder === folder.key;
+                            const badge =
+                              folder.key === 'inbox' && isActiveAccount
+                                ? unreadCount
+                                : undefined;
+                            return (
+                              <button
+                                key={folder.key}
+                                onClick={() => {
+                                  setSelectedAccountId(acct.id);
+                                  setActiveFolder(folder.key);
+                                  setPage(1);
+                                  setSelectedEmail(null);
+                                }}
+                                className={`w-full flex items-center gap-2 pl-9 pr-3 py-1.5 text-[13px] transition-colors ${
+                                  isActive
+                                    ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-600'
+                                    : 'text-gray-600 hover:bg-gray-100'
+                                }`}
+                              >
+                                <span className="flex-shrink-0 text-gray-400">
+                                  {folderIcons[folder.icon]}
+                                </span>
+                                <span className="flex-1 text-left truncate">{folder.label}</span>
+                                {badge !== undefined && badge > 0 && (
+                                  <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-0.5 min-w-[16px] text-center font-bold">
+                                    {badge > 99 ? '99+' : badge}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+
+              {/* ── Global section (templates, settings) ────────── */}
+              <div className="mt-4 pt-3 border-t border-gray-200">
+                {globalFolders.map((folder) => (
+                  <button
+                    key={folder.key}
+                    onClick={() => {
+                      setActiveFolder(folder.key);
+                      setPage(1);
+                      setSelectedEmail(null);
+                    }}
+                    className={`w-full flex items-center gap-2 px-4 py-2 text-[13px] transition-colors ${
+                      activeFolder === folder.key
+                        ? 'bg-blue-50 text-blue-700 font-medium border-r-2 border-blue-600'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    <span className="flex-shrink-0 text-gray-400">
+                      {folderIcons[folder.icon]}
+                    </span>
+                    <span className="flex-1 text-left truncate">{folder.label}</span>
+                  </button>
+                ))}
+              </div>
             </nav>
           </aside>
 
