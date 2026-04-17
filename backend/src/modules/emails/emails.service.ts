@@ -103,6 +103,33 @@ export class EmailsService {
     return { accounts };
   }
 
+  async getEmailAccount(userId: string, configId: string) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: { id: configId, userId },
+    });
+
+    if (!config) {
+      throw new NotFoundException('Email configuration not found');
+    }
+
+    return {
+      id: config.id,
+      emailAddr: config.emailAddr,
+      fromName: config.fromName || '',
+      signature: config.signature || '',
+      smtpHost: config.smtpHost,
+      smtpPort: config.smtpPort,
+      smtpUser: config.smtpUser,
+      smtpPass: '********',
+      smtpSecure: config.smtpSecure,
+      imapHost: config.imapHost,
+      imapPort: config.imapPort,
+      imapUser: config.imapUser,
+      imapPass: '********',
+      imapSecure: config.imapSecure,
+    };
+  }
+
   async createEmailAccount(userId: string, data: any) {
     const { emailAddr, smtpHost, smtpPort, smtpUser, smtpPass, smtpSecure, imapHost, imapPort, imapUser, imapPass, imapSecure, fromName, signature } = data;
 
