@@ -71,6 +71,7 @@ export const customersApi = {
   update: (id: string, data: any) => api.patch(`/customers/${id}`, data),
   delete: (id: string) => api.delete(`/customers/${id}`),
   syncEmails: (id: string) => api.post(`/customers/${id}/sync-emails`, {}),
+  refreshTimeline: (id: string) => api.post(`/customers/${id}/refresh-timeline`, {}),
 };
 
 // ==================== Contacts API ====================

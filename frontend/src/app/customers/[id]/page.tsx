@@ -480,6 +480,28 @@ export default function CustomerDetailPage() {
           {/* Activities Tab - Timeline */}
           {activeTab === 'activities' && (
             <div className="space-y-6">
+              {/* Refresh timeline button */}
+              <div className="flex justify-end">
+                <button
+                  onClick={async () => {
+                    try {
+                      const res: any = await customersApi.refreshTimeline(customerId);
+                      const data = res.data || res;
+                      const parts: string[] = [];
+                      if (data.linked > 0) parts.push(`关联 ${data.linked} 封`);
+                      if (data.activitiesCreated > 0) parts.push(`新增 ${data.activitiesCreated} 条`);
+                      if (data.correctedActivities > 0) parts.push(`修正 ${data.correctedActivities} 条时间`);
+                      toast.success(parts.length > 0 ? `时间线已更新：${parts.join('，')}` : '时间线已是最新');
+                      fetchActivities();
+                    } catch {
+                      toast.error('更新失败');
+                    }
+                  }}
+                  className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  更新时间线
+                </button>
+              </div>
               <form onSubmit={handleAddActivity} className="space-y-3 rounded-lg border border-blue-100 bg-blue-50/30 p-4">
                 <div className="flex items-center gap-4">
                   <select
@@ -546,7 +568,7 @@ export default function CustomerDetailPage() {
                             )}
                             <span className="text-xs text-gray-500">
                               {activity.owner?.name} &middot;{' '}
-                              {new Date(activity.createdAt).toLocaleString('zh-CN')}
+                              {new Date(activity.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
                             </span>
                           </div>
                           <p className="text-sm text-gray-700 whitespace-pre-wrap">{activity.content}</p>
