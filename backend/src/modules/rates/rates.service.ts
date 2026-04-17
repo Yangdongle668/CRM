@@ -12,9 +12,9 @@ export class RatesService {
 
   private cache: RatesPayload | null = null;
   private cacheTime = 0;
-  private readonly TTL = 15 * 60 * 1000; // 15 minutes
+  private readonly TTL = 5 * 60 * 1000; // 5 minutes
 
-  /** Returns current USD→CNY, EUR→CNY, EUR→USD rates. Cached 15min to avoid hammering the upstream API. */
+  /** Returns current USD→CNY, EUR→CNY, EUR→USD rates. Cached 5 min. */
   async getRates(): Promise<RatesPayload> {
     const now = Date.now();
     if (this.cache && now - this.cacheTime < this.TTL) {
