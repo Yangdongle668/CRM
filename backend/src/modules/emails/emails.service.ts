@@ -582,11 +582,15 @@ export class EmailsService {
 
     const where: any = {};
 
-    // When viewing a specific customer's emails, show all accounts' emails for that customer.
-    // Otherwise restrict non-admins to their own emails only.
-    if (role !== 'ADMIN' && !query.customerId) {
-      where.senderId = userId;
-    }
+    // Every user — including admins — only sees emails from their own
+    // configured accounts. Customer-context views still filter by
+    // customerId but are intersected with the user's config ids so no
+    // one can peek at another user's mail.
+    const myConfigs = await this.prisma.emailConfig.findMany({
+      where: { userId },
+      select: { id: true },
+    });
+    where.emailConfigId = { in: myConfigs.map((c) => c.id) };
 
     if (query.customerId) {
       where.customerId = query.customerId;
@@ -1008,28 +1012,30 @@ export class EmailsService {
   // ==================== Read Status ====================
 
   async getUnreadCount(userId: string, role: string) {
+    const myConfigs = await this.prisma.emailConfig.findMany({
+      where: { userId },
+      select: { id: true },
+    });
     const where: any = {
       direction: 'INBOUND',
       status: 'RECEIVED',
+      emailConfigId: { in: myConfigs.map((c) => c.id) },
     };
-
-    if (role !== 'ADMIN') {
-      where.senderId = userId;
-    }
 
     const count = await this.prisma.email.count({ where });
     return { count };
   }
 
   async markAllAsRead(userId: string, role: string) {
+    const myConfigs = await this.prisma.emailConfig.findMany({
+      where: { userId },
+      select: { id: true },
+    });
     const where: any = {
       direction: 'INBOUND',
       status: 'RECEIVED',
+      emailConfigId: { in: myConfigs.map((c) => c.id) },
     };
-
-    if (role !== 'ADMIN') {
-      where.senderId = userId;
-    }
 
     const result = await this.prisma.email.updateMany({
       where,
