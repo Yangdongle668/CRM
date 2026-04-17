@@ -45,17 +45,46 @@ export class EmailsService {
       .trim() || '(No Subject)';
   }
 
-  private async findOrCreateThread(subject: string): Promise<string> {
+  /**
+   * Always create a fresh thread. The old logic tried to reuse threads
+   * by matching on normalized subject alone, which caused unrelated
+   * emails with the same subject (e.g. "test") to get merged. Now we
+   * only reuse a thread via explicit reply chains (inReplyTo / IMAP
+   * In-Reply-To + References headers).
+   */
+  private async createThread(subject: string): Promise<string> {
     const normalized = this.normalizeSubject(subject);
-    const existing = await this.prisma.emailThread.findFirst({
-      where: { subject: normalized },
-    });
-    if (existing) return existing.id;
-
     const thread = await this.prisma.emailThread.create({
       data: { subject: normalized },
     });
     return thread.id;
+  }
+
+  /**
+   * Try to locate an existing thread by looking up emails whose
+   * messageId matches the In-Reply-To or References headers from the
+   * incoming email. Returns null if no match is found.
+   */
+  private async findThreadByReplyHeaders(
+    inReplyTo?: string | null,
+    references?: string | string[] | null,
+  ): Promise<string | null> {
+    const ids: string[] = [];
+    if (inReplyTo) ids.push(inReplyTo);
+    if (references) {
+      const refs = Array.isArray(references) ? references : [references];
+      for (const r of refs) {
+        if (r && !ids.includes(r)) ids.push(r);
+      }
+    }
+    if (ids.length === 0) return null;
+
+    const parent = await this.prisma.email.findFirst({
+      where: { messageId: { in: ids } },
+      select: { threadId: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    return parent?.threadId || null;
   }
 
   // ==================== Email Account Management ====================
@@ -264,7 +293,7 @@ export class EmailsService {
     }
 
     if (!threadId) {
-      threadId = await this.findOrCreateThread(dto.subject);
+      threadId = await this.createThread(dto.subject);
     }
 
     let customerId = dto.customerId || null;
@@ -1281,7 +1310,6 @@ export class EmailsService {
 
           let fetchedCount = 0;
           const emailPromises: Promise<void>[] = [];
-          const threadCache = new Map<string, string>();
 
           fetch.on('message', (msg: any) => {
             msg.on('body', (stream: any) => {
@@ -1313,11 +1341,16 @@ export class EmailsService {
                 }
 
                 const rawSubject = parsed.subject || '(No Subject)';
-                const normalizedSubject = this.normalizeSubject(rawSubject);
-                let threadId: string | null = threadCache.get(normalizedSubject) || null;
+
+                // Thread by reply chain (In-Reply-To / References), not
+                // by subject. Only emails that are genuine replies to one
+                // another share a thread.
+                let threadId: string | null = await this.findThreadByReplyHeaders(
+                  parsed.inReplyTo as string | undefined,
+                  parsed.references as string | string[] | undefined,
+                );
                 if (!threadId) {
-                  threadId = await this.findOrCreateThread(rawSubject);
-                  threadCache.set(normalizedSubject, threadId);
+                  threadId = await this.createThread(rawSubject);
                 }
 
                 const newEmail = await this.prisma.email.create({
@@ -1567,6 +1600,44 @@ export class EmailsService {
   // ==================== 邮件时间轴时间戳修正 ====================
 
   // 防止多个执行重叠（例如手动触发时 cron 正好也触发）。
+  // ==================== Background IMAP Polling ====================
+  private isFetchingAll = false;
+
+  /**
+   * Automatically fetch new emails for ALL configured IMAP accounts
+   * every 60 seconds. A lock prevents overlapping runs — if the
+   * previous fetch is still in progress, the tick is silently skipped.
+   */
+  @Cron('*/1 * * * *')
+  async backgroundFetchAll(): Promise<void> {
+    if (this.isFetchingAll) return;
+    this.isFetchingAll = true;
+    try {
+      const configs = await this.prisma.emailConfig.findMany({
+        select: { id: true, userId: true, emailAddr: true },
+      });
+
+      for (const cfg of configs) {
+        try {
+          const result = await this.fetchEmails(cfg.userId, cfg.id);
+          if (result.fetched > 0) {
+            this.logger.log(
+              `[Auto] Fetched ${result.fetched} new email(s) for ${cfg.emailAddr}`,
+            );
+          }
+        } catch (err: any) {
+          this.logger.warn(
+            `[Auto] Failed to fetch ${cfg.emailAddr}: ${err.message}`,
+          );
+        }
+      }
+    } catch (err: any) {
+      this.logger.error(`[Auto] backgroundFetchAll error: ${err.message}`);
+    } finally {
+      this.isFetchingAll = false;
+    }
+  }
+
   private reconcilingEmailActivityTimestamps = false;
 
   /**

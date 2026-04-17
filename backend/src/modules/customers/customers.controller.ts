@@ -70,6 +70,14 @@ export class CustomersController {
     return this.customersService.syncEmailsByDomain(id, user.id, user.role);
   }
 
+  @Post(':id/refresh-timeline')
+  refreshTimeline(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: string },
+  ) {
+    return this.customersService.refreshTimeline(id, user.id, user.role);
+  }
+
   @Delete(':id')
   @UseGuards(PermissionsGuard)
   @RequirePermissions('customer:delete')
