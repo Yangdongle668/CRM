@@ -255,36 +255,33 @@ export class CustomersService {
   }
 
   /**
-   * Refresh (整理) the timeline for a customer:
-   *   1. Sync any un-linked emails (by domain)
-   *   2. Create missing activity records for linked emails
-   *   3. Fix existing EMAIL-type activities whose timestamps don't match
-   *      the real email sentAt/receivedAt — e.g. because they were
-   *      originally created with NOW() during import instead of the
-   *      email's actual time.
+   * Hard-refresh the timeline for a customer:
+   *   1. Sync any un-linked emails by domain.
+   *   2. DELETE all existing EMAIL-type activities (wipe stale entries).
+   *   3. Re-create from every linked email with the real sentAt/receivedAt.
+   *
+   * Destructive to old EMAIL activities by design — the user clicks
+   * "更新时间线" because existing entries are stale and need rebuilding.
    */
   async refreshTimeline(customerId: string, userId: string, role: string) {
-    // Step 1+2: sync + create missing activities (uses email time)
-    const syncResult = await this.syncEmailsByDomain(customerId, userId, role);
+    // Step 1: link any new emails by domain
+    await this.syncEmailsByDomain(customerId, userId, role).catch((err) => {
+      this.logger.warn(`syncEmailsByDomain failed for ${customerId}: ${err.message}`);
+    });
 
-    // Step 3: correct timestamps of EMAIL activities to match the linked
-    // email's sentAt / receivedAt so the timeline reflects the real dates.
-    const result: any[] = await this.prisma.$queryRawUnsafe(
-      `UPDATE activities a
-       SET created_at = COALESCE(e.sent_at, e.received_at, e.created_at)
-       FROM emails e
-       WHERE a.customer_id = $1
-         AND a.type = 'EMAIL'
-         AND a.related_type = 'email'
-         AND a.related_id = e.id::text
-         AND a.created_at IS DISTINCT FROM COALESCE(e.sent_at, e.received_at, e.created_at)
-       RETURNING a.id`,
-      customerId,
-    );
+    // Step 2: wipe ALL existing EMAIL activities for this customer
+    const deleted = await this.prisma.activity.deleteMany({
+      where: { customerId, type: 'EMAIL' },
+    });
+
+    // Step 3: rebuild — createMissingActivities now sees zero existing
+    // EMAIL activities so it creates one per linked email with the real
+    // email timestamp (sentAt / receivedAt).
+    const rebuilt = await this.createMissingActivities(customerId, userId);
 
     return {
-      ...syncResult,
-      correctedActivities: Array.isArray(result) ? result.length : 0,
+      deleted: deleted.count,
+      created: rebuilt.activitiesCreated,
     };
   }
 

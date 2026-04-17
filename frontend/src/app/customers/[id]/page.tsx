@@ -487,11 +487,13 @@ export default function CustomerDetailPage() {
                     try {
                       const res: any = await customersApi.refreshTimeline(customerId);
                       const data = res.data || res;
-                      const parts: string[] = [];
-                      if (data.linked > 0) parts.push(`关联 ${data.linked} 封`);
-                      if (data.activitiesCreated > 0) parts.push(`新增 ${data.activitiesCreated} 条`);
-                      if (data.correctedActivities > 0) parts.push(`修正 ${data.correctedActivities} 条时间`);
-                      toast.success(parts.length > 0 ? `时间线已更新：${parts.join('，')}` : '时间线已是最新');
+                      const deleted = data.deleted || 0;
+                      const created = data.created || 0;
+                      toast.success(
+                        created > 0 || deleted > 0
+                          ? `时间线已更新：清除 ${deleted} 条旧记录，重建 ${created} 条`
+                          : '没有关联邮件，时间线无变化',
+                      );
                       fetchActivities();
                     } catch {
                       toast.error('更新失败');
