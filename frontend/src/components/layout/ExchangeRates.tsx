@@ -26,8 +26,8 @@ export default function ExchangeRates() {
 
   useEffect(() => {
     fetchRates();
-    // Refresh every 15 minutes (backend caches at 15min TTL)
-    const id = setInterval(fetchRates, 15 * 60 * 1000);
+    // Refresh every 5 minutes (matches backend cache TTL)
+    const id = setInterval(fetchRates, 5 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -55,7 +55,7 @@ export default function ExchangeRates() {
   return (
     <div
       className="flex items-center gap-3 text-xs font-medium text-gray-600"
-      title={`汇率更新于 ${timeStr}（每 15 分钟自动刷新）`}
+      title={`汇率更新于 ${timeStr}（每 5 分钟自动刷新）`}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700">
         <span className="text-[10px] font-bold tracking-wide">USD</span>
