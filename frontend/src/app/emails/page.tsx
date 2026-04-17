@@ -439,30 +439,50 @@ export default function EmailsPage() {
   };
 
   /**
-   * One-click translate: extract text segments from the email HTML
-   * (skipping images / tags), send as JSON to the backend, then replace
-   * the original text nodes in-place. Click again to restore original.
+   * One-click translate: extract text segments from the currently
+   * visible email's HTML (skipping images / tags), send as JSON to
+   * the backend, then replace the original text nodes in-place.
+   *
+   * Works in BOTH views:
+   *   - Single-email view: modifies `selectedEmail.bodyHtml`.
+   *   - Thread (accordion) view: also updates the matching entry in
+   *     `threadEmails`, since that's what actually renders in the UI.
+   *
+   * The "target" email is picked as:
+   *   1. The expanded thread email (`viewingThreadEmailId`) when in
+   *      thread view.
+   *   2. Otherwise `selectedEmail`.
+   * Click the button again to restore the original HTML.
    */
   const handleTranslate = async () => {
     if (!selectedEmail) return;
 
-    // Toggle: restore original if already translated
-    if (translatedEmailId === selectedEmail.id && originalHtml) {
-      setSelectedEmail({ ...selectedEmail, bodyHtml: originalHtml });
+    // Figure out which email the button should act on. In thread view
+    // it's the one the user currently has expanded.
+    const inThreadView = threadEmails.length > 1;
+    const targetId = inThreadView && viewingThreadEmailId
+      ? viewingThreadEmailId
+      : selectedEmail.id;
+    const targetEmail = inThreadView
+      ? threadEmails.find((e) => e.id === targetId) || selectedEmail
+      : selectedEmail;
+
+    // Toggle: restore original if this same email is already translated
+    if (translatedEmailId === targetId && originalHtml) {
+      applyHtmlToEmail(targetId, originalHtml);
       setTranslatedEmailId(null);
       setOriginalHtml(null);
       return;
     }
 
-    const html = selectedEmail.bodyHtml || '';
-    const text = selectedEmail.bodyText || '';
+    const html = targetEmail.bodyHtml || '';
+    const text = targetEmail.bodyText || '';
     if (!html && !text) {
       toast.error('邮件正文为空');
       return;
     }
 
-    // Parse the HTML (or plain text) into a temporary DOM to extract
-    // text nodes, skipping <img>, <style>, <script> etc.
+    // Parse into a temporary DOM, extract text nodes, skip images etc.
     const parser = new DOMParser();
     const doc = parser.parseFromString(
       html || `<pre>${text}</pre>`,
@@ -507,24 +527,38 @@ export default function EmailsPage() {
         translated[s.index] = s.translated;
       });
 
-      // Replace text nodes in the parsed DOM
       for (const seg of segments) {
         if (translated[seg.index]) {
           seg.node.textContent = translated[seg.index];
         }
       }
 
-      // Save original and apply translated HTML
-      setOriginalHtml(selectedEmail.bodyHtml || selectedEmail.bodyText || '');
+      setOriginalHtml(targetEmail.bodyHtml || targetEmail.bodyText || '');
       const newHtml = doc.body.innerHTML;
-      setSelectedEmail({ ...selectedEmail, bodyHtml: newHtml });
-      setTranslatedEmailId(selectedEmail.id);
-      toast.success(`已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`);
+      applyHtmlToEmail(targetId, newHtml);
+      setTranslatedEmailId(targetId);
+      toast.success(
+        `已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`,
+      );
     } catch (err: any) {
       toast.error(err?.response?.data?.message || '翻译失败，请稍后重试');
     } finally {
       setTranslating(false);
     }
+  };
+
+  /**
+   * Apply an HTML body to both selectedEmail and the matching entry in
+   * threadEmails so the thread view actually re-renders with the new
+   * content (it reads from `threadEmails[i]`, not `selectedEmail`).
+   */
+  const applyHtmlToEmail = (emailId: string, newHtml: string) => {
+    setSelectedEmail((prev) =>
+      prev && prev.id === emailId ? { ...prev, bodyHtml: newHtml } : prev,
+    );
+    setThreadEmails((prev) =>
+      prev.map((e) => (e.id === emailId ? { ...e, bodyHtml: newHtml } : e)),
+    );
   };
 
   // Mark all as read
@@ -721,7 +755,8 @@ export default function EmailsPage() {
   const previewOf = (email: Email): string => {
     const raw = email.bodyText || email.bodyHtml || '';
     const stripped = raw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
-    return stripped.length > 80 ? stripped.slice(0, 80) + '…' : stripped;
+    // Shorter preview since the subject + preview now share a single line
+    return stripped.length > 60 ? stripped.slice(0, 60) + '…' : stripped;
   };
 
   /**
@@ -801,96 +836,71 @@ export default function EmailsPage() {
       <div
         key={thread.threadId || email.id}
         onClick={() => handleViewEmail(email, thread.threadId)}
-        className={`flex gap-3 px-3 py-3 cursor-pointer border-b border-gray-100 transition-colors ${
-          isSelected
-            ? 'bg-rose-50'
-            : 'hover:bg-gray-50'
+        className={`group flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-gray-100 transition-colors ${
+          isSelected ? 'bg-rose-50' : 'hover:bg-gray-50'
         }`}
       >
-        {/* 头像 */}
+        {/* Unread indicator — small dot on the very left */}
+        <span
+          className={`w-1.5 flex-shrink-0 h-1.5 rounded-full ${
+            isUnread ? 'bg-rose-500' : 'bg-transparent'
+          }`}
+        />
+
+        {/* Avatar — smaller now */}
         <div
-          className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white ${color}`}
+          className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-semibold text-white ${color}`}
         >
           {letter}
         </div>
 
-        {/* 内容 —— 3 行：发件人 / 主题 / 预览 */}
+        {/* Content — compact 2-line layout */}
         <div className="min-w-0 flex-1">
+          {/* Line 1: sender + thread count on left, date on right */}
           <div className="flex items-center gap-1.5">
-            {/* Re 箭头 —— 像截图里那种回复邮件前的小转向标记 */}
             {isReply && (
               <svg
-                className="h-3.5 w-3.5 flex-shrink-0 text-gray-400"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+                className="h-3 w-3 flex-shrink-0 text-gray-400"
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
               </svg>
             )}
             <span
-              className={`truncate text-[15px] ${
+              className={`truncate text-[14px] ${
                 isUnread ? 'font-semibold text-gray-900' : 'text-gray-700'
               }`}
             >
               {name}
             </span>
             {thread.emailCount > 1 && (
-              <span className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 text-[11px] font-semibold text-gray-500">
+              <span className="flex-shrink-0 rounded-full bg-gray-100 px-1.5 text-[10px] font-semibold text-gray-500 leading-4">
                 {thread.emailCount}
               </span>
             )}
-          </div>
-
-          <div
-            className={`mt-0.5 flex items-center gap-1 truncate text-sm ${
-              isUnread ? 'font-medium text-rose-600' : 'text-gray-600'
-            }`}
-          >
             {email.flagged && (
-              <span className="flex-shrink-0 text-red-500" title="已标红旗">!</span>
+              <span className="flex-shrink-0 text-red-500 text-xs" title="已标红旗">●</span>
             )}
-            <span className="truncate">
-              {thread.threadSubject || email.subject || '(无主题)'}
+            {/* Read indicator for outbound, smaller */}
+            {!isUnread && !isInbound && (
+              <svg className="h-3 w-3 flex-shrink-0 text-emerald-500" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M9 16.2L4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z" />
+              </svg>
+            )}
+            <span className="ml-auto flex-shrink-0 text-[11px] text-gray-400 tabular-nums">
+              {formatShortTime(time)}
             </span>
           </div>
 
-          <div className="mt-0.5 truncate text-xs text-gray-400">
-            {preview || (email.customer?.companyName || '')}
-          </div>
-        </div>
-
-        {/* 右列 —— 信封（读/未读）堆上面，日期堆下面 */}
-        <div className="flex flex-shrink-0 flex-col items-end justify-between py-0.5">
-          {/* 信封图标 —— 实心绿表示已读 / 已被阅读；空心灰表示未读 */}
-          <span title={isUnread ? '未读' : isInbound ? '已读' : '对方已读'}>
-            {isUnread ? (
-              <svg
-                className="h-5 w-5 text-gray-300"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={1.5}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75"
-                />
-              </svg>
-            ) : (
-              <svg
-                className="h-5 w-5 text-emerald-500"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
-                <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
-              </svg>
+          {/* Line 2: subject followed by preview in gray */}
+          <div className="mt-0.5 truncate text-[13px]">
+            <span className={isUnread ? 'text-gray-900 font-medium' : 'text-gray-600'}>
+              {thread.threadSubject || email.subject || '(无主题)'}
+            </span>
+            {preview && (
+              <span className="text-gray-400"> — {preview}</span>
             )}
-          </span>
-          <span className="text-[11px] text-gray-400">{formatShortTime(time)}</span>
+          </div>
         </div>
       </div>
     );
@@ -1070,21 +1080,33 @@ export default function EmailsPage() {
               </svg>
               转发
             </button>
-            <button
-              onClick={handleTranslate}
-              disabled={translating}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                translatedEmailId === selectedEmail?.id
-                  ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
-                  : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
-              }`}
-              title="自动识别语言并翻译为中文"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-              </svg>
-              {translating ? '翻译中...' : translatedEmailId === selectedEmail?.id ? '恢复原文' : '翻译'}
-            </button>
+            {(() => {
+              // In thread view, the button acts on whichever email is
+              // currently expanded. So its "active" state must compare
+              // against that id too.
+              const activeId =
+                threadEmails.length > 1 && viewingThreadEmailId
+                  ? viewingThreadEmailId
+                  : selectedEmail?.id;
+              const isActive = translatedEmailId === activeId;
+              return (
+                <button
+                  onClick={handleTranslate}
+                  disabled={translating}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                    isActive
+                      ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
+                      : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
+                  }`}
+                  title="自动识别语言并翻译为中文"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                  </svg>
+                  {translating ? '翻译中...' : isActive ? '恢复原文' : '翻译'}
+                </button>
+              );
+            })()}
             <button
               onClick={async () => {
                 if (!selectedEmail) return;
@@ -1811,9 +1833,10 @@ export default function EmailsPage() {
             </div>
           ) : (
             <>
-              {/* Email list panel — now takes the full remaining width
-                  because the detail view is a slide-in modal. */}
-              <div className="flex-1 flex flex-col border-r bg-white">
+              {/* Email list panel — constrained to a readable width so
+                  it doesn't stretch across huge screens when the detail
+                  view is closed (the detail is now a slide-in modal). */}
+              <div className="flex-1 flex flex-col border-r bg-white max-w-4xl w-full">
                 {/* List header with mark-all-read */}
                 {(activeFolder === 'inbox' || activeFolder === 'unread') && unreadCount > 0 && (
                   <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
