@@ -439,30 +439,50 @@ export default function EmailsPage() {
   };
 
   /**
-   * One-click translate: extract text segments from the email HTML
-   * (skipping images / tags), send as JSON to the backend, then replace
-   * the original text nodes in-place. Click again to restore original.
+   * One-click translate: extract text segments from the currently
+   * visible email's HTML (skipping images / tags), send as JSON to
+   * the backend, then replace the original text nodes in-place.
+   *
+   * Works in BOTH views:
+   *   - Single-email view: modifies `selectedEmail.bodyHtml`.
+   *   - Thread (accordion) view: also updates the matching entry in
+   *     `threadEmails`, since that's what actually renders in the UI.
+   *
+   * The "target" email is picked as:
+   *   1. The expanded thread email (`viewingThreadEmailId`) when in
+   *      thread view.
+   *   2. Otherwise `selectedEmail`.
+   * Click the button again to restore the original HTML.
    */
   const handleTranslate = async () => {
     if (!selectedEmail) return;
 
-    // Toggle: restore original if already translated
-    if (translatedEmailId === selectedEmail.id && originalHtml) {
-      setSelectedEmail({ ...selectedEmail, bodyHtml: originalHtml });
+    // Figure out which email the button should act on. In thread view
+    // it's the one the user currently has expanded.
+    const inThreadView = threadEmails.length > 1;
+    const targetId = inThreadView && viewingThreadEmailId
+      ? viewingThreadEmailId
+      : selectedEmail.id;
+    const targetEmail = inThreadView
+      ? threadEmails.find((e) => e.id === targetId) || selectedEmail
+      : selectedEmail;
+
+    // Toggle: restore original if this same email is already translated
+    if (translatedEmailId === targetId && originalHtml) {
+      applyHtmlToEmail(targetId, originalHtml);
       setTranslatedEmailId(null);
       setOriginalHtml(null);
       return;
     }
 
-    const html = selectedEmail.bodyHtml || '';
-    const text = selectedEmail.bodyText || '';
+    const html = targetEmail.bodyHtml || '';
+    const text = targetEmail.bodyText || '';
     if (!html && !text) {
       toast.error('邮件正文为空');
       return;
     }
 
-    // Parse the HTML (or plain text) into a temporary DOM to extract
-    // text nodes, skipping <img>, <style>, <script> etc.
+    // Parse into a temporary DOM, extract text nodes, skip images etc.
     const parser = new DOMParser();
     const doc = parser.parseFromString(
       html || `<pre>${text}</pre>`,
@@ -507,24 +527,38 @@ export default function EmailsPage() {
         translated[s.index] = s.translated;
       });
 
-      // Replace text nodes in the parsed DOM
       for (const seg of segments) {
         if (translated[seg.index]) {
           seg.node.textContent = translated[seg.index];
         }
       }
 
-      // Save original and apply translated HTML
-      setOriginalHtml(selectedEmail.bodyHtml || selectedEmail.bodyText || '');
+      setOriginalHtml(targetEmail.bodyHtml || targetEmail.bodyText || '');
       const newHtml = doc.body.innerHTML;
-      setSelectedEmail({ ...selectedEmail, bodyHtml: newHtml });
-      setTranslatedEmailId(selectedEmail.id);
-      toast.success(`已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`);
+      applyHtmlToEmail(targetId, newHtml);
+      setTranslatedEmailId(targetId);
+      toast.success(
+        `已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`,
+      );
     } catch (err: any) {
       toast.error(err?.response?.data?.message || '翻译失败，请稍后重试');
     } finally {
       setTranslating(false);
     }
+  };
+
+  /**
+   * Apply an HTML body to both selectedEmail and the matching entry in
+   * threadEmails so the thread view actually re-renders with the new
+   * content (it reads from `threadEmails[i]`, not `selectedEmail`).
+   */
+  const applyHtmlToEmail = (emailId: string, newHtml: string) => {
+    setSelectedEmail((prev) =>
+      prev && prev.id === emailId ? { ...prev, bodyHtml: newHtml } : prev,
+    );
+    setThreadEmails((prev) =>
+      prev.map((e) => (e.id === emailId ? { ...e, bodyHtml: newHtml } : e)),
+    );
   };
 
   // Mark all as read
@@ -1046,21 +1080,33 @@ export default function EmailsPage() {
               </svg>
               转发
             </button>
-            <button
-              onClick={handleTranslate}
-              disabled={translating}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                translatedEmailId === selectedEmail?.id
-                  ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
-                  : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
-              }`}
-              title="自动识别语言并翻译为中文"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-              </svg>
-              {translating ? '翻译中...' : translatedEmailId === selectedEmail?.id ? '恢复原文' : '翻译'}
-            </button>
+            {(() => {
+              // In thread view, the button acts on whichever email is
+              // currently expanded. So its "active" state must compare
+              // against that id too.
+              const activeId =
+                threadEmails.length > 1 && viewingThreadEmailId
+                  ? viewingThreadEmailId
+                  : selectedEmail?.id;
+              const isActive = translatedEmailId === activeId;
+              return (
+                <button
+                  onClick={handleTranslate}
+                  disabled={translating}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                    isActive
+                      ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
+                      : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
+                  }`}
+                  title="自动识别语言并翻译为中文"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                  </svg>
+                  {translating ? '翻译中...' : isActive ? '恢复原文' : '翻译'}
+                </button>
+              );
+            })()}
             <button
               onClick={async () => {
                 if (!selectedEmail) return;
