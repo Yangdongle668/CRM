@@ -106,7 +106,7 @@ export class EmailsService {
   async createEmailAccount(userId: string, data: any) {
     const { emailAddr, smtpHost, smtpPort, smtpUser, smtpPass, smtpSecure, imapHost, imapPort, imapUser, imapPass, imapSecure, fromName, signature } = data;
 
-    if (!emailAddr || !smtpHost || !smtpUser || !imapHost || !imapUser) {
+    if (!emailAddr || !smtpHost || !smtpUser || !imapHost) {
       throw new BadRequestException('Missing required email configuration fields');
     }
 
@@ -121,8 +121,8 @@ export class EmailsService {
         smtpSecure: smtpSecure !== false,
         imapHost,
         imapPort: Number(imapPort) || 993,
-        imapUser,
-        imapPass,
+        imapUser: imapUser || smtpUser,
+        imapPass: imapPass || smtpPass,
         imapSecure: imapSecure !== false,
         fromName: fromName || undefined,
         signature: signature || undefined,
@@ -159,8 +159,13 @@ export class EmailsService {
         smtpSecure: data.smtpSecure !== undefined ? data.smtpSecure : config.smtpSecure,
         imapHost: data.imapHost || config.imapHost,
         imapPort: data.imapPort ? Number(data.imapPort) : config.imapPort,
-        imapUser: data.imapUser || config.imapUser,
-        imapPass: data.imapPass && data.imapPass !== '********' ? data.imapPass : config.imapPass,
+        // IMAP user/pass: if left blank, fall back to SMTP credentials.
+        imapUser: data.imapUser || data.smtpUser || config.imapUser,
+        imapPass: data.imapPass && data.imapPass !== '********'
+          ? data.imapPass
+          : data.smtpPass && data.smtpPass !== '********'
+            ? data.smtpPass
+            : config.imapPass,
         imapSecure: data.imapSecure !== undefined ? data.imapSecure : config.imapSecure,
       },
       select: {
@@ -946,7 +951,7 @@ export class EmailsService {
   ];
 
   private static readonly SPAM_SENDER_PATTERNS = [
-    'noreply@', 'no-reply@', 'newsletter@', 'marketing@',
+    'newsletter@', 'marketing@',
     'promo@', 'offers@', 'deals@', 'info@seo',
     'sales@seo', 'hello@seo', 'contact@seo',
   ];
