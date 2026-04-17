@@ -753,8 +753,15 @@ export class EmailsService {
       params.push(where.status);
     }
     if (where.emailConfigId) {
-      conditions.push(`e.email_config_id = $${paramIdx++}`);
-      params.push(where.emailConfigId);
+      if (typeof where.emailConfigId === 'object' && where.emailConfigId.in) {
+        const ids: string[] = where.emailConfigId.in;
+        const placeholders = ids.map(() => `$${paramIdx++}`).join(', ');
+        conditions.push(`e.email_config_id IN (${placeholders})`);
+        params.push(...ids);
+      } else {
+        conditions.push(`e.email_config_id = $${paramIdx++}`);
+        params.push(where.emailConfigId);
+      }
     }
     if (where.category) {
       conditions.push(`e.category = $${paramIdx++}`);
