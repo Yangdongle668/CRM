@@ -362,6 +362,12 @@ export const ratesApi = {
   get: () => api.get('/rates'),
 };
 
+// ==================== Translate API ====================
+export const translateApi = {
+  translate: (text: string, target = 'zh-CN') =>
+    api.post('/translate', { text, target }),
+};
+
 // ==================== RBAC API ====================
 export const rbacApi = {
   myPermissions: () => api.get('/auth/me/permissions'),

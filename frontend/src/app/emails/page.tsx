@@ -7,7 +7,7 @@ import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
 import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
-import { emailsApi, customersApi } from '@/lib/api';
+import { emailsApi, customersApi, translateApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
@@ -118,6 +118,15 @@ export default function EmailsPage() {
   const [trackingForEmailId, setTrackingForEmailId] = useState<string | null>(null);
   const [signatureForAccount, setSignatureForAccount] =
     useState<{ id: string; emailAddr: string } | null>(null);
+
+  // Translation — per-email result cache. When set for the current email,
+  // the detail panel shows a translation banner above the body.
+  const [translation, setTranslation] = useState<{
+    emailId: string;
+    text: string;
+    sourceLang: string;
+  } | null>(null);
+  const [translating, setTranslating] = useState(false);
 
   // Compose window state（新邮件 + 回复 + 转发 都复用同一个窗口）
   const [composeOpen, setComposeOpen] = useState(false);
@@ -250,6 +259,25 @@ export default function EmailsPage() {
       fetchEmails();
     }
   }, [activeFolder, fetchEmails, fetchTemplates]);
+
+  // Clear translation when switching between emails so a stale banner
+  // never lingers on a different email.
+  useEffect(() => {
+    if (!selectedEmail || translation?.emailId !== selectedEmail.id) {
+      setTranslation(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedEmail?.id]);
+
+  // Esc key closes the slide-in detail panel.
+  useEffect(() => {
+    if (!selectedEmail) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setSelectedEmail(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedEmail]);
 
   useEffect(() => {
     fetchCustomers();
@@ -411,6 +439,38 @@ export default function EmailsPage() {
       fetchUnreadCount();
     } catch {
       toast.error('邮件收取失败', { id: 'fetch-email' });
+    }
+  };
+
+  /**
+   * One-click translate the currently selected email's body into Chinese.
+   * Source language is auto-detected server-side. Click again to hide.
+   */
+  const handleTranslate = async () => {
+    if (!selectedEmail) return;
+    // Toggle off if already translated
+    if (translation?.emailId === selectedEmail.id) {
+      setTranslation(null);
+      return;
+    }
+    const src = selectedEmail.bodyText || selectedEmail.bodyHtml || '';
+    if (!src.trim()) {
+      toast.error('邮件正文为空，无需翻译');
+      return;
+    }
+    setTranslating(true);
+    try {
+      const res: any = await translateApi.translate(src, 'zh-CN');
+      const data = res.data || res;
+      setTranslation({
+        emailId: selectedEmail.id,
+        text: data.text,
+        sourceLang: data.sourceLang,
+      });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || '翻译失败，请稍后重试');
+    } finally {
+      setTranslating(false);
     }
   };
 
@@ -958,6 +1018,21 @@ export default function EmailsPage() {
               转发
             </button>
             <button
+              onClick={handleTranslate}
+              disabled={translating}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
+                translation?.emailId === selectedEmail?.id
+                  ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
+                  : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
+              }`}
+              title="自动识别语言并翻译为中文"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+              </svg>
+              {translating ? '翻译中...' : translation?.emailId === selectedEmail?.id ? '取消翻译' : '翻译'}
+            </button>
+            <button
               onClick={async () => {
                 if (!selectedEmail) return;
                 try {
@@ -1053,18 +1128,35 @@ export default function EmailsPage() {
             </div>
           ) : (
             /* ── Single email view ───────────────────────────── */
-            <div className="bg-white rounded-lg border p-6 min-h-[300px]">
-              {selectedEmail.bodyHtml ? (
-                <div
-                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                  className="prose prose-sm max-w-none"
-                />
-              ) : (
-                <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
-                  {selectedEmail.bodyText || '(无内容)'}
-                </pre>
+            <>
+              {translation?.emailId === selectedEmail.id && (
+                <div className="mb-3 rounded-lg border border-purple-200 bg-purple-50 p-4">
+                  <div className="flex items-center gap-2 text-xs font-medium text-purple-700 mb-2">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
+                    </svg>
+                    <span>
+                      已从「{translation.sourceLang.toUpperCase()}」自动翻译为中文
+                    </span>
+                  </div>
+                  <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
+                    {translation.text}
+                  </pre>
+                </div>
               )}
-            </div>
+              <div className="bg-white rounded-lg border p-6 min-h-[300px]">
+                {selectedEmail.bodyHtml ? (
+                  <div
+                    dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
+                    className="prose prose-sm max-w-none"
+                  />
+                ) : (
+                  <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                    {selectedEmail.bodyText || '(无内容)'}
+                  </pre>
+                )}
+              </div>
+            </>
           )}
         </div>
 
@@ -1683,8 +1775,9 @@ export default function EmailsPage() {
             </div>
           ) : (
             <>
-              {/* Email list panel */}
-              <div className="w-[350px] flex flex-col border-r bg-white flex-shrink-0">
+              {/* Email list panel — now takes the full remaining width
+                  because the detail view is a slide-in modal. */}
+              <div className="flex-1 flex flex-col border-r bg-white">
                 {/* List header with mark-all-read */}
                 {(activeFolder === 'inbox' || activeFolder === 'unread') && unreadCount > 0 && (
                   <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
@@ -1776,12 +1869,40 @@ export default function EmailsPage() {
                 )}
               </div>
 
-              {/* Detail panel */}
-              <div className="flex-1 flex flex-col overflow-hidden bg-gray-50">
-                {renderDetailPanel()}
-              </div>
             </>
           )}
+        </div>
+
+        {/* Email detail — slide-in panel from the right.
+            The overlay covers most of the viewport while leaving the
+            folder sidebar visible. Clicking the backdrop or the close
+            button clears selectedEmail and slides the panel back out. */}
+        <div
+          className={`fixed inset-0 z-40 transition-opacity duration-300 ${
+            selectedEmail ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedEmail(null);
+          }}
+        >
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          <div
+            className={`absolute inset-y-0 right-0 w-full md:w-[85%] lg:w-[75%] xl:w-[70%] max-w-6xl bg-gray-50 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+              selectedEmail ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
+            {/* Close button */}
+            <button
+              onClick={() => setSelectedEmail(null)}
+              className="absolute top-4 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-500 shadow hover:bg-white hover:text-gray-900 transition-colors"
+              title="关闭 (Esc)"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            {renderDetailPanel()}
+          </div>
         </div>
 
         {/* Modals */}
