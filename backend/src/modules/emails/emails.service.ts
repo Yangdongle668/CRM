@@ -1472,7 +1472,33 @@ export class EmailsService {
                   const existing = await this.prisma.email.findUnique({
                     where: { messageId },
                   });
-                  if (existing) return;
+                  if (existing) {
+                    // Backfill: if this email was synced before we started
+                    // storing fromName / display-name toAddr, patch it now.
+                    const parsedFromName = parsed.from?.value?.[0]?.name || null;
+                    const fmtA = (v: { name?: string; address?: string }) =>
+                      v.name ? `${v.name} <${v.address}>` : (v.address || '');
+                    const richToAddr = parsed.to?.value?.map(fmtA).join(', ') || '';
+                    const richCc = parsed.cc?.value?.map(fmtA).join(', ') || null;
+
+                    const patch: Record<string, any> = {};
+                    if (!existing.fromName && parsedFromName) {
+                      patch.fromName = parsedFromName;
+                    }
+                    if (existing.toAddr && !existing.toAddr.includes('<') && richToAddr.includes('<')) {
+                      patch.toAddr = richToAddr;
+                    }
+                    if (existing.cc && !existing.cc.includes('<') && richCc?.includes('<')) {
+                      patch.cc = richCc;
+                    }
+                    if (Object.keys(patch).length > 0) {
+                      await this.prisma.email.update({
+                        where: { id: existing.id },
+                        data: patch,
+                      });
+                    }
+                    return;
+                  }
                 }
 
                 const fromAddr = parsed.from?.value?.[0]?.address || 'unknown';
