@@ -34,7 +34,7 @@ export class RatesService {
 
       const payload: RatesPayload = {
         base: 'USD',
-        updatedAt: new Date(data.time_last_update_unix ? data.time_last_update_unix * 1000 : now).toISOString(),
+        updatedAt: new Date(now).toISOString(),
         rates: {
           USD_CNY: Number(cny.toFixed(4)),
           EUR_CNY: Number((cny / eur).toFixed(4)), // cross rate
