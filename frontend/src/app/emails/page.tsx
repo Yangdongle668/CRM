@@ -975,57 +975,91 @@ export default function EmailsPage() {
 
         {/* Email body - scrollable, with thread conversation */}
         <div className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50">
-          {/* Thread conversation list */}
-          {threadEmails.length > 1 && (
-            <div className="mb-4">
+          {threadEmails.length > 1 ? (
+            /* ── Thread (accordion) view ─────────────────────────
+             * Each email in the thread is a collapsible card.
+             * Clicking one expands its body inline, right below
+             * the header — NOT at the bottom of the page. */
+            <div className="space-y-2">
               <div className="text-xs font-medium text-gray-500 mb-2">
                 此会话共 {threadEmails.length} 封邮件
               </div>
-              <div className="space-y-1">
-                {threadEmails.map((te) => {
-                  const isViewing = viewingThreadEmailId === te.id;
-                  const teTime = te.sentAt || te.receivedAt || te.createdAt;
-                  const isInbound = te.direction === 'INBOUND';
-                  return (
+              {threadEmails.map((te) => {
+                const isViewing = viewingThreadEmailId === te.id;
+                const teTime = te.sentAt || te.receivedAt || te.createdAt;
+                const isInbound = te.direction === 'INBOUND';
+                return (
+                  <div
+                    key={te.id}
+                    className={`rounded-lg border transition-colors ${
+                      isViewing ? 'border-blue-200 bg-white shadow-sm' : 'border-gray-100 bg-white hover:border-gray-200'
+                    }`}
+                  >
+                    {/* Header row — always visible */}
                     <div
-                      key={te.id}
                       onClick={() => handleViewThreadEmail(te)}
-                      className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors ${
-                        isViewing
-                          ? 'bg-blue-50 border border-blue-200'
-                          : 'bg-white border border-gray-100 hover:bg-gray-50'
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer select-none ${
+                        isViewing ? 'border-b border-blue-100' : ''
                       }`}
                     >
-                      <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${isInbound ? 'bg-blue-400' : 'bg-green-400'}`} />
-                      <span className={`truncate flex-1 ${isViewing ? 'font-medium text-gray-900' : 'text-gray-600'}`}>
+                      <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${isInbound ? 'bg-blue-400' : 'bg-green-400'}`} />
+                      <span className={`truncate flex-1 text-sm ${isViewing ? 'font-semibold text-gray-900' : 'text-gray-700'}`}>
                         {displayNameOf(te)}
                       </span>
                       <span className="text-xs text-gray-400 flex-shrink-0">
                         {formatShortTime(teTime)}
                       </span>
                       {te.status === 'RECEIVED' && (
-                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 flex-shrink-0" />
+                        <span className="w-2 h-2 rounded-full bg-blue-600 flex-shrink-0" title="未读" />
                       )}
+                      <svg
+                        className={`w-4 h-4 flex-shrink-0 text-gray-400 transition-transform ${isViewing ? 'rotate-180' : ''}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Body — only shown for the selected thread email */}
+                    {isViewing && (
+                      <div className="px-4 py-4">
+                        <div className="text-xs text-gray-500 mb-3 space-y-0.5">
+                          <div>发件人：<span className="text-gray-700">{te.fromAddr}</span></div>
+                          <div>收件人：<span className="text-gray-700">{te.toAddr}</span></div>
+                          {te.cc && <div>抄送：<span className="text-gray-700">{te.cc}</span></div>}
+                          <div>时间：<span className="text-gray-700">{formatTime(teTime)}</span></div>
+                        </div>
+                        {te.bodyHtml ? (
+                          <div
+                            dangerouslySetInnerHTML={{ __html: te.bodyHtml }}
+                            className="prose prose-sm max-w-none"
+                          />
+                        ) : (
+                          <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                            {te.bodyText || '(无内容)'}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            /* ── Single email view ───────────────────────────── */
+            <div className="bg-white rounded-lg border p-6 min-h-[300px]">
+              {selectedEmail.bodyHtml ? (
+                <div
+                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
+                  className="prose prose-sm max-w-none"
+                />
+              ) : (
+                <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                  {selectedEmail.bodyText || '(无内容)'}
+                </pre>
+              )}
             </div>
           )}
-
-          {/* Current email body */}
-          <div className="bg-white rounded-lg border p-6 min-h-[300px]">
-            {selectedEmail.bodyHtml ? (
-              <div
-                dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                className="prose prose-sm max-w-none"
-              />
-            ) : (
-              <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
-                {selectedEmail.bodyText || '(无内容)'}
-              </pre>
-            )}
-          </div>
         </div>
 
         {/* 回复 / 转发都走同一个 ComposeWindow —— 见 handleReply、
