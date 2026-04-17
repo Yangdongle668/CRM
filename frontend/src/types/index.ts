@@ -132,6 +132,7 @@ export interface Email {
   threadId?: string;
   emailConfigId?: string;
   fromAddr: string;
+  fromName?: string | null;
   toAddr: string;
   cc?: string;
   bcc?: string;

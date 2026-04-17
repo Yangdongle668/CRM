@@ -636,14 +636,15 @@ export default function EmailsPage() {
 
   /**
    * Build the display name for an email list item.
-   * - Inbound: show FROM name(s)
-   * - Outbound: show TO + CC names
+   * - Inbound: prefer the stored `fromName` (e.g. "CES"); fall back to
+   *   parsing the fromAddr.
+   * - Outbound: show TO + CC display names.
    * Multiple names joined with "、" (Chinese enumeration comma).
-   * If customer is linked, still show the person names (not company).
    */
   const displayNameOf = (email: Email): string => {
     const isInbound = email.direction === 'INBOUND';
     if (isInbound) {
+      if (email.fromName) return email.fromName;
       const names = extractNames(email.fromAddr);
       return names.join('、') || email.fromAddr;
     }
