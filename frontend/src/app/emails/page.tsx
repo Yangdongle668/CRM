@@ -430,8 +430,6 @@ export default function EmailsPage() {
     if (!accountForm.smtpUser.trim()) { toast.error('请输入 SMTP 用户名'); return; }
     if (!editingAccountId && !accountForm.smtpPass.trim()) { toast.error('请输入 SMTP 密码'); return; }
     if (!accountForm.imapHost.trim()) { toast.error('请输入 IMAP 服务器地址'); return; }
-    if (!accountForm.imapUser.trim()) { toast.error('请输入 IMAP 用户名'); return; }
-    if (!editingAccountId && !accountForm.imapPass.trim()) { toast.error('请输入 IMAP 密码'); return; }
 
     setAccountSaving(true);
     try {
@@ -1376,26 +1374,26 @@ export default function EmailsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                用户名 <span className="text-red-500">*</span>
+                用户名
               </label>
               <input
                 type="text"
                 value={accountForm.imapUser}
                 onChange={(e) => setAccountForm({ ...accountForm, imapUser: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                placeholder="your@email.com"
+                placeholder="留空则与 SMTP 一致"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                密码{editingAccountId ? '（留空则保持不变）' : <span className="text-red-500"> *</span>}
+                密码
               </label>
               <input
                 type="password"
                 value={accountForm.imapPass}
                 onChange={(e) => setAccountForm({ ...accountForm, imapPass: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                placeholder="••••••••"
+                placeholder="留空则与 SMTP 一致"
               />
             </div>
           </div>
