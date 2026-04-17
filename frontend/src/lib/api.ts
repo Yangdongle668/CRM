@@ -142,6 +142,14 @@ export const emailsApi = {
   toggleFlag: (id: string, flagged: boolean) => api.patch(`/emails/${id}/flag`, { flagged }),
   updateCategory: (id: string, category: string) => api.patch(`/emails/${id}/category`, { category }),
 
+  // Delete / Trash / Spam
+  moveToTrash: (id: string) => api.delete(`/emails/${id}`),
+  batchMoveToTrash: (ids: string[]) => api.post('/emails/batch-trash', { ids }),
+  restore: (id: string) => api.post(`/emails/${id}/restore`),
+  permanentDelete: (id: string) => api.delete(`/emails/${id}/permanent`),
+  emptyTrash: () => api.delete('/emails/trash/empty'),
+  scanSpam: () => api.post('/emails/scan-spam'),
+
   // Templates
   getTemplates: () => api.get('/emails/templates'),
   createTemplate: (data: any) => api.post('/emails/templates', data),

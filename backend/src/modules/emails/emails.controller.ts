@@ -299,6 +299,38 @@ export class EmailsController {
     return this.emailsService.updateCategory(id, user.id, body.category);
   }
 
+  // ==================== Delete / Trash / Spam ====================
+
+  @Delete(':id')
+  async deleteEmail(@Param('id') id: string) {
+    return this.emailsService.moveToTrash(id);
+  }
+
+  @Post('batch-trash')
+  async batchTrash(@Body() body: { ids: string[] }) {
+    return this.emailsService.batchMoveToTrash(body.ids);
+  }
+
+  @Post(':id/restore')
+  async restoreEmail(@Param('id') id: string) {
+    return this.emailsService.restoreFromTrash(id);
+  }
+
+  @Delete(':id/permanent')
+  async permanentDeleteEmail(@Param('id') id: string) {
+    return this.emailsService.permanentDelete(id);
+  }
+
+  @Delete('trash/empty')
+  async emptyTrash() {
+    return this.emailsService.emptyTrash();
+  }
+
+  @Post('scan-spam')
+  async scanSpam() {
+    return this.emailsService.scanSpam();
+  }
+
   // ==================== Templates ====================
 
   @Get('templates')
