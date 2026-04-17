@@ -119,13 +119,10 @@ export default function EmailsPage() {
   const [signatureForAccount, setSignatureForAccount] =
     useState<{ id: string; emailAddr: string } | null>(null);
 
-  // Translation — per-email result cache. When set for the current email,
-  // the detail panel shows a translation banner above the body.
-  const [translation, setTranslation] = useState<{
-    emailId: string;
-    text: string;
-    sourceLang: string;
-  } | null>(null);
+  // Translation — tracks which email has been translated inline.
+  // When translated, the HTML body text nodes are replaced in-place.
+  const [translatedEmailId, setTranslatedEmailId] = useState<string | null>(null);
+  const [originalHtml, setOriginalHtml] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
 
   // Compose window state（新邮件 + 回复 + 转发 都复用同一个窗口）
@@ -260,12 +257,11 @@ export default function EmailsPage() {
     }
   }, [activeFolder, fetchEmails, fetchTemplates]);
 
-  // Clear translation when switching between emails so a stale banner
-  // never lingers on a different email.
+  // Reset translation state when switching emails. If the previous email
+  // was translated, restore its original HTML before leaving.
   useEffect(() => {
-    if (!selectedEmail || translation?.emailId !== selectedEmail.id) {
-      setTranslation(null);
-    }
+    setTranslatedEmailId(null);
+    setOriginalHtml(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEmail?.id]);
 
@@ -443,30 +439,87 @@ export default function EmailsPage() {
   };
 
   /**
-   * One-click translate the currently selected email's body into Chinese.
-   * Source language is auto-detected server-side. Click again to hide.
+   * One-click translate: extract text segments from the email HTML
+   * (skipping images / tags), send as JSON to the backend, then replace
+   * the original text nodes in-place. Click again to restore original.
    */
   const handleTranslate = async () => {
     if (!selectedEmail) return;
-    // Toggle off if already translated
-    if (translation?.emailId === selectedEmail.id) {
-      setTranslation(null);
+
+    // Toggle: restore original if already translated
+    if (translatedEmailId === selectedEmail.id && originalHtml) {
+      setSelectedEmail({ ...selectedEmail, bodyHtml: originalHtml });
+      setTranslatedEmailId(null);
+      setOriginalHtml(null);
       return;
     }
-    const src = selectedEmail.bodyText || selectedEmail.bodyHtml || '';
-    if (!src.trim()) {
-      toast.error('邮件正文为空，无需翻译');
+
+    const html = selectedEmail.bodyHtml || '';
+    const text = selectedEmail.bodyText || '';
+    if (!html && !text) {
+      toast.error('邮件正文为空');
       return;
     }
+
+    // Parse the HTML (or plain text) into a temporary DOM to extract
+    // text nodes, skipping <img>, <style>, <script> etc.
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(
+      html || `<pre>${text}</pre>`,
+      'text/html',
+    );
+    const segments: { index: number; text: string; node: Text }[] = [];
+    let idx = 0;
+
+    const walk = (node: Node) => {
+      if (
+        node.nodeType === Node.ELEMENT_NODE &&
+        /^(img|style|script|svg|video|audio|iframe)$/i.test(
+          (node as Element).tagName,
+        )
+      ) {
+        return; // skip non-text elements
+      }
+      if (node.nodeType === Node.TEXT_NODE) {
+        const t = (node.textContent || '').trim();
+        if (t.length > 1) {
+          segments.push({ index: idx++, text: t, node: node as Text });
+        }
+        return;
+      }
+      node.childNodes.forEach(walk);
+    };
+    walk(doc.body);
+
+    if (segments.length === 0) {
+      toast.error('没有可翻译的文字内容');
+      return;
+    }
+
     setTranslating(true);
     try {
-      const res: any = await translateApi.translate(src, 'zh-CN');
+      const res: any = await translateApi.translate(
+        segments.map((s) => ({ index: s.index, text: s.text })),
+      );
       const data = res.data || res;
-      setTranslation({
-        emailId: selectedEmail.id,
-        text: data.text,
-        sourceLang: data.sourceLang,
+      const translated: Record<number, string> = {};
+      (data.segments || []).forEach((s: any) => {
+        translated[s.index] = s.translated;
       });
+
+      // Replace text nodes in the parsed DOM
+      for (const seg of segments) {
+        if (translated[seg.index]) {
+          seg.node.textContent = translated[seg.index];
+        }
+      }
+
+      // Save original and apply translated HTML
+      setOriginalHtml(selectedEmail.bodyHtml || selectedEmail.bodyText || '');
+      const newHtml = doc.body.innerHTML;
+      setSelectedEmail({ ...selectedEmail, bodyHtml: newHtml });
+      setTranslatedEmailId(selectedEmail.id);
+      toast.success(`已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || '翻译失败，请稍后重试');
     } finally {
@@ -1021,7 +1074,7 @@ export default function EmailsPage() {
               onClick={handleTranslate}
               disabled={translating}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
-                translation?.emailId === selectedEmail?.id
+                translatedEmailId === selectedEmail?.id
                   ? 'text-purple-800 bg-purple-100 hover:bg-purple-200'
                   : 'text-purple-700 bg-purple-50 hover:bg-purple-100'
               }`}
@@ -1030,7 +1083,7 @@ export default function EmailsPage() {
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
               </svg>
-              {translating ? '翻译中...' : translation?.emailId === selectedEmail?.id ? '取消翻译' : '翻译'}
+              {translating ? '翻译中...' : translatedEmailId === selectedEmail?.id ? '恢复原文' : '翻译'}
             </button>
             <button
               onClick={async () => {
@@ -1128,35 +1181,18 @@ export default function EmailsPage() {
             </div>
           ) : (
             /* ── Single email view ───────────────────────────── */
-            <>
-              {translation?.emailId === selectedEmail.id && (
-                <div className="mb-3 rounded-lg border border-purple-200 bg-purple-50 p-4">
-                  <div className="flex items-center gap-2 text-xs font-medium text-purple-700 mb-2">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-                    </svg>
-                    <span>
-                      已从「{translation.sourceLang.toUpperCase()}」自动翻译为中文
-                    </span>
-                  </div>
-                  <pre className="text-sm text-gray-800 whitespace-pre-wrap font-sans leading-relaxed">
-                    {translation.text}
-                  </pre>
-                </div>
+            <div className="bg-white rounded-lg border p-6 min-h-[300px]">
+              {selectedEmail.bodyHtml ? (
+                <div
+                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
+                  className="prose prose-sm max-w-none"
+                />
+              ) : (
+                <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
+                  {selectedEmail.bodyText || '(无内容)'}
+                </pre>
               )}
-              <div className="bg-white rounded-lg border p-6 min-h-[300px]">
-                {selectedEmail.bodyHtml ? (
-                  <div
-                    dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                    className="prose prose-sm max-w-none"
-                  />
-                ) : (
-                  <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
-                    {selectedEmail.bodyText || '(无内容)'}
-                  </pre>
-                )}
-              </div>
-            </>
+            </div>
           )}
         </div>
 
@@ -1881,11 +1917,12 @@ export default function EmailsPage() {
           className={`fixed inset-0 z-40 transition-opacity duration-300 ${
             selectedEmail ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedEmail(null);
-          }}
         >
-          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" />
+          {/* Backdrop — clicking anywhere on the dark area closes the panel */}
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm"
+            onClick={() => setSelectedEmail(null)}
+          />
           <div
             className={`absolute inset-y-0 right-0 w-full md:w-[85%] lg:w-[75%] xl:w-[70%] max-w-6xl bg-gray-50 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
               selectedEmail ? 'translate-x-0' : 'translate-x-full'

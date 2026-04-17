@@ -8,7 +8,16 @@ export class TranslateController {
   constructor(private readonly translateService: TranslateService) {}
 
   @Post()
-  translate(@Body() body: { text: string; target?: string }) {
-    return this.translateService.translate(body.text, body.target || 'zh-CN');
+  translate(
+    @Body()
+    body: {
+      segments: { index: number; text: string }[];
+      target?: string;
+    },
+  ) {
+    return this.translateService.translateSegments(
+      body.segments,
+      body.target || 'zh-CN',
+    );
   }
 }

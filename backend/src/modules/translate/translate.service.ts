@@ -1,79 +1,90 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
+export interface TranslateSegment {
+  index: number;
+  original: string;
+  translated: string;
+}
+
 export interface TranslateResult {
   sourceLang: string;
   targetLang: string;
-  text: string;
+  segments: TranslateSegment[];
 }
 
 /**
- * TranslateService — wraps Google Translate's free, key-less single
- * endpoint. It returns JSON (despite the HTML content type), auto-
- * detects the source language, and can translate up to ~5000 chars
- * per call. When the source already matches the target we short-
- * circuit and return the input unchanged.
- *
- * The endpoint is technically undocumented but widely used; if it ever
- * 429s we surface a clear error so the UI can inform the user.
+ * TranslateService — takes an array of text segments (extracted from
+ * email HTML by the frontend, skipping images/tags), translates each
+ * via Google Translate's free endpoint, and returns translated segments
+ * with matching indices so the frontend can replace them in-place.
  */
 @Injectable()
 export class TranslateService {
   private readonly logger = new Logger(TranslateService.name);
 
-  async translate(raw: string, target = 'zh-CN'): Promise<TranslateResult> {
-    const text = (raw || '').trim();
-    if (!text) {
-      throw new BadRequestException('Text is empty');
+  /**
+   * Translate an array of text segments.
+   * @param segments Array of { index, text } — text portions to translate
+   * @param target   Target language code (default zh-CN)
+   */
+  async translateSegments(
+    segments: { index: number; text: string }[],
+    target = 'zh-CN',
+  ): Promise<TranslateResult> {
+    if (!segments || segments.length === 0) {
+      throw new BadRequestException('没有可翻译的内容');
     }
 
-    // Strip HTML tags so the translated output is clean text — the UI
-    // renders it in a simple blockquote panel.
-    const plain = text
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<br\s*\/?>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-
-    if (!plain) {
-      throw new BadRequestException('Text is empty after stripping HTML');
+    // Filter out empty/whitespace-only segments
+    const valid = segments.filter((s) => s.text && s.text.trim().length > 0);
+    if (valid.length === 0) {
+      throw new BadRequestException('没有可翻译的内容');
     }
 
-    // Google's free endpoint caps requests at ~5000 chars of source,
-    // so split the plain text into chunks and concatenate translations.
-    const chunks = this.splitIntoChunks(plain, 4500);
-    const pieces: string[] = [];
+    // Batch segments into groups ≤ 4500 chars total to stay under the
+    // free endpoint's limit, then translate each batch.
+    const results: TranslateSegment[] = [];
     let detectedLang = 'auto';
 
-    for (const chunk of chunks) {
+    const batches = this.batchSegments(valid, 4500);
+    for (const batch of batches) {
+      // Join with a sentinel delimiter that won't appear in normal text
+      const DELIM = '\n\u2063\n';
+      const joined = batch.map((s) => s.text.trim()).join(DELIM);
+
       try {
-        const { text, sourceLang } = await this.translateChunk(chunk, target);
-        pieces.push(text);
+        const { text, sourceLang } = await this.callGoogleTranslate(joined, target);
         if (detectedLang === 'auto' && sourceLang) detectedLang = sourceLang;
+
+        const parts = text.split(/\n?\u2063\n?/);
+        for (let i = 0; i < batch.length; i++) {
+          results.push({
+            index: batch[i].index,
+            original: batch[i].text,
+            translated: (parts[i] || batch[i].text).trim(),
+          });
+        }
       } catch (err: any) {
-        this.logger.error(`translate chunk failed: ${err?.message}`);
-        throw new BadRequestException(
-          `翻译服务暂时不可用，请稍后重试${err?.message ? ` (${err.message})` : ''}`,
-        );
+        this.logger.error(`translate batch failed: ${err?.message}`);
+        // On failure, return originals so the UI doesn't break
+        for (const seg of batch) {
+          results.push({
+            index: seg.index,
+            original: seg.text,
+            translated: seg.text,
+          });
+        }
       }
     }
 
     return {
       sourceLang: detectedLang,
       targetLang: target,
-      text: pieces.join(''),
+      segments: results,
     };
   }
 
-  private async translateChunk(chunk: string, target: string) {
+  private async callGoogleTranslate(text: string, target: string) {
     const url =
       'https://translate.googleapis.com/translate_a/single?' +
       new URLSearchParams({
@@ -81,7 +92,7 @@ export class TranslateService {
         sl: 'auto',
         tl: target,
         dt: 't',
-        q: chunk,
+        q: text,
       }).toString();
 
     const res = await fetch(url, {
@@ -96,7 +107,6 @@ export class TranslateService {
     }
 
     const data: any = await res.json();
-    // Response shape: [ [ [translated, original, ...], ... ], null, "en" ... ]
     if (!Array.isArray(data) || !Array.isArray(data[0])) {
       throw new Error('unexpected response shape');
     }
@@ -108,24 +118,24 @@ export class TranslateService {
     return { text: translated, sourceLang };
   }
 
-  /**
-   * Split plain text into <= maxLen chunks, trying to break at paragraph
-   * boundaries first, falling back to sentence boundaries, then hard cuts.
-   */
-  private splitIntoChunks(text: string, maxLen: number): string[] {
-    if (text.length <= maxLen) return [text];
+  private batchSegments(
+    segments: { index: number; text: string }[],
+    maxLen: number,
+  ): { index: number; text: string }[][] {
+    const batches: { index: number; text: string }[][] = [];
+    let current: { index: number; text: string }[] = [];
+    let currentLen = 0;
 
-    const chunks: string[] = [];
-    let remaining = text;
-    while (remaining.length > maxLen) {
-      let cut = remaining.lastIndexOf('\n\n', maxLen);
-      if (cut < maxLen / 2) cut = remaining.lastIndexOf('\n', maxLen);
-      if (cut < maxLen / 2) cut = remaining.lastIndexOf('. ', maxLen);
-      if (cut < maxLen / 2) cut = maxLen;
-      chunks.push(remaining.slice(0, cut));
-      remaining = remaining.slice(cut);
+    for (const seg of segments) {
+      if (currentLen + seg.text.length > maxLen && current.length > 0) {
+        batches.push(current);
+        current = [];
+        currentLen = 0;
+      }
+      current.push(seg);
+      currentLen += seg.text.length + 3; // +3 for delimiter
     }
-    if (remaining) chunks.push(remaining);
-    return chunks;
+    if (current.length > 0) batches.push(current);
+    return batches;
   }
 }
