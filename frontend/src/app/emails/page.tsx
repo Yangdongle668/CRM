@@ -608,12 +608,51 @@ export default function EmailsPage() {
     return stripped.length > 80 ? stripped.slice(0, 80) + '…' : stripped;
   };
 
-  // 从邮件地址里抠一个"看起来是人名"的东西出来做显示名。优先级：
-  // customer.companyName（有关联客户时更有意义）→ 邮箱 @ 前的部分。
-  const displayNameOf = (email: Email, addr: string): string => {
-    if (email.customer?.companyName) return email.customer.companyName;
-    const atIdx = addr.indexOf('@');
-    return atIdx > 0 ? addr.slice(0, atIdx) : addr;
+  /**
+   * Extract a human-readable name from a single address string.
+   * Handles:  "Tom Harvey <tom@foo.com>"  →  "Tom Harvey"
+   *           tom@foo.com                 →  "tom"
+   *           "tom.harvey@foo.com"        →  "Tom Harvey" (dots → spaces)
+   */
+  const extractName = (raw: string): string => {
+    const s = raw.trim();
+    // "Display Name <email>" or Display Name <email>
+    const m = s.match(/^"?([^"<]+)"?\s*</);
+    if (m && m[1].trim()) return m[1].trim();
+    // Bare address → take part before @, replace dots/underscores with spaces
+    const addr = s.replace(/<|>/g, '').trim();
+    const at = addr.indexOf('@');
+    const local = at > 0 ? addr.slice(0, at) : addr;
+    return local
+      .replace(/[._]/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  };
+
+  /**
+   * Parse a comma-separated address string into an array of display names.
+   */
+  const extractNames = (addrStr: string | null | undefined): string[] => {
+    if (!addrStr) return [];
+    return addrStr.split(',').map(extractName).filter(Boolean);
+  };
+
+  /**
+   * Build the display name for an email list item.
+   * - Inbound: show FROM name(s)
+   * - Outbound: show TO + CC names
+   * Multiple names joined with "、" (Chinese enumeration comma).
+   * If customer is linked, still show the person names (not company).
+   */
+  const displayNameOf = (email: Email): string => {
+    const isInbound = email.direction === 'INBOUND';
+    if (isInbound) {
+      const names = extractNames(email.fromAddr);
+      return names.join('、') || email.fromAddr;
+    }
+    const toNames = extractNames(email.toAddr);
+    const ccNames = extractNames(email.cc);
+    const all = [...toNames, ...ccNames];
+    return all.join('、') || email.toAddr;
   };
 
   const renderThreadListItem = (thread: EmailThreadItem) => {
@@ -635,10 +674,9 @@ export default function EmailsPage() {
       ? email.status === 'RECEIVED'
       : email.status !== 'VIEWED';
 
-    const addr = isInbound || activeFolder === 'unread' ? email.fromAddr : email.toAddr;
     const time = email.sentAt || email.receivedAt || email.createdAt;
-    const name = displayNameOf(email, addr);
-    const { letter, color } = avatarFor(name || addr);
+    const name = displayNameOf(email);
+    const { letter, color } = avatarFor(name);
     const preview = previewOf(email);
     const isReply = /^(re|回复)\s*[:：]/i.test(email.subject || '');
 
@@ -962,7 +1000,7 @@ export default function EmailsPage() {
                     >
                       <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${isInbound ? 'bg-blue-400' : 'bg-green-400'}`} />
                       <span className={`truncate flex-1 ${isViewing ? 'font-medium text-gray-900' : 'text-gray-600'}`}>
-                        {isInbound ? te.fromAddr : te.toAddr}
+                        {displayNameOf(te)}
                       </span>
                       <span className="text-xs text-gray-400 flex-shrink-0">
                         {formatShortTime(teTime)}
