@@ -951,7 +951,7 @@ export class EmailsService {
   ];
 
   private static readonly SPAM_SENDER_PATTERNS = [
-    'noreply@', 'no-reply@', 'newsletter@', 'marketing@',
+    'newsletter@', 'marketing@',
     'promo@', 'offers@', 'deals@', 'info@seo',
     'sales@seo', 'hello@seo', 'contact@seo',
   ];
