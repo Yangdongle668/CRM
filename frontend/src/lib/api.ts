@@ -364,8 +364,8 @@ export const ratesApi = {
 
 // ==================== Translate API ====================
 export const translateApi = {
-  translate: (text: string, target = 'zh-CN') =>
-    api.post('/translate', { text, target }),
+  translate: (segments: { index: number; text: string }[], target = 'zh-CN') =>
+    api.post('/translate', { segments, target }),
 };
 
 // ==================== RBAC API ====================
