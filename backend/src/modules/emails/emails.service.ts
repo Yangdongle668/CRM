@@ -853,6 +853,152 @@ export class EmailsService {
     });
   }
 
+  // ==================== Delete / Trash / Spam ====================
+
+  /**
+   * Soft-delete: move an email to trash. It can be restored later.
+   */
+  async moveToTrash(id: string) {
+    const email = await this.prisma.email.findUnique({ where: { id } });
+    if (!email) throw new NotFoundException('Email not found');
+    return this.prisma.email.update({
+      where: { id },
+      data: { category: 'trash' },
+    });
+  }
+
+  /**
+   * Batch soft-delete: move multiple emails to trash.
+   */
+  async batchMoveToTrash(ids: string[]) {
+    const result = await this.prisma.email.updateMany({
+      where: { id: { in: ids } },
+      data: { category: 'trash' },
+    });
+    return { moved: result.count };
+  }
+
+  /**
+   * Restore an email from trash back to its original category.
+   */
+  async restoreFromTrash(id: string) {
+    const email = await this.prisma.email.findUnique({ where: { id } });
+    if (!email) throw new NotFoundException('Email not found');
+    const newCat = email.direction === 'OUTBOUND' ? 'sent' : 'inbox';
+    return this.prisma.email.update({
+      where: { id },
+      data: { category: newCat },
+    });
+  }
+
+  /**
+   * Permanently delete a single email.
+   */
+  async permanentDelete(id: string) {
+    const email = await this.prisma.email.findUnique({ where: { id } });
+    if (!email) throw new NotFoundException('Email not found');
+    await this.prisma.email.delete({ where: { id } });
+    return { deleted: 1 };
+  }
+
+  /**
+   * Permanently delete all emails in the trash folder.
+   */
+  async emptyTrash() {
+    const result = await this.prisma.email.deleteMany({
+      where: { category: 'trash' },
+    });
+    return { deleted: result.count };
+  }
+
+  // ── Spam filter ───────────────────────────────────────────
+  // Lightweight keyword/pattern filter aimed at the unsolicited
+  // SEO / marketing / phishing junk that foreign-trade inboxes
+  // drown in. Runs on every IMAP-fetched email and can also be
+  // triggered retroactively via POST /emails/scan-spam.
+
+  private static readonly SPAM_SUBJECT_KEYWORDS = [
+    // SEO / ranking spam
+    'seo', 'ranking', 'backlink', 'link building', 'page rank',
+    'search engine', 'google ranking', 'first page',
+    'top of google', 'website traffic', 'domain authority',
+    // Web / app dev spam
+    'web design', 'website redesign', 'app development',
+    'mobile app', 'wordpress', 'shopify',
+    // Digital marketing spam
+    'digital marketing', 'social media marketing', 'email marketing',
+    'lead generation', 'facebook ads', 'google ads',
+    'content marketing', 'brand awareness', 'influencer',
+    // Generic commercial spam
+    'limited time offer', 'act now', 'buy now',
+    'free trial', 'special offer', 'exclusive deal',
+    'make money', 'earn money', 'work from home',
+    'casino', 'lottery', 'winner', 'bitcoin', 'crypto',
+    'weight loss', 'diet',
+    // Phishing
+    'verify your account', 'confirm your identity',
+    'update your payment', 'account suspended',
+    'unusual activity', 'security alert',
+    // B2B spam common in foreign trade
+    'business proposal', 'partnership opportunity',
+    'data entry', 'virtual assistant',
+    'alibaba', 'supplier list', 'manufacturers list',
+  ];
+
+  private static readonly SPAM_SENDER_PATTERNS = [
+    'noreply@', 'no-reply@', 'newsletter@', 'marketing@',
+    'promo@', 'offers@', 'deals@', 'info@seo',
+    'sales@seo', 'hello@seo', 'contact@seo',
+  ];
+
+  /**
+   * Returns true if the email looks like spam based on subject keywords
+   * and sender patterns. Case-insensitive matching.
+   */
+  isSpam(email: { subject?: string | null; fromAddr?: string | null; bodyText?: string | null }): boolean {
+    const subject = (email.subject || '').toLowerCase();
+    const from = (email.fromAddr || '').toLowerCase();
+
+    for (const pattern of EmailsService.SPAM_SENDER_PATTERNS) {
+      if (from.includes(pattern)) return true;
+    }
+
+    for (const kw of EmailsService.SPAM_SUBJECT_KEYWORDS) {
+      if (subject.includes(kw)) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Scan all existing emails (inbox + customer + advertisement) and move
+   * matches to the spam category. Returns the count of newly flagged.
+   */
+  async scanSpam(): Promise<{ flagged: number }> {
+    const candidates = await this.prisma.email.findMany({
+      where: {
+        category: { in: ['inbox', 'customer', 'advertisement'] },
+        direction: 'INBOUND',
+      },
+      select: { id: true, subject: true, fromAddr: true, bodyText: true },
+    });
+
+    const spamIds: string[] = [];
+    for (const email of candidates) {
+      if (this.isSpam(email)) spamIds.push(email.id);
+    }
+
+    if (spamIds.length > 0) {
+      await this.prisma.email.updateMany({
+        where: { id: { in: spamIds } },
+        data: { category: 'spam' },
+      });
+    }
+
+    this.logger.log(`Spam scan complete: ${spamIds.length} emails flagged`);
+    return { flagged: spamIds.length };
+  }
+
   // ==================== Read Status ====================
 
   async getUnreadCount(userId: string, role: string) {
@@ -1334,7 +1480,9 @@ export class EmailsService {
 
                 const status = direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
                 let category = 'inbox';
-                if (customer) {
+                if (direction === 'INBOUND' && this.isSpam({ subject: parsed.subject, fromAddr, bodyText: parsed.text })) {
+                  category = 'spam';
+                } else if (customer) {
                   category = 'customer';
                 } else if (direction === 'OUTBOUND') {
                   category = 'sent';

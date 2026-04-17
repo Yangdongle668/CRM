@@ -12,7 +12,7 @@ import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
 
-type FolderType = 'inbox' | 'unread' | 'sent' | 'customer' | 'advertisement' | 'templates' | 'settings';
+type FolderType = 'inbox' | 'unread' | 'sent' | 'customer' | 'advertisement' | 'trash' | 'spam' | 'templates' | 'settings';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
@@ -191,6 +191,12 @@ export default function EmailsPage() {
           break;
         case 'advertisement':
           params.category = 'advertisement';
+          break;
+        case 'trash':
+          params.category = 'trash';
+          break;
+        case 'spam':
+          params.category = 'spam';
           break;
       }
 
@@ -519,6 +525,8 @@ export default function EmailsPage() {
     { key: 'sent', label: '已发送', icon: 'sent' },
     { key: 'customer', label: '客户', icon: 'customer' },
     { key: 'advertisement', label: '广告邮件', icon: 'advertisement' },
+    { key: 'trash', label: '垃圾箱', icon: 'trash' },
+    { key: 'spam', label: '垃圾邮件', icon: 'spam' },
     { key: 'templates', label: '邮件模板', icon: 'templates' },
     { key: 'settings', label: '邮箱设置', icon: 'settings' },
   ];
@@ -537,6 +545,16 @@ export default function EmailsPage() {
     sent: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+      </svg>
+    ),
+    trash: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+      </svg>
+    ),
+    spam: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" />
       </svg>
     ),
     templates: (
@@ -831,6 +849,39 @@ export default function EmailsPage() {
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 mt-3 pt-3 border-t">
+            {activeFolder === 'trash' || activeFolder === 'spam' ? (
+              <>
+                <button
+                  onClick={async () => {
+                    if (!selectedEmail) return;
+                    try {
+                      await emailsApi.restore(selectedEmail.id);
+                      toast.success('已恢复到收件箱');
+                      setSelectedEmail(null);
+                      fetchEmails();
+                    } catch { toast.error('恢复失败'); }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors"
+                >
+                  恢复
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!selectedEmail || !confirm('永久删除此邮件？此操作不可撤销。')) return;
+                    try {
+                      await emailsApi.permanentDelete(selectedEmail.id);
+                      toast.success('已永久删除');
+                      setSelectedEmail(null);
+                      fetchEmails();
+                    } catch { toast.error('删除失败'); }
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-700 bg-red-50 rounded-lg hover:bg-red-100 transition-colors"
+                >
+                  永久删除
+                </button>
+              </>
+            ) : (
+              <>
             <button
               onClick={handleReply}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
@@ -864,6 +915,25 @@ export default function EmailsPage() {
               </svg>
               转发
             </button>
+            <button
+              onClick={async () => {
+                if (!selectedEmail) return;
+                try {
+                  await emailsApi.moveToTrash(selectedEmail.id);
+                  toast.success('已移入垃圾箱');
+                  setSelectedEmail(null);
+                  fetchEmails();
+                } catch { toast.error('删除失败'); }
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100 transition-colors ml-auto"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              删除
+            </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1550,6 +1620,41 @@ export default function EmailsPage() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                       </svg>
                       全部标记已读
+                    </button>
+                  </div>
+                )}
+                {activeFolder === 'trash' && threads.length > 0 && (
+                  <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        if (!confirm('确定清空垃圾箱吗？所有邮件将被永久删除，无法恢复。')) return;
+                        try {
+                          const res: any = await emailsApi.emptyTrash();
+                          toast.success(`已清空 ${res.data?.deleted || 0} 封邮件`);
+                          setSelectedEmail(null);
+                          fetchEmails();
+                        } catch { toast.error('清空失败'); }
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-800 font-medium"
+                    >
+                      清空垃圾箱
+                    </button>
+                  </div>
+                )}
+                {activeFolder === 'spam' && (
+                  <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        try {
+                          toast.loading('正在扫描垃圾邮件...', { id: 'scan-spam' });
+                          const res: any = await emailsApi.scanSpam();
+                          toast.success(`扫描完成，标记了 ${res.data?.flagged || 0} 封垃圾邮件`, { id: 'scan-spam' });
+                          fetchEmails();
+                        } catch { toast.error('扫描失败', { id: 'scan-spam' }); }
+                      }}
+                      className="inline-flex items-center gap-1 text-xs text-orange-600 hover:text-orange-800 font-medium"
+                    >
+                      重新扫描全部邮件
                     </button>
                   </div>
                 )}
