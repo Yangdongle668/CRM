@@ -3,35 +3,51 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   HiOutlineMapPin,
-  HiOutlinePencil,
   HiOutlineArrowPath,
 } from 'react-icons/hi2';
 
 const DEFAULT_CITY = '东莞';
 const STORAGE_KEY = 'weather:city';
-const WEATHER_API_BASE = 'https://wttr.in';
+// 国内免 key 公共天气聚合接口（韩小韩 API）。如需替换，只需改这里。
+const WEATHER_API = 'https://api.vvhan.com/api/weather';
 
 interface WeatherData {
   city: string;
-  tempC: string;
-  feelsLikeC: string;
+  temp: string;
   description: string;
-  humidity: string;
-  windSpeedKmph: string;
-  windDir: string;
-  updatedAt: string;
 }
 
 const weatherEmoji = (desc: string): string => {
-  const d = desc.toLowerCase();
-  if (d.includes('thunder') || d.includes('雷')) return '⛈️';
-  if (d.includes('snow') || d.includes('雪')) return '❄️';
-  if (d.includes('rain') || d.includes('drizzle') || d.includes('雨')) return '🌧️';
-  if (d.includes('fog') || d.includes('mist') || d.includes('雾') || d.includes('haze')) return '🌫️';
-  if (d.includes('cloud') || d.includes('overcast') || d.includes('云') || d.includes('阴')) return '☁️';
-  if (d.includes('partly') || d.includes('多云')) return '⛅';
-  if (d.includes('sun') || d.includes('clear') || d.includes('晴')) return '☀️';
+  const d = (desc || '').toLowerCase();
+  if (d.includes('雷') || d.includes('thunder')) return '⛈️';
+  if (d.includes('雪') || d.includes('snow')) return '❄️';
+  if (d.includes('雨') || d.includes('rain')) return '🌧️';
+  if (d.includes('雾') || d.includes('霾') || d.includes('fog') || d.includes('haze')) return '🌫️';
+  if (d.includes('多云') || d.includes('partly')) return '⛅';
+  if (d.includes('阴') || d.includes('云') || d.includes('cloud')) return '☁️';
+  if (d.includes('晴') || d.includes('sun') || d.includes('clear')) return '☀️';
   return '🌡️';
+};
+
+// 从聚合 API 响应中尽量稳健地抽取字段
+const extract = (json: any, fallbackCity: string): WeatherData | null => {
+  const city: string =
+    json?.city || json?.data?.city || json?.info?.city || fallbackCity;
+
+  // vvhan "realtime" 格式
+  const rt = json?.data || json?.info || json;
+  const tem: string | undefined =
+    rt?.tem ?? rt?.temperature ?? rt?.temp ?? rt?.now?.temp;
+  const wea: string | undefined =
+    rt?.wea ?? rt?.type ?? rt?.weather ?? rt?.now?.text;
+
+  if (tem == null || wea == null) return null;
+  const temStr = String(tem).replace(/[^\d.\-]/g, '');
+  return {
+    city: String(city).replace(/市$/, ''),
+    temp: temStr || String(tem),
+    description: String(wea),
+  };
 };
 
 export default function WeatherCard() {
@@ -49,34 +65,15 @@ export default function WeatherCard() {
     setLoading(true);
     setError(null);
     try {
-      const url = `${WEATHER_API_BASE}/${encodeURIComponent(name)}?format=j1&lang=zh`;
+      const url = `${WEATHER_API}?city=${encodeURIComponent(name)}`;
       const res = await fetch(url, { cache: 'no-store' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
-      const cur = json?.current_condition?.[0];
-      const area = json?.nearest_area?.[0];
-      if (!cur) throw new Error('未返回天气数据');
-      const zhDesc =
-        cur.lang_zh?.[0]?.value ||
-        cur.weatherDesc?.[0]?.value ||
-        '';
-      const zhCity =
-        area?.areaName?.[0]?.value || name;
-      setData({
-        city: zhCity,
-        tempC: cur.temp_C,
-        feelsLikeC: cur.FeelsLikeC,
-        description: zhDesc,
-        humidity: cur.humidity,
-        windSpeedKmph: cur.windspeedKmph,
-        windDir: cur.winddir16Point,
-        updatedAt: new Date().toLocaleTimeString('zh-CN', {
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      });
+      const parsed = extract(json, name);
+      if (!parsed) throw new Error('未获取到天气');
+      setData(parsed);
     } catch (e: any) {
-      setError(e?.message || '获取天气失败');
+      setError(e?.message || '获取失败');
       setData(null);
     } finally {
       setLoading(false);
@@ -117,94 +114,60 @@ export default function WeatherCard() {
     }
   };
 
+  const displayCity = data?.city || city;
+
   return (
-    <div className="rounded-lg bg-gradient-to-br from-sky-500 to-blue-600 text-white p-5 shadow">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-sky-100">
-            <HiOutlineMapPin className="h-4 w-4 flex-shrink-0" />
-            {editing ? (
-              <input
-                ref={inputRef}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                onBlur={commit}
-                onKeyDown={onKeyDown}
-                placeholder="输入城市，如：北京 / Tokyo"
-                className="bg-white/20 placeholder-white/60 text-white text-sm rounded px-2 py-0.5 outline-none focus:ring-2 focus:ring-white/60 w-40"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setInputValue(city);
-                  setEditing(true);
-                }}
-                className="group inline-flex items-center gap-1 text-sm hover:text-white"
-                title="点击更换城市"
-              >
-                <span className="font-medium">{data?.city || city}</span>
-                <HiOutlinePencil className="h-3.5 w-3.5 opacity-70 group-hover:opacity-100" />
-              </button>
-            )}
-          </div>
+    <div className="inline-flex items-center gap-2 rounded-full bg-white border border-gray-200 px-3 py-1.5 text-sm text-gray-700 shadow-sm">
+      <span className="text-base leading-none">
+        {data ? weatherEmoji(data.description) : '🌡️'}
+      </span>
 
-          <div className="mt-3 flex items-end gap-3">
-            <div className="text-5xl leading-none">
-              {data ? weatherEmoji(data.description) : '🌡️'}
-            </div>
-            <div>
-              <div className="text-4xl font-bold leading-none">
-                {loading ? '…' : data ? `${data.tempC}°` : '--'}
-              </div>
-              <div className="mt-1 text-sm text-sky-100">
-                {loading
-                  ? '加载中...'
-                  : error
-                  ? error
-                  : data?.description || '—'}
-              </div>
-            </div>
-          </div>
+      <span className="font-medium text-gray-900 tabular-nums">
+        {loading ? '…' : data ? `${data.temp}°` : '--'}
+      </span>
 
-          {data && !loading && !error && (
-            <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-sky-100">
-              <div>
-                <div className="opacity-70">体感</div>
-                <div className="font-medium text-white">{data.feelsLikeC}°C</div>
-              </div>
-              <div>
-                <div className="opacity-70">湿度</div>
-                <div className="font-medium text-white">{data.humidity}%</div>
-              </div>
-              <div>
-                <div className="opacity-70">风速</div>
-                <div className="font-medium text-white">
-                  {data.windSpeedKmph} km/h
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+      <span className="text-gray-500 truncate max-w-[6rem]">
+        {loading ? '加载中' : error ? error : data?.description || '—'}
+      </span>
 
+      <span className="h-4 w-px bg-gray-200" aria-hidden />
+
+      {editing ? (
+        <input
+          ref={inputRef}
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={onKeyDown}
+          placeholder="输入城市"
+          className="w-24 bg-transparent text-gray-700 placeholder-gray-400 outline-none text-sm"
+        />
+      ) : (
         <button
           type="button"
-          onClick={() => fetchWeather(city)}
-          className="rounded-lg p-2 bg-white/10 hover:bg-white/20 transition"
-          title="刷新"
-          disabled={loading}
+          onClick={() => {
+            setInputValue(city);
+            setEditing(true);
+          }}
+          className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900"
+          title="点击更换城市"
         >
-          <HiOutlineArrowPath
-            className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`}
-          />
+          <HiOutlineMapPin className="h-3.5 w-3.5" />
+          <span className="max-w-[5rem] truncate">{displayCity}</span>
         </button>
-      </div>
-
-      {data?.updatedAt && !loading && !error && (
-        <div className="mt-3 text-[11px] text-sky-100/80 text-right">
-          更新于 {data.updatedAt}
-        </div>
       )}
+
+      <button
+        type="button"
+        onClick={() => fetchWeather(city)}
+        disabled={loading}
+        className="text-gray-400 hover:text-gray-700 disabled:opacity-50"
+        title="刷新"
+      >
+        <HiOutlineArrowPath
+          className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`}
+        />
+      </button>
     </div>
   );
 }
