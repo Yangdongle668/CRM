@@ -166,6 +166,13 @@ export const emailsApi = {
   // Threads
   getThreadEmails: (threadId: string) => api.get(`/emails/threads/${threadId}`),
 
+  // Attachments — 懒下载：点击才从 IMAP 回源抓取并缓存，之后直接走磁盘。
+  downloadAttachment: (attachmentId: string) =>
+    api.get(`/emails/attachments/${attachmentId}/download`, {
+      responseType: 'blob',
+      timeout: 60000, // 回源可能慢，给 60s
+    }),
+
   // Tracking (open / click audit trail + confidence score)
   getTracking: (id: string) => api.get(`/emails/${id}/tracking`),
 

@@ -353,10 +353,39 @@ model Email {
   links        EmailLink[]
   campaign     EmailCampaign?  @relation("CampaignEmails", fields: [campaignId], references: [id])
   recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
+  attachments  EmailAttachment[]
 
   @@index([campaignId])
   @@index([recipientId])
   @@map("emails")
+}
+
+// ==================== 邮件附件（懒下载） ====================
+// 收取 IMAP 邮件时只落库元数据（文件名/MIME/大小/UID），附件二进制
+// 不随邮件保存。当用户在前端点击下载时：
+//   - 如果 storagePath 为空，后端再次连接 IMAP，按 UID 拉取该封邮件、
+//     解析出匹配附件、落盘到 uploads/email-attachments/，并写回 storagePath；
+//   - 否则直接把磁盘文件流式返回。
+// 这样既避免了"一收就把大附件全存下来"造成磁盘浪费，又能在用户真正
+// 需要时快速拿到文件。
+model EmailAttachment {
+  id           String    @id @default(uuid())
+  emailId      String    @map("email_id")
+  fileName     String    @map("file_name")
+  mimeType     String    @map("mime_type")
+  size         Int
+  contentId    String?   @map("content_id")     // Content-ID, 内嵌图片用
+  isInline     Boolean   @default(false) @map("is_inline")
+  imapUid      Int?      @map("imap_uid")       // 邮箱内 UID，用于按需回源
+  imapFolder   String?   @map("imap_folder")    // IMAP 文件夹名
+  storagePath  String?   @map("storage_path")   // 首次下载后缓存到磁盘
+  downloadedAt DateTime? @map("downloaded_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  email Email @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@index([emailId])
+  @@map("email_attachments")
 }
 
 // ==================== 邮件活动 (Campaign) ====================
