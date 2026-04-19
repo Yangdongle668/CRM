@@ -848,6 +848,9 @@ export class EmailsService {
         customer: { select: { id: true, companyName: true } },
         sender: { select: { id: true, name: true, email: true } },
         emailConfig: { select: { emailAddr: true } },
+        // 仅取最少字段，让前端能在列表上画一个回形针；
+        // 内嵌图片（isInline）由前端过滤。
+        attachments: { select: { id: true, isInline: true } },
       },
     });
 
@@ -861,10 +864,16 @@ export class EmailsService {
           new Date(a.sentAt || a.receivedAt || a.createdAt).getTime(),
       )[0];
 
+      // 只要线程里任意一封邮件有非内嵌附件，就在列表封面上标一个回形针。
+      const hasAttachments = emails.some((e: any) =>
+        (e.attachments || []).some((a: any) => !a.isInline),
+      );
+
       return {
         threadId: row.group_id === latestEmail?.id ? null : row.group_id,
         threadSubject: latestEmail?.subject || '(No Subject)',
         emailCount: row.email_count,
+        hasAttachments,
         latestEmail,
       };
     });
@@ -880,6 +889,18 @@ export class EmailsService {
       include: {
         customer: { select: { id: true, companyName: true } },
         sender: { select: { id: true, name: true, email: true } },
+        attachments: {
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            size: true,
+            isInline: true,
+            contentId: true,
+            downloadedAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
       },
       orderBy: [
         { receivedAt: { sort: 'asc', nulls: 'last' } },

@@ -181,6 +181,7 @@ export interface EmailThreadItem {
   threadId: string | null;
   threadSubject: string;
   emailCount: number;
+  hasAttachments?: boolean;
   latestEmail: Email;
 }
 
