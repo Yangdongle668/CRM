@@ -203,16 +203,14 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="space-y-6">
         {/* Page header */}
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-800">仪表盘</h1>
             <p className="text-gray-500 mt-1">
               欢迎回来，{user?.name || '用户'}
             </p>
           </div>
-          <div className="w-full lg:w-96">
-            <WeatherCard />
-          </div>
+          <WeatherCard />
         </div>
 
         {/* Stats cards */}
