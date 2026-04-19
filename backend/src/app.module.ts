@@ -21,6 +21,7 @@ import { MemosModule } from './modules/memos/memos.module';
 import { PIsModule } from './modules/pis/pis.module';
 import { MessagesModule } from './modules/messages/messages.module';
 import { RatesModule } from './modules/rates/rates.module';
+import { WeatherModule } from './modules/weather/weather.module';
 import { TranslateModule } from './modules/translate/translate.module';
 import { QueueModule } from './queue/queue.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
@@ -56,6 +57,7 @@ import { AuditModule } from './modules/audit/audit.module';
     PIsModule,
     MessagesModule,
     RatesModule,
+    WeatherModule,
     TranslateModule,
   ],
 })

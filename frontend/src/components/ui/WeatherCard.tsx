@@ -5,16 +5,16 @@ import {
   HiOutlineMapPin,
   HiOutlineArrowPath,
 } from 'react-icons/hi2';
+import { weatherApi } from '@/lib/api';
 
 const DEFAULT_CITY = '东莞';
 const STORAGE_KEY = 'weather:city';
-// 国内免 key 公共天气聚合接口（韩小韩 API）。如需替换，只需改这里。
-const WEATHER_API = 'https://api.vvhan.com/api/weather';
 
 interface WeatherData {
   city: string;
   temp: string;
   description: string;
+  source?: string;
 }
 
 const weatherEmoji = (desc: string): string => {
@@ -27,27 +27,6 @@ const weatherEmoji = (desc: string): string => {
   if (d.includes('阴') || d.includes('云') || d.includes('cloud')) return '☁️';
   if (d.includes('晴') || d.includes('sun') || d.includes('clear')) return '☀️';
   return '🌡️';
-};
-
-// 从聚合 API 响应中尽量稳健地抽取字段
-const extract = (json: any, fallbackCity: string): WeatherData | null => {
-  const city: string =
-    json?.city || json?.data?.city || json?.info?.city || fallbackCity;
-
-  // vvhan "realtime" 格式
-  const rt = json?.data || json?.info || json;
-  const tem: string | undefined =
-    rt?.tem ?? rt?.temperature ?? rt?.temp ?? rt?.now?.temp;
-  const wea: string | undefined =
-    rt?.wea ?? rt?.type ?? rt?.weather ?? rt?.now?.text;
-
-  if (tem == null || wea == null) return null;
-  const temStr = String(tem).replace(/[^\d.\-]/g, '');
-  return {
-    city: String(city).replace(/市$/, ''),
-    temp: temStr || String(tem),
-    description: String(wea),
-  };
 };
 
 export default function WeatherCard() {
@@ -65,15 +44,19 @@ export default function WeatherCard() {
     setLoading(true);
     setError(null);
     try {
-      const url = `${WEATHER_API}?city=${encodeURIComponent(name)}`;
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      const parsed = extract(json, name);
-      if (!parsed) throw new Error('未获取到天气');
-      setData(parsed);
+      // 走后端 /api/weather，多数据源轮询：前端不再关心具体上游，
+      // 彻底避开浏览器 CORS / 混合内容导致的 Failed to fetch。
+      const res: any = await weatherApi.get(name);
+      const payload = res?.data || res;
+      if (!payload?.temp) throw new Error('无数据');
+      setData({
+        city: String(payload.city || name).replace(/市$/, ''),
+        temp: String(payload.temp),
+        description: String(payload.description || ''),
+        source: payload.source,
+      });
     } catch (e: any) {
-      setError(e?.message || '获取失败');
+      setError(e?.response?.data?.message || e?.message || '获取失败');
       setData(null);
     } finally {
       setLoading(false);
@@ -115,9 +98,15 @@ export default function WeatherCard() {
   };
 
   const displayCity = data?.city || city;
+  const title = data?.source
+    ? `数据源：${data.source}`
+    : '点击地点可更换城市';
 
   return (
-    <div className="inline-flex items-center gap-2 rounded-full bg-white border border-gray-200 px-3 py-1.5 text-sm text-gray-700 shadow-sm">
+    <div
+      className="inline-flex items-center gap-2 rounded-full bg-white border border-gray-200 px-3 py-1.5 text-sm text-gray-700 shadow-sm"
+      title={title}
+    >
       <span className="text-base leading-none">
         {data ? weatherEmoji(data.description) : '🌡️'}
       </span>
@@ -150,7 +139,6 @@ export default function WeatherCard() {
             setEditing(true);
           }}
           className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900"
-          title="点击更换城市"
         >
           <HiOutlineMapPin className="h-3.5 w-3.5" />
           <span className="max-w-[5rem] truncate">{displayCity}</span>
