@@ -13,8 +13,8 @@ export interface RatesPayload {
  * 为什么用中行：
  * - 国内官方数据，银行实际换汇参考；
  * - 无需 API Key、无次数封顶、国内访问稳定；
- * - 使用"现汇卖出价"：银行卖出外汇给客户时执行的价格，
- *   也就是把人民币换成美元/欧元时客户真实承担的汇率。
+ * - 使用"现汇买入价"：银行从客户手里买入外汇（电汇结汇）时执行的价格，
+ *   也就是外贸出口商把美元/欧元结算回人民币时真实拿到的汇率。
  *
  * Fallback: open.er-api.com (keyless, ~hourly).
  */
@@ -113,8 +113,8 @@ export class RatesService {
   /**
    * 中行牌价表格某一行的列顺序：
    * 货币名称 | 现汇买入价 | 现钞买入价 | 现汇卖出价 | 现钞卖出价 | 中行折算价 | 发布时间
-   * 返回"现汇卖出价"（索引 2，去掉名称列后）—— 银行向客户卖出外汇的价格，
-   * 是从人民币换成美元/欧元时客户实际承担的汇率。
+   * 返回"现汇买入价"（索引 0，去掉名称列后）—— 银行从客户手里买入外汇的价格，
+   * 也就是外贸出口商把美元/欧元结算回人民币时真实拿到的汇率。
    */
   private extractBocRow(html: string, currency: string): number | null {
     const rowRe = new RegExp(
@@ -126,8 +126,8 @@ export class RatesService {
     const cells = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((c) =>
       c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim(),
     );
-    const sellPrice = parseFloat(cells[2]);
-    return Number.isFinite(sellPrice) && sellPrice > 0 ? sellPrice : null;
+    const buyPrice = parseFloat(cells[0]);
+    return Number.isFinite(buyPrice) && buyPrice > 0 ? buyPrice : null;
   }
 
   private async fetchFallbackRates(now: number): Promise<RatesPayload> {
