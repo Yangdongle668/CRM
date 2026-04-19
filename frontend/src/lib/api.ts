@@ -363,6 +363,11 @@ export const ratesApi = {
   get: () => api.get('/rates'),
 };
 
+// ==================== Weather API ====================
+export const weatherApi = {
+  get: (city?: string) => api.get('/weather', { params: { city } }),
+};
+
 // ==================== Translate API ====================
 export const translateApi = {
   translate: (segments: { index: number; text: string }[], target = 'zh-CN') =>

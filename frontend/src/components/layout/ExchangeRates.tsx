@@ -5,9 +5,15 @@ import { ratesApi } from '@/lib/api';
 
 interface RatesData {
   base: string;
+  source?: string;
   updatedAt: string;
   rates: { USD_CNY: number; EUR_CNY: number; EUR_USD: number };
 }
+
+const SOURCE_LABEL: Record<string, string> = {
+  BOC: '中国银行外汇牌价',
+  'open.er-api.com': 'open.er-api.com',
+};
 
 export default function ExchangeRates() {
   const [data, setData] = useState<RatesData | null>(null);
@@ -26,8 +32,8 @@ export default function ExchangeRates() {
 
   useEffect(() => {
     fetchRates();
-    // Refresh every 5 minutes (matches backend cache TTL)
-    const id = setInterval(fetchRates, 5 * 60 * 1000);
+    // Refresh every 15 minutes (matches backend cache TTL; BOC 牌价交易时段内会多次更新)
+    const id = setInterval(fetchRates, 15 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
 
@@ -53,10 +59,13 @@ export default function ExchangeRates() {
     minute: '2-digit',
   });
 
+  const sourceLabel = data.source ? SOURCE_LABEL[data.source] || data.source : '';
+  const tipPrefix = sourceLabel ? `${sourceLabel} · ` : '';
+
   return (
     <div
       className="flex items-center gap-3 text-xs font-medium text-gray-600"
-      title={`汇率更新于 ${timeStr}（每 5 分钟自动刷新）`}
+      title={`${tipPrefix}更新于 ${timeStr}（每 15 分钟自动刷新）`}
     >
       <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700">
         <span className="text-[10px] font-bold tracking-wide">USD</span>
