@@ -126,6 +126,16 @@ export interface Lead {
 export type EmailDirection = 'INBOUND' | 'OUTBOUND';
 export type EmailStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'FAILED' | 'READ' | 'VIEWED';
 
+export interface EmailAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  isInline?: boolean;
+  contentId?: string | null;
+  downloadedAt?: string | null;
+}
+
 export interface Email {
   id: string;
   messageId?: string;
@@ -151,6 +161,7 @@ export interface Email {
   customer?: Customer;
   senderId?: string;
   createdAt: string;
+  attachments?: EmailAttachment[];
   thread?: {
     id: string;
     subject: string;

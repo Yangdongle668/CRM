@@ -9,6 +9,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 import * as Imap from 'imap';
 import * as fs from 'fs';
+import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { simpleParser } from 'mailparser';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
@@ -689,6 +691,19 @@ export class EmailsService {
         customer: true,
         sender: { select: { id: true, name: true, email: true } },
         emailConfig: { select: { emailAddr: true } },
+        attachments: {
+          // 只暴露前端需要的字段；storagePath / imapUid 等是后端实现细节。
+          select: {
+            id: true,
+            fileName: true,
+            mimeType: true,
+            size: true,
+            isInline: true,
+            contentId: true,
+            downloadedAt: true,
+          },
+          orderBy: { createdAt: 'asc' },
+        },
         thread: {
           include: {
             emails: {
@@ -700,6 +715,18 @@ export class EmailsService {
               include: {
                 sender: { select: { id: true, name: true, email: true } },
                 customer: { select: { id: true, companyName: true } },
+                attachments: {
+                  select: {
+                    id: true,
+                    fileName: true,
+                    mimeType: true,
+                    size: true,
+                    isInline: true,
+                    contentId: true,
+                    downloadedAt: true,
+                  },
+                  orderBy: { createdAt: 'asc' },
+                },
               },
             },
           },
@@ -1504,6 +1531,13 @@ export class EmailsService {
           const emailPromises: Promise<void>[] = [];
 
           fetch.on('message', (msg: any) => {
+            // IMAP fetch 同一封消息会先后派发 'attributes' 和 'body'。这里
+            // 记下 UID，稍后附件元数据入库时一起保存，以便用户点击下载
+            // 时能按 UID 精确地回源拉这封邮件里的附件。
+            let msgUid: number | null = null;
+            msg.on('attributes', (attrs: any) => {
+              if (attrs?.uid != null) msgUid = Number(attrs.uid);
+            });
             msg.on('body', (stream: any) => {
               const promise = simpleParser(stream).then(async (parsed) => {
                 const messageId = parsed.messageId || null;
@@ -1597,6 +1631,30 @@ export class EmailsService {
                     threadId,
                   },
                 });
+
+                // 只落元数据，不落内容：用户点击下载时再按 UID 回源 IMAP。
+                if (parsed.attachments && parsed.attachments.length > 0) {
+                  const rows = parsed.attachments.map((a: any) => ({
+                    emailId: newEmail.id,
+                    fileName:
+                      a.filename ||
+                      a.cid ||
+                      `attachment-${Date.now()}`,
+                    mimeType: a.contentType || 'application/octet-stream',
+                    size: Number(a.size) || (a.content?.length ?? 0),
+                    contentId: a.cid || null,
+                    isInline: a.contentDisposition === 'inline',
+                    imapUid: msgUid,
+                    imapFolder: folderName,
+                  }));
+                  await this.prisma.emailAttachment
+                    .createMany({ data: rows })
+                    .catch((e: any) => {
+                      this.logger.warn(
+                        `Failed to save attachments metadata for email ${newEmail.id}: ${e.message}`,
+                      );
+                    });
+                }
 
                 if (customer) {
                   const senderLabel = fromName ? `${fromName} (${fromAddr})` : fromAddr;
@@ -1909,5 +1967,165 @@ export class EmailsService {
     } finally {
       this.reconcilingEmailActivityTimestamps = false;
     }
+  }
+
+  // ==================== Attachment Lazy Download ====================
+
+  /**
+   * 返回附件可读路径（磁盘绝对路径 + 元数据），用于 controller 做 sendFile。
+   *
+   * 策略：
+   *   1. 若 storagePath 已存在且文件仍在 → 直接返回；
+   *   2. 否则按 EmailAttachment 记的 imapUid/imapFolder 回源 IMAP，
+   *      重新解析这封邮件，按 filename+mime+size 找到对应附件，落盘缓存；
+   *   3. UID 缺失（历史邮件）或上游不可用 → 抛错，前端提示用户。
+   */
+  async downloadAttachment(attachmentId: string, _userId: string, _role: string) {
+    const att = await this.prisma.emailAttachment.findUnique({
+      where: { id: attachmentId },
+      include: {
+        email: {
+          include: {
+            emailConfig: true,
+          },
+        },
+      },
+    });
+    if (!att) {
+      throw new NotFoundException('附件不存在');
+    }
+
+    // 1) 已缓存 → 直接用
+    if (att.storagePath && fs.existsSync(att.storagePath)) {
+      return {
+        filePath: att.storagePath,
+        fileName: att.fileName,
+        mimeType: att.mimeType,
+      };
+    }
+
+    // 2) 需要从 IMAP 回源
+    if (att.imapUid == null || !att.imapFolder) {
+      throw new BadRequestException(
+        '附件缺少 IMAP 定位信息，无法回源下载（可能是旧版本收取的邮件）',
+      );
+    }
+    const config = att.email.emailConfig;
+    if (!config) {
+      throw new BadRequestException('邮件对应的邮箱账号已删除，无法回源下载');
+    }
+
+    const buffer = await this.fetchAttachmentFromImap(
+      config,
+      att.imapFolder,
+      att.imapUid,
+      att.fileName,
+      att.mimeType,
+      att.size,
+      att.contentId,
+    );
+
+    // 落盘缓存。命名格式：{uuid}_{safeFileName}，以避免同名覆盖。
+    const uploadDir = path.join(process.cwd(), 'uploads', 'email-attachments');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    const safeName = att.fileName.replace(/[/\\?%*:|"<>]/g, '_');
+    const filePath = path.join(uploadDir, `${uuidv4()}_${safeName}`);
+    await fs.promises.writeFile(filePath, buffer);
+
+    await this.prisma.emailAttachment.update({
+      where: { id: att.id },
+      data: { storagePath: filePath, downloadedAt: new Date() },
+    });
+
+    return { filePath, fileName: att.fileName, mimeType: att.mimeType };
+  }
+
+  private fetchAttachmentFromImap(
+    config: {
+      imapHost: string;
+      imapPort: number;
+      imapUser: string;
+      imapPass: string;
+      imapSecure: boolean;
+    },
+    folder: string,
+    uid: number,
+    wantedName: string,
+    wantedMime: string,
+    wantedSize: number,
+    wantedCid: string | null,
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const imap = new Imap({
+        user: config.imapUser,
+        password: config.imapPass,
+        host: config.imapHost,
+        port: config.imapPort,
+        tls: config.imapSecure,
+        tlsOptions: { rejectUnauthorized: false },
+        authTimeout: 30000,
+        connTimeout: 30000,
+      });
+
+      let settled = false;
+      const finish = (err: any, buf?: Buffer) => {
+        if (settled) return;
+        settled = true;
+        try {
+          imap.end();
+        } catch {
+          /* ignore */
+        }
+        if (err) reject(err);
+        else resolve(buf!);
+      };
+
+      imap.once('error', (err: any) => finish(err));
+      imap.once('ready', () => {
+        imap.openBox(folder, true, (boxErr: any) => {
+          if (boxErr) return finish(boxErr);
+          const f = imap.fetch(uid, { bodies: '', struct: true });
+          f.on('message', (msg: any) => {
+            msg.on('body', (stream: any) => {
+              simpleParser(stream)
+                .then((parsed) => {
+                  const list = parsed.attachments || [];
+                  // 优先按 cid 匹配，其次 (filename + mime)，最后退化到 filename
+                  const match =
+                    (wantedCid &&
+                      list.find((x: any) => x.cid === wantedCid)) ||
+                    list.find(
+                      (x: any) =>
+                        x.filename === wantedName &&
+                        (x.contentType || '').toLowerCase() ===
+                          wantedMime.toLowerCase(),
+                    ) ||
+                    list.find((x: any) => x.filename === wantedName);
+                  if (!match) {
+                    return finish(new Error('附件在服务器上已不存在'));
+                  }
+                  const buf = match.content as Buffer;
+                  if (!buf || !buf.length) {
+                    return finish(new Error('附件内容为空'));
+                  }
+                  // 日志记录一下 size 偏差，但不阻塞
+                  if (wantedSize && Math.abs(buf.length - wantedSize) > 1024) {
+                    this.logger.warn(
+                      `Attachment size mismatch for ${wantedName}: metadata ${wantedSize}, actual ${buf.length}`,
+                    );
+                  }
+                  finish(null, buf);
+                })
+                .catch((e) => finish(e));
+            });
+          });
+          f.once('error', (err: any) => finish(err));
+        });
+      });
+
+      imap.connect();
+    });
   }
 }

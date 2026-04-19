@@ -9,7 +9,7 @@ import SignatureEditor from '@/components/emails/SignatureEditor';
 import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
 import { emailsApi, customersApi, translateApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
-import type { Email, EmailTemplate, EmailThreadItem, Customer } from '@/types';
+import type { Email, EmailAttachment, EmailTemplate, EmailThreadItem, Customer } from '@/types';
 import toast from 'react-hot-toast';
 
 type FolderType = 'inbox' | 'unread' | 'sent' | 'customer' | 'advertisement' | 'trash' | 'spam' | 'templates' | 'settings';
@@ -818,6 +818,108 @@ export default function EmailsPage() {
     return all.join('、') || email.toAddr;
   };
 
+  // ---- Attachments (lazy download) -----------------------------------------
+  const [downloadingAttIds, setDownloadingAttIds] = useState<Set<string>>(new Set());
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  };
+
+  const handleDownloadAttachment = async (att: EmailAttachment) => {
+    if (downloadingAttIds.has(att.id)) return;
+    setDownloadingAttIds((prev) => new Set(prev).add(att.id));
+    const t = toast.loading(`正在下载 ${att.fileName} ...`);
+    try {
+      const res: any = await emailsApi.downloadAttachment(att.id);
+      // axios 拦截器统一返回 response.data；responseType='blob' 时就是 Blob。
+      const blob: Blob =
+        res instanceof Blob
+          ? res
+          : new Blob([res], { type: att.mimeType || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = att.fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast.success('下载完成', { id: t });
+    } catch (err: any) {
+      // 错误返回也会是 Blob（因为 responseType='blob'），需要先读成文本再尝试解析
+      let msg = err?.message || '下载失败，请稍后重试';
+      const errBody = err?.response?.data;
+      if (errBody instanceof Blob) {
+        try {
+          const text = await errBody.text();
+          try {
+            const j = JSON.parse(text);
+            msg = Array.isArray(j.message) ? j.message[0] : j.message || msg;
+          } catch {
+            if (text) msg = text;
+          }
+        } catch {
+          /* ignore */
+        }
+      } else if (errBody?.message) {
+        msg = Array.isArray(errBody.message) ? errBody.message[0] : errBody.message;
+      }
+      toast.error(msg, { id: t });
+    } finally {
+      setDownloadingAttIds((prev) => {
+        const next = new Set(prev);
+        next.delete(att.id);
+        return next;
+      });
+    }
+  };
+
+  const renderAttachments = (attachments?: EmailAttachment[]) => {
+    // 仅显示真正的附件；内嵌图片（isInline + contentId）不在附件区列出，
+    // 它们会通过正文 HTML 的 cid: 引用渲染（日后可扩展）。
+    const list = (attachments || []).filter((a) => !a.isInline);
+    if (list.length === 0) return null;
+    return (
+      <div className="mt-4 pt-4 border-t border-gray-100">
+        <div className="text-xs text-gray-500 mb-2">
+          附件 ({list.length})
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {list.map((att) => {
+            const loading = downloadingAttIds.has(att.id);
+            return (
+              <button
+                key={att.id}
+                type="button"
+                onClick={() => handleDownloadAttachment(att)}
+                disabled={loading}
+                title={`${att.fileName} · ${formatFileSize(att.size)}`}
+                className="inline-flex items-center gap-2 max-w-full px-3 py-1.5 rounded-md border border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs text-gray-700 disabled:opacity-60"
+              >
+                <svg
+                  className="w-3.5 h-3.5 flex-shrink-0 text-gray-400"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+                <span className="truncate max-w-[16rem]">{att.fileName}</span>
+                <span className="text-gray-400 flex-shrink-0">
+                  {formatFileSize(att.size)}
+                </span>
+                <span className="ml-1 flex-shrink-0 text-blue-600">
+                  {loading ? '下载中…' : '下载'}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const renderThreadListItem = (thread: EmailThreadItem) => {
     const email = thread.latestEmail;
     if (!email) return null;
@@ -1206,6 +1308,7 @@ export default function EmailsPage() {
                             {te.bodyText || '(无内容)'}
                           </pre>
                         )}
+                        {renderAttachments(te.attachments)}
                       </div>
                     )}
                   </div>
@@ -1225,6 +1328,7 @@ export default function EmailsPage() {
                   {selectedEmail.bodyText || '(无内容)'}
                 </pre>
               )}
+              {renderAttachments(selectedEmail.attachments)}
             </div>
           )}
         </div>

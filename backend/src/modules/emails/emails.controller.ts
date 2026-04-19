@@ -13,6 +13,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as path from 'path';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -369,6 +370,24 @@ export class EmailsController {
     @Param('threadId') threadId: string,
   ) {
     return this.emailsService.findThreadEmails(threadId, user.id, user.role);
+  }
+
+  // 附件懒下载：收邮件时只落元数据，用户点"下载"才按需从 IMAP 回源
+  // 抓取；首次下载后落盘缓存，后续直接磁盘返回。
+  @Get('attachments/:attachmentId/download')
+  async downloadAttachment(
+    @CurrentUser() user: any,
+    @Param('attachmentId') attachmentId: string,
+    @Res() res: Response,
+  ) {
+    const { filePath, fileName, mimeType } =
+      await this.emailsService.downloadAttachment(attachmentId, user.id, user.role);
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${encodeURIComponent(fileName)}"`,
+    );
+    res.setHeader('Content-Type', mimeType || 'application/octet-stream');
+    res.sendFile(path.resolve(filePath));
   }
 
   @Get(':id')
