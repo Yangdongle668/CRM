@@ -17,6 +17,7 @@ import { Line, Bar } from 'react-chartjs-2';
 import Link from 'next/link';
 import AppLayout from '@/components/layout/AppLayout';
 import StatsCard from '@/components/ui/StatsCard';
+import WeatherCard from '@/components/ui/WeatherCard';
 import { dashboardApi, tasksApi, memosApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP } from '@/lib/constants';
@@ -202,11 +203,16 @@ export default function DashboardPage() {
     <AppLayout>
       <div className="space-y-6">
         {/* Page header */}
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">仪表盘</h1>
-          <p className="text-gray-500 mt-1">
-            欢迎回来，{user?.name || '用户'}
-          </p>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">仪表盘</h1>
+            <p className="text-gray-500 mt-1">
+              欢迎回来，{user?.name || '用户'}
+            </p>
+          </div>
+          <div className="w-full lg:w-96">
+            <WeatherCard />
+          </div>
         </div>
 
         {/* Stats cards */}
