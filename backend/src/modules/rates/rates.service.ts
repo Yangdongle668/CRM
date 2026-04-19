@@ -13,7 +13,8 @@ export interface RatesPayload {
  * 为什么用中行：
  * - 国内官方数据，银行实际换汇参考；
  * - 无需 API Key、无次数封顶、国内访问稳定；
- * - 使用"中行折算价"作为入账/换算汇率（国内 CRM/ERP 常见做法）。
+ * - 使用"现汇卖出价"：银行卖出外汇给客户时执行的价格，
+ *   也就是把人民币换成美元/欧元时客户真实承担的汇率。
  *
  * Fallback: open.er-api.com (keyless, ~hourly).
  */
@@ -112,7 +113,8 @@ export class RatesService {
   /**
    * 中行牌价表格某一行的列顺序：
    * 货币名称 | 现汇买入价 | 现钞买入价 | 现汇卖出价 | 现钞卖出价 | 中行折算价 | 发布时间
-   * 返回"中行折算价"（索引 4，去掉名称列后）。
+   * 返回"现汇卖出价"（索引 2，去掉名称列后）—— 银行向客户卖出外汇的价格，
+   * 是从人民币换成美元/欧元时客户实际承担的汇率。
    */
   private extractBocRow(html: string, currency: string): number | null {
     const rowRe = new RegExp(
@@ -124,8 +126,8 @@ export class RatesService {
     const cells = [...m[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((c) =>
       c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, '').trim(),
     );
-    const zheSuan = parseFloat(cells[4]);
-    return Number.isFinite(zheSuan) && zheSuan > 0 ? zheSuan : null;
+    const sellPrice = parseFloat(cells[2]);
+    return Number.isFinite(sellPrice) && sellPrice > 0 ? sellPrice : null;
   }
 
   private async fetchFallbackRates(now: number): Promise<RatesPayload> {
