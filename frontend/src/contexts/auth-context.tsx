@@ -54,6 +54,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPermissions(perms);
     try {
       localStorage.setItem('user', JSON.stringify(profile));
+      // 把服务器返回的个人偏好镜像到 localStorage：EmailLink 这类
+      // 轻量组件可以同步读取而无需走 API；切换用户 / 重新登录时会被
+      // 下面一行覆盖，始终跟当前登录用户保持一致。
+      const pref = profile?.preferences?.emailLinkPreference;
+      if (pref === 'ask' || pref === 'external' || pref === 'internal') {
+        localStorage.setItem('emailLinkPreference', pref);
+      } else {
+        localStorage.removeItem('emailLinkPreference');
+      }
     } catch {}
   }, []);
 
@@ -85,6 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    // 登出时清掉个人偏好的本地缓存，下个登录用户会用自己服务器上的偏好。
+    localStorage.removeItem('emailLinkPreference');
     setUser(null);
     setPermissions([]);
     router.push('/login');

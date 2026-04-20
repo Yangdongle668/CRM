@@ -21,6 +21,7 @@ export class UsersService {
     bio: true,
     isActive: true,
     isSuperAdmin: true,
+    preferences: true,
     createdAt: true,
     updatedAt: true,
   };
@@ -92,6 +93,13 @@ export class UsersService {
     delete data.isSuperAdmin;
     if (dto.password) {
       data.password = await bcrypt.hash(dto.password, 10);
+    }
+    // preferences 是 JSON，允许客户端只传需要修改的键；
+    // 这里跟已有偏好做浅合并，避免一次"只想改邮箱跳转偏好"却把语言、
+    // 时区等其它偏好全擦掉。
+    if (dto.preferences && typeof dto.preferences === 'object') {
+      const current = (existing as any).preferences || {};
+      data.preferences = { ...current, ...dto.preferences };
     }
 
     return this.prisma.user.update({

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
+import EmailLink from '@/components/ui/EmailLink';
 import Pagination from '@/components/ui/Pagination';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { contactsApi, customersApi } from '@/lib/api';
@@ -215,7 +216,11 @@ export default function ContactsPage() {
                         {customers.find((c) => c.id === contact.customerId)?.companyName || '-'}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
-                        {contact.email || '-'}
+                        {contact.email ? (
+                          <EmailLink email={contact.email} />
+                        ) : (
+                          '-'
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
                         {contact.phone || '-'}
