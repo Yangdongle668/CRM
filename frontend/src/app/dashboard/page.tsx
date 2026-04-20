@@ -18,7 +18,7 @@ import Link from 'next/link';
 import AppLayout from '@/components/layout/AppLayout';
 import StatsCard from '@/components/ui/StatsCard';
 import WeatherCard from '@/components/ui/WeatherCard';
-import { dashboardApi, tasksApi, memosApi } from '@/lib/api';
+import { dashboardApi, tasksApi, memosApi, followUpsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP } from '@/lib/constants';
 import {
@@ -28,6 +28,8 @@ import {
   SalesRanking,
   Task,
   Memo,
+  FollowUp,
+  FollowUpAdminOverview,
 } from '@/types';
 
 ChartJS.register(
@@ -65,6 +67,8 @@ export default function DashboardPage() {
   const [rankings, setRankings] = useState<SalesRanking[]>([]);
   const [recentTasks, setRecentTasks] = useState<Task[]>([]);
   const [todayMemos, setTodayMemos] = useState<Memo[]>([]);
+  const [myFollowUps, setMyFollowUps] = useState<FollowUp[]>([]);
+  const [teamFollowUps, setTeamFollowUps] = useState<FollowUpAdminOverview | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -95,6 +99,24 @@ export default function DashboardPage() {
           const rankingsRes = await dashboardApi.getRankings();
           const rankingsData = (rankingsRes as any).data;
           setRankings(Array.isArray(rankingsData) ? rankingsData : []);
+        }
+
+        // 我的跟进：取 PENDING 前几条，仪表盘小卡只展示最紧迫的
+        try {
+          const fuRes: any = await followUpsApi.list({ status: 'PENDING' });
+          const fuItems: FollowUp[] = fuRes.data?.items || [];
+          setMyFollowUps(fuItems.slice(0, 5));
+        } catch {
+          /* ignore */
+        }
+
+        if (isAdmin) {
+          try {
+            const ovRes: any = await followUpsApi.adminOverview();
+            setTeamFollowUps(ovRes.data || null);
+          } catch {
+            /* ignore */
+          }
         }
       } catch {
         // errors handled by api interceptor
@@ -296,6 +318,104 @@ export default function DashboardPage() {
                   )}
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Follow-up widgets row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* 我的跟进 */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-800">我的跟进</h2>
+              <Link href="/follow-ups" className="text-sm text-primary-500 hover:text-primary-600">
+                查看全部
+              </Link>
+            </div>
+            {myFollowUps.length === 0 ? (
+              <p className="py-6 text-center text-sm text-gray-400">暂无待跟进</p>
+            ) : (
+              <ul className="divide-y divide-gray-100">
+                {myFollowUps.map((fu) => {
+                  const due = new Date(fu.dueAt);
+                  const overdue = due.getTime() < Date.now();
+                  const stageLabel = fu.lead?.stage
+                    ? LEAD_STAGE_MAP[fu.lead.stage]?.label || fu.lead.stage
+                    : '';
+                  return (
+                    <li key={fu.id} className="py-2.5 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {fu.lead?.companyName || fu.lead?.title || '(无关联线索)'}
+                        </p>
+                        <p className="text-xs text-gray-500 truncate">
+                          {stageLabel ? `${stageLabel} · ` : ''}
+                          {due.toLocaleDateString('zh-CN')}
+                        </p>
+                      </div>
+                      <span
+                        className={`flex-shrink-0 text-xs font-medium ${
+                          overdue ? 'text-red-600' : 'text-gray-500'
+                        }`}
+                      >
+                        {overdue
+                          ? `逾期 ${Math.ceil((Date.now() - due.getTime()) / 86400000)} 天`
+                          : `${Math.max(1, Math.ceil((due.getTime() - Date.now()) / 86400000))} 天后`}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+
+          {/* 团队跟进（ADMIN） */}
+          {isAdmin && teamFollowUps && (
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-gray-800">团队跟进进度</h2>
+                <span className="text-xs text-gray-500">
+                  待跟进 <span className="font-semibold text-gray-800">{teamFollowUps.teamPending}</span>
+                  <span className="mx-1.5 text-gray-300">/</span>
+                  逾期 <span className="font-semibold text-red-600">{teamFollowUps.teamOverdue}</span>
+                </span>
+              </div>
+              {teamFollowUps.byOwner.length === 0 ? (
+                <p className="py-6 text-center text-sm text-gray-400">暂无数据</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 text-xs text-gray-500">
+                      <th className="py-2 text-left font-medium">姓名</th>
+                      <th className="py-2 text-right font-medium">待跟进</th>
+                      <th className="py-2 text-right font-medium">逾期</th>
+                      <th className="py-2 text-right font-medium">本周已完成</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {teamFollowUps.byOwner.slice(0, 10).map((r) => (
+                      <tr
+                        key={r.userId}
+                        className={`border-b border-gray-100 ${r.overdue > 0 ? 'bg-red-50/40' : ''}`}
+                      >
+                        <td className="py-2">
+                          <Link
+                            href={`/follow-ups?ownerId=${r.userId}`}
+                            className="text-gray-800 hover:text-blue-600 hover:underline"
+                          >
+                            {r.name}
+                          </Link>
+                        </td>
+                        <td className="py-2 text-right text-gray-700">{r.pending}</td>
+                        <td className={`py-2 text-right font-medium ${r.overdue > 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                          {r.overdue}
+                        </td>
+                        <td className="py-2 text-right text-gray-600">{r.completedThisWeek}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
         </div>

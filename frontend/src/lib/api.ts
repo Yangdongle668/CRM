@@ -365,6 +365,32 @@ export const messagesApi = {
   getUserProfile: (userId: string) => api.get(`/messages/${userId}/profile`),
 };
 
+// ==================== Follow-Ups API ====================
+export const followUpsApi = {
+  list: (params?: {
+    ownerId?: string;
+    status?: string;
+    overdueOnly?: boolean;
+    leadId?: string;
+  }) => api.get('/follow-ups', { params }),
+  summary: () => api.get('/follow-ups/summary'),
+  adminOverview: () => api.get('/follow-ups/admin/overview'),
+  create: (data: {
+    leadId: string;
+    dueAt: string;
+    notes?: string;
+    ownerId?: string;
+  }) => api.post('/follow-ups', data),
+  done: (id: string, notes?: string) =>
+    api.patch(`/follow-ups/${id}/done`, { notes }),
+  snooze: (id: string, days: number) =>
+    api.patch(`/follow-ups/${id}/snooze`, { days }),
+  dismiss: (id: string) => api.patch(`/follow-ups/${id}/dismiss`, {}),
+  reassign: (id: string, ownerId: string) =>
+    api.patch(`/follow-ups/${id}/reassign`, { ownerId }),
+  remove: (id: string) => api.delete(`/follow-ups/${id}`),
+};
+
 // ==================== Rates API ====================
 export const ratesApi = {
   get: () => api.get('/rates'),

@@ -190,6 +190,51 @@ export interface EmailThreadItem {
   latestEmail: Email;
 }
 
+// ==================== 跟进 ====================
+export type FollowUpStatus = 'PENDING' | 'DONE' | 'DISMISSED' | 'SNOOZED';
+
+export interface FollowUp {
+  id: string;
+  leadId: string | null;
+  customerId: string | null;
+  triggerEmailId: string | null;
+  ownerId: string;
+  dueAt: string;
+  status: FollowUpStatus;
+  reason: string | null;
+  notes: string | null;
+  completedAt: string | null;
+  completedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lead?: {
+    id: string;
+    title: string;
+    companyName: string | null;
+    email: string | null;
+    stage: string;
+    country: string | null;
+  } | null;
+  owner?: { id: string; name: string; email: string };
+}
+
+export interface FollowUpSummary {
+  pending: number;
+  overdue: number;
+}
+
+export interface FollowUpAdminOverview {
+  teamPending: number;
+  teamOverdue: number;
+  byOwner: Array<{
+    userId: string;
+    name: string;
+    pending: number;
+    overdue: number;
+    completedThisWeek: number;
+  }>;
+}
+
 export interface EmailTemplate {
   id: string;
   name: string;

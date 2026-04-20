@@ -22,6 +22,7 @@ import {
   EMAIL_JOB_SEND,
 } from '../../queue/queue.constants';
 import { EmailTrackingService } from './email-tracking.service';
+import { FollowUpsService } from '../follow-ups/follow-ups.service';
 
 @Injectable()
 export class EmailsService {
@@ -30,6 +31,7 @@ export class EmailsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tracking: EmailTrackingService,
+    private readonly followUps: FollowUpsService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -574,6 +576,15 @@ export class EmailsService {
             .catch(() => {});
         }
       }
+
+      // 跟进钩子：收件人如命中 Lead 则自动建/续期一条 PENDING 跟进。
+      // 错误不传播，不影响主流程。
+      await this.followUps.createForOutboundEmail({
+        id: email.id,
+        toAddr: email.toAddr,
+        customerId: email.customerId,
+        senderId: email.senderId,
+      });
       return email;
     } catch (error: any) {
       this.logger.error(
@@ -1652,6 +1663,16 @@ export class EmailsService {
                     threadId,
                   },
                 });
+
+                // 回邮自动关闭跟进：若这封 INBOUND 邮件的 In-Reply-To /
+                // References 命中某条 PENDING 跟进的 triggerEmail，就打 DONE。
+                if (direction === 'INBOUND') {
+                  await this.followUps.resolveOnInboundEmail({
+                    inReplyTo: parsed.inReplyTo as string | undefined,
+                    references: parsed.references as string | string[] | undefined,
+                    fromAddr,
+                  });
+                }
 
                 // 只落元数据，不落内容：用户点击下载时再按 UID 回源 IMAP。
                 if (parsed.attachments && parsed.attachments.length > 0) {

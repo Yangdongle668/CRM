@@ -85,6 +85,11 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { code: 'activity:read',   name: '查看跟进记录', category: 'activity' },
   { code: 'activity:create', name: '创建跟进记录', category: 'activity' },
 
+  // ---- Follow-Up (客户跟进提醒) ----
+  { code: 'followup:view_own',  name: '查看自己的跟进', category: 'followup' },
+  { code: 'followup:view_all',  name: '查看团队跟进', category: 'followup' },
+  { code: 'followup:reassign',  name: '转派跟进', category: 'followup' },
+
   // ---- Document ----
   { code: 'document:read',   name: '查看文档', category: 'document' },
   { code: 'document:upload', name: '上传文档', category: 'document' },
@@ -150,6 +155,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
     'pi:read', 'pi:create', 'pi:update',
     'task:read', 'task:create', 'task:update', 'task:delete',
     'activity:read', 'activity:create',
+    'followup:view_own',
     'document:read', 'document:upload',
   ],
   FINANCE: [

@@ -10,12 +10,16 @@ import { CreateLeadDto, LeadStage } from './dto/create-lead.dto';
 import { UpdateLeadDto } from './dto/update-lead.dto';
 import { QueryLeadDto } from './dto/query-lead.dto';
 import { Prisma } from '@prisma/client';
+import { FollowUpsService } from '../follow-ups/follow-ups.service';
 
 const OWNER_SELECT = { id: true, name: true, email: true, role: true } as const;
 
 @Injectable()
 export class LeadsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly followUps: FollowUpsService,
+  ) {}
 
   /**
    * Throws ForbiddenException if the lead's current owner is an ADMIN.
@@ -312,7 +316,7 @@ export class LeadsService {
         : { disconnect: true };
     }
 
-    return this.prisma.lead.update({
+    const updated = await this.prisma.lead.update({
       where: { id },
       data,
       include: {
@@ -320,6 +324,13 @@ export class LeadsService {
         customer: { select: { id: true, companyName: true } },
       },
     });
+
+    // 阶段变化：让跟进模块按新阶段重算 dueAt，或在 CLOSED_* 时关掉跟进。
+    if (rest.stage && rest.stage !== lead.stage) {
+      await this.followUps.handleStageChange(id, lead.stage, String(rest.stage));
+    }
+
+    return updated;
   }
 
   async updateStage(
@@ -344,7 +355,7 @@ export class LeadsService {
       );
     }
 
-    return this.prisma.lead.update({
+    const updated = await this.prisma.lead.update({
       where: { id },
       data: { stage: stage as any },
       include: {
@@ -352,6 +363,12 @@ export class LeadsService {
         customer: { select: { id: true, companyName: true } },
       },
     });
+
+    if (stage !== lead.stage) {
+      await this.followUps.handleStageChange(id, lead.stage, String(stage));
+    }
+
+    return updated;
   }
 
   async remove(id: string, userId: string, role: string) {
@@ -553,6 +570,8 @@ export class LeadsService {
         isPublicPool: false,
       },
     });
+    // 线索转客户 = 结案，PENDING 跟进关掉
+    await this.followUps.handleStageChange(id, lead.stage, 'CLOSED_WON');
 
     return customer;
   }

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import { useLogo } from '@/contexts/logo-context';
-import { messagesApi } from '@/lib/api';
+import { messagesApi, followUpsApi } from '@/lib/api';
 import {
   HiOutlineHome,
   HiOutlineBuildingOffice2,
@@ -25,6 +25,7 @@ import {
   HiOutlineChatBubbleLeftRight,
   HiOutlineShieldCheck,
   HiOutlineKey,
+  HiOutlineBellAlert,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -45,6 +46,7 @@ const navItems: NavItem[] = [
   { label: '形式发票', href: '/pis', icon: HiOutlineDocumentText },
   { label: '订单管理', href: '/orders', icon: HiOutlineClipboardDocumentList },
   { label: '任务管理', href: '/tasks', icon: HiOutlineCheckCircle },
+  { label: '跟进', href: '/follow-ups', icon: HiOutlineBellAlert },
   { label: '消息中心', href: '/messages', icon: HiOutlineChatBubbleLeftRight },
   { label: '文件管理', href: '/documents', icon: HiOutlineFolderOpen },
   { label: '备忘录', href: '/memos', icon: HiOutlineBookOpen },
@@ -57,6 +59,7 @@ const navItems: NavItem[] = [
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [followUpOverdue, setFollowUpOverdue] = useState(0);
   const pathname = usePathname();
   const { user, logout, can } = useAuth();
   const { logoUrl } = useLogo();
@@ -69,6 +72,18 @@ export default function Sidebar() {
     };
     fetchUnread();
     const id = setInterval(fetchUnread, 15000);
+    return () => clearInterval(id);
+  }, []);
+
+  // 跟进逾期数量：侧栏红点 + banner 都依赖这个。1 分钟刷新一次即可。
+  useEffect(() => {
+    const fetchSummary = () => {
+      followUpsApi.summary().then((res: any) => {
+        setFollowUpOverdue(res.data?.overdue ?? 0);
+      }).catch(() => {});
+    };
+    fetchSummary();
+    const id = setInterval(fetchSummary, 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -136,6 +151,11 @@ export default function Sidebar() {
                   {item.href === '/messages' && unreadMessages > 0 && (
                     <span className="flex-shrink-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1">
                       {unreadMessages > 99 ? '99+' : unreadMessages}
+                    </span>
+                  )}
+                  {item.href === '/follow-ups' && followUpOverdue > 0 && (
+                    <span className="flex-shrink-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[16px] h-4 flex items-center justify-center px-1" title={`${followUpOverdue} 条逾期跟进`}>
+                      {followUpOverdue > 99 ? '99+' : followUpOverdue}
                     </span>
                   )}
                 </Link>
