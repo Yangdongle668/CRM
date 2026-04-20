@@ -420,6 +420,73 @@ export default function EmailsPage() {
     setComposeOpen(true);
   };
 
+  // 从 "Name <user@example.com>" 或 "user@example.com" 中提取纯邮箱地址。
+  const extractEmailOnly = (raw: string): string => {
+    const m = raw.match(/<([^>]+)>/);
+    return (m ? m[1] : raw).trim();
+  };
+
+  // 原 To / Cc 里除主要回复人和我自己以外的所有去重收件人；
+  // 用于判断是否要显示"回复所有"按钮，以及点了之后预填 Cc。
+  const getReplyAllCc = (): { cc: string; primaryTo: string } | null => {
+    if (!selectedEmail) return null;
+    const myEmail = (user?.email || '').toLowerCase();
+    const primaryTo =
+      selectedEmail.direction === 'INBOUND'
+        ? selectedEmail.fromAddr
+        : selectedEmail.toAddr;
+    const primaryEmail = extractEmailOnly(primaryTo || '').toLowerCase();
+
+    const excluded = new Set<string>();
+    if (primaryEmail) excluded.add(primaryEmail);
+    if (myEmail) excluded.add(myEmail);
+
+    const seen = new Set<string>(excluded);
+    const keep: string[] = [];
+    const pushFrom = (raw?: string | null) => {
+      if (!raw) return;
+      for (const part of raw.split(',')) {
+        const addr = part.trim();
+        if (!addr) continue;
+        const e = extractEmailOnly(addr).toLowerCase();
+        if (!e || seen.has(e)) continue;
+        seen.add(e);
+        keep.push(addr);
+      }
+    };
+    // INBOUND 时 toAddr 里一般也只有我自己（会被 myEmail 过滤掉）；
+    // OUTBOUND 时 toAddr 是对方，已经进了 primary，继续扫描只留 cc。
+    pushFrom(selectedEmail.toAddr);
+    pushFrom(selectedEmail.cc);
+
+    return { cc: keep.join(', '), primaryTo };
+  };
+
+  const canReplyAll = (() => {
+    const r = getReplyAllCc();
+    return !!(r && r.cc.length > 0);
+  })();
+
+  const handleReplyAll = () => {
+    const r = getReplyAllCc();
+    if (!selectedEmail || !r) return;
+    const subject = selectedEmail.subject.startsWith('Re:')
+      ? selectedEmail.subject
+      : `Re: ${selectedEmail.subject}`;
+
+    setComposeForm({
+      toAddr: r.primaryTo,
+      cc: r.cc,
+      bcc: '',
+      subject,
+      bodyHtml: buildQuotedBlock(selectedEmail),
+      customerId: selectedEmail.customerId || '',
+      inReplyTo: selectedEmail.id,
+      attachments: [],
+    });
+    setComposeOpen(true);
+  };
+
   // 发送新邮件的逻辑已经移到 ComposeWindow 的 onSend 回调里
   // （renderComposeModal），那边能直接访问最新的 composeForm 和
   // skipSignatureAppend 标志。
@@ -1178,6 +1245,18 @@ export default function EmailsPage() {
               </svg>
               回复
             </button>
+            {canReplyAll && (
+              <button
+                onClick={handleReplyAll}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                title="回复发件人 + 所有抄送人"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 10h10a8 8 0 018 8v2M7 10l6 6m-6-6l6-6M3 14l4-4-4-4" />
+                </svg>
+                回复所有
+              </button>
+            )}
             <button
               onClick={() => {
                 if (!selectedEmail) return;
