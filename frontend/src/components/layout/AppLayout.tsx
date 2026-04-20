@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './Sidebar';
 import ExchangeRates from './ExchangeRates';
+import FollowUpBanner from './FollowUpBanner';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -46,6 +47,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
         <div className="flex items-center justify-end gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
           <ExchangeRates />
         </div>
+        <FollowUpBanner />
         <main className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-6 py-6">{children}</div>
         </main>

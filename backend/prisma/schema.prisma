@@ -131,6 +131,8 @@ model User {
   leadActivities   LeadActivity[]
   messagesSent     Message[]      @relation("MessagesSent")
   messagesReceived Message[]      @relation("MessagesReceived")
+  followUpsOwned   FollowUp[]     @relation("FollowUpOwner")
+  followUpsCompleted FollowUp[]   @relation("FollowUpCompletedBy")
 
   @@map("users")
 }
@@ -270,6 +272,7 @@ model Lead {
   creator    User?          @relation("LeadsCreated", fields: [creatorId], references: [id])
   customer   Customer?      @relation(fields: [customerId], references: [id])
   activities LeadActivity[]
+  followUps  FollowUp[]
 
   @@map("leads")
 }
@@ -360,6 +363,7 @@ model Email {
   campaign     EmailCampaign?  @relation("CampaignEmails", fields: [campaignId], references: [id])
   recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
   attachments  EmailAttachment[]
+  triggeredFollowUps FollowUp[]  @relation("FollowUpTrigger")
 
   @@index([campaignId])
   @@index([recipientId])
@@ -918,4 +922,47 @@ model SystemSetting {
   label String?
 
   @@map("system_settings")
+}
+
+// ==================== 线索跟进 (Follow-Up) ====================
+// 当销售向某个 Lead 成功外发了邮件，系统自动建一条 FollowUp，
+// 到 dueAt 时提醒"是否需要再次触达"。
+// 闭环由三种事件触发：
+//   1) 对方回信（IMAP 同步时 In-Reply-To / References 命中 triggerEmail）
+//      → 自动 DONE；
+//   2) 用户手动点"已跟进 / 取消跟进 / 推后 N 天"；
+//   3) Lead 阶段变成 CLOSED_WON / CLOSED_LOST → 自动 DISMISSED。
+// 同一条 Lead 同时最多只有 1 条 PENDING，避免堆积。
+enum FollowUpStatus {
+  PENDING
+  DONE
+  DISMISSED
+  SNOOZED
+}
+
+model FollowUp {
+  id              String         @id @default(uuid())
+  leadId          String?        @map("lead_id")
+  customerId      String?        @map("customer_id") // 预留：客户跟进 Phase 2
+  triggerEmailId  String?        @map("trigger_email_id")
+  ownerId         String         @map("owner_id")
+  dueAt           DateTime       @map("due_at")
+  status          FollowUpStatus @default(PENDING)
+  // 建立原因：FIRST_OUTREACH / STAGE_CHANGED / MANUAL / SNOOZED_AGAIN 等
+  reason          String?
+  notes           String?
+  completedAt     DateTime?      @map("completed_at")
+  completedById   String?        @map("completed_by_id")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  lead            Lead?          @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  owner           User           @relation("FollowUpOwner", fields: [ownerId], references: [id])
+  completedBy     User?          @relation("FollowUpCompletedBy", fields: [completedById], references: [id])
+  triggerEmail    Email?         @relation("FollowUpTrigger", fields: [triggerEmailId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId, status, dueAt])
+  @@index([leadId])
+  @@index([triggerEmailId])
+  @@map("follow_ups")
 }
