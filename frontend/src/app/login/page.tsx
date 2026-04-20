@@ -133,10 +133,10 @@ export default function LoginPage() {
             <img src={logoUrl} alt="Logo" className="h-16 w-16 rounded-2xl object-cover shadow-apple-md mb-4 inline-block" />
           ) : (
             <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500 text-xl font-bold text-white shadow-apple-md mb-4">
-              CRM
+              云迹
             </div>
           )}
-          <h1 className="text-[28px] font-bold tracking-tight text-gray-900">外贸CRM</h1>
+          <h1 className="text-[28px] font-bold tracking-tight text-gray-900">云迹系统</h1>
           <p className="text-[15px] text-gray-500 mt-1">
             {isSetupMode ? '首次使用，请设置管理员账户' : '请登录您的账户'}
           </p>
@@ -214,7 +214,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          外贸CRM客户关系管理系统
+          云迹系统 · 客户关系与业务管理平台
         </p>
       </div>
     </div>

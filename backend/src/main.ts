@@ -55,8 +55,8 @@ async function bootstrap() {
 
   // Swagger documentation
   const swaggerConfig = new DocumentBuilder()
-    .setTitle('外贸CRM系统 API')
-    .setDescription('Trade CRM System API Documentation')
+    .setTitle('云迹系统 API')
+    .setDescription('云迹系统（TradeFlow）API 文档')
     .setVersion('1.0.0')
     .addBearerAuth(
       {

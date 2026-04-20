@@ -5,8 +5,8 @@ import { LogoProvider } from '@/contexts/logo-context';
 import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
-  title: '外贸CRM - 客户关系管理系统',
-  description: '专为外贸企业打造的客户关系管理系统',
+  title: '云迹系统',
+  description: '云迹系统 —— 客户关系与业务管理平台',
 };
 
 export default function RootLayout({
