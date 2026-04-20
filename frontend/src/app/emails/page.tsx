@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
@@ -92,6 +92,26 @@ const emptyAccountForm: AccountForm = {
   imapSecure: true,
 };
 
+/**
+ * 单独把 useSearchParams 封进一个子组件，父页面用 <Suspense> 包它。
+ * Next.js 14 静态生成时遇到 useSearchParams 必须有 Suspense 边界，
+ * 否则会在 build 阶段报 "missing-suspense-with-csr-bailout"。
+ */
+function ComposeToWatcher({ onOpen }: { onOpen: (to: string) => void }) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  useEffect(() => {
+    const to = searchParams.get('composeTo');
+    if (!to) return;
+    onOpen(to);
+    // 清理 URL，避免刷新后重复弹出。
+    router.replace('/emails');
+    // 只在挂载时执行一次即可。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 export default function EmailsPage() {
   const { user } = useAuth();
   const [activeFolder, setActiveFolder] = useState<FolderType>('inbox');
@@ -134,18 +154,8 @@ export default function EmailsPage() {
   const [composeForm, setComposeForm] = useState<ComposeForm>(emptyComposeForm);
   const [sending, setSending] = useState(false);
 
-  // 支持从线索 / 联系人页面带 ?composeTo=xxx 过来，直接打开撰写窗口并预填收件人。
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  useEffect(() => {
-    const to = searchParams.get('composeTo');
-    if (!to) return;
-    setComposeForm({ ...emptyComposeForm, toAddr: to });
-    setComposeOpen(true);
-    // 清理 URL，避免刷新后再次弹出
-    router.replace('/emails');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ?composeTo=xxx 的处理见 <ComposeToWatcher /> —— 单独放一层 Suspense
+  // 以满足 Next.js 14 对 useSearchParams 的预渲染要求。
 
   // Template modal
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
@@ -1852,6 +1862,14 @@ export default function EmailsPage() {
 
   return (
     <AppLayout>
+      <Suspense fallback={null}>
+        <ComposeToWatcher
+          onOpen={(to) => {
+            setComposeForm({ ...emptyComposeForm, toAddr: to });
+            setComposeOpen(true);
+          }}
+        />
+      </Suspense>
       <div className="flex flex-col h-[calc(100vh-64px)]">
         {/* Header */}
         <div className="flex items-center justify-between px-0 py-4 flex-shrink-0">
