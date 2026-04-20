@@ -259,6 +259,7 @@ export default function ContactsPage() {
         onClose={() => setShowModal(false)}
         title={editingId ? '编辑联系人' : '新建联系人'}
         maxWidth="lg"
+        dismissible={false}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

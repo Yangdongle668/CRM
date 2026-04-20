@@ -11,6 +11,9 @@ interface ModalProps {
   children: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl' | '5xl';
+  // 默认 true：点遮罩 / 按 ESC 可关闭。
+  // 编辑类表单传 false，避免误点空白或误按 ESC 丢失正在编辑的内容。
+  dismissible?: boolean;
 }
 
 const maxWidthClasses: Record<string, string> = {
@@ -24,7 +27,7 @@ const maxWidthClasses: Record<string, string> = {
   '5xl': 'max-w-5xl',
 };
 
-export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }: ModalProps) {
+export function Modal({ open, isOpen, onClose, title, children, maxWidth, size, dismissible = true }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const visible = open ?? isOpen ?? false;
   const width = maxWidth ?? size ?? 'lg';
@@ -35,7 +38,10 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }
     };
 
     if (visible) {
-      document.addEventListener('keydown', handleEsc);
+      // 仅在可关闭的弹窗上监听 ESC，避免编辑表单被误关。
+      if (dismissible) {
+        document.addEventListener('keydown', handleEsc);
+      }
       document.body.style.overflow = 'hidden';
     }
 
@@ -43,11 +49,12 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size }
       document.removeEventListener('keydown', handleEsc);
       document.body.style.overflow = '';
     };
-  }, [visible, onClose]);
+  }, [visible, dismissible, onClose]);
 
   if (!visible) return null;
 
   const handleOverlayClick = (e: React.MouseEvent) => {
+    if (!dismissible) return;
     if (e.target === overlayRef.current) onClose();
   };
 
