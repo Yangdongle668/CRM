@@ -33,8 +33,11 @@ export interface User {
   /** 用户个人偏好设置（JSON 包袋，按需扩展）。 */
   preferences?: {
     emailLinkPreference?: 'ask' | 'external' | 'internal';
+    dashboardLayout?: Array<{ i: string; x: number; y: number; w: number; h: number }>;
     [k: string]: any;
   } | null;
+  /** 生日（ISO 日期字符串，只关心月/日，年份在前端展示时忽略）。 */
+  birthday?: string | null;
 }
 
 // ==================== 客户 ====================

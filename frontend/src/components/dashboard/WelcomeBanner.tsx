@@ -6,6 +6,7 @@ import {
   HiOutlineMoon,
   HiOutlineSparkles,
   HiOutlineInformationCircle,
+  HiOutlineGift,
 } from 'react-icons/hi2';
 import WeatherCard from '@/components/ui/WeatherCard';
 import { getTodayHolidays, isEUSummerPeak } from '@/lib/holiday-reminders';
@@ -20,16 +21,23 @@ function getTimeGreeting(hour: number): string {
   return '夜深了';
 }
 
-interface Props {
-  userName?: string;
+function isSameMonthDay(iso: string | null | undefined, now: Date): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return false;
+  return d.getMonth() === now.getMonth() && d.getDate() === now.getDate();
 }
 
-export default function WelcomeBanner({ userName }: Props) {
-  const { greeting, isDaytime, todayHoliday, summerPeak } = useMemo(() => {
+interface Props {
+  userName?: string;
+  birthday?: string | null;
+}
+
+export default function WelcomeBanner({ userName, birthday }: Props) {
+  const { greeting, isDaytime, todayHoliday, summerPeak, isBirthday } = useMemo(() => {
     const now = new Date();
     const hour = now.getHours();
     const todays = getTodayHolidays(now);
-    // 优先显示法定节日，其次传统节日，最后其他
     const priority = { CN: 0, INTL: 1, IN: 2, EU: 3, CN_TRAD: 4 };
     todays.sort((a, b) => (priority[a.type] ?? 9) - (priority[b.type] ?? 9));
     return {
@@ -37,8 +45,14 @@ export default function WelcomeBanner({ userName }: Props) {
       isDaytime: hour >= 6 && hour < 19,
       todayHoliday: todays[0] ?? null,
       summerPeak: isEUSummerPeak(now),
+      isBirthday: isSameMonthDay(birthday, now),
     };
-  }, []);
+  }, [birthday]);
+
+  // 生日优先级最高 —— 今天是你生日，其他提示都让位
+  const showBirthday = isBirthday;
+  const showHoliday = !showBirthday && !!todayHoliday;
+  const showSummer = !showBirthday && !showHoliday && summerPeak;
 
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -54,7 +68,16 @@ export default function WelcomeBanner({ userName }: Props) {
           </h1>
         </div>
 
-        {todayHoliday ? (
+        {showBirthday && (
+          <div className="mt-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-100 to-amber-100 border border-rose-200 px-3 py-1.5">
+            <HiOutlineGift className="w-4 h-4 text-rose-600 flex-shrink-0" />
+            <span className="text-sm text-rose-700">
+              今天是你的生日，<span className="font-semibold">生日快乐！</span>
+            </span>
+          </div>
+        )}
+
+        {showHoliday && todayHoliday && (
           <div className="mt-2 inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-rose-50 to-amber-50 border border-rose-100 px-3 py-1.5">
             <HiOutlineSparkles className="w-4 h-4 text-rose-500 flex-shrink-0" />
             <span className="text-sm text-rose-700">
@@ -62,14 +85,18 @@ export default function WelcomeBanner({ userName }: Props) {
               {todayHoliday.note && <span className="text-rose-400 ml-1">· {todayHoliday.note}</span>}
             </span>
           </div>
-        ) : summerPeak ? (
+        )}
+
+        {showSummer && (
           <div className="mt-2 inline-flex items-center gap-2 rounded-xl bg-sky-50 border border-sky-100 px-3 py-1.5">
             <HiOutlineInformationCircle className="w-4 h-4 text-sky-500 flex-shrink-0" />
             <span className="text-sm text-sky-700">
               欧洲客户正处休假高峰，邮件响应可能延迟，请耐心跟进
             </span>
           </div>
-        ) : (
+        )}
+
+        {!showBirthday && !showHoliday && !showSummer && (
           <p className="mt-2 text-[13px] text-gray-500">
             欢迎回来，愿今天一切顺利
           </p>

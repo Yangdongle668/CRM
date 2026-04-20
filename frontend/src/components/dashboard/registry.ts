@@ -7,6 +7,7 @@ import { TeamFollowUpsWidget } from './widgets/TeamFollowUpsWidget';
 import { RankingsWidget } from './widgets/RankingsWidget';
 import { TasksWidget } from './widgets/TasksWidget';
 import { HolidayCountdownWidget } from './widgets/HolidayCountdownWidget';
+import { BirthdayWidget } from './widgets/BirthdayWidget';
 import type { GridItem, SavedLayout, WidgetDef } from './types';
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -96,6 +97,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minW: 3,
     minH: 3,
   },
+  {
+    id: 'birthdays',
+    title: '生日提醒',
+    component: BirthdayWidget,
+    defaultW: 6,
+    defaultH: 4,
+    minW: 3,
+    minH: 3,
+  },
 ];
 
 /** Build default layout positions for a given set of widget IDs (top-to-bottom, auto-packing). */
@@ -133,6 +143,7 @@ export const DEFAULT_LAYOUT_ADMIN: SavedLayout = buildLayout([
   'my-followups',
   'team-followups',
   'holiday-countdown',
+  'birthdays',
   'tasks',
   'rankings',
 ]);
@@ -144,12 +155,14 @@ export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
   'memos',
   'my-followups',
   'holiday-countdown',
+  'birthdays',
   'tasks',
 ]);
 
 export const DEFAULT_LAYOUT_FINANCE: SavedLayout = buildLayout([
   'stats',
   'holiday-countdown',
+  'birthdays',
   'tasks',
 ]);
 

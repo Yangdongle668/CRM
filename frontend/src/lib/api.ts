@@ -49,7 +49,7 @@ export const authApi = {
     api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
   register: (data: any) => api.post('/auth/register', data),
-  updateProfile: (data: { password?: string; phone?: string; bio?: string; avatar?: string; preferences?: Record<string, any> }) =>
+  updateProfile: (data: { password?: string; phone?: string; bio?: string; avatar?: string; preferences?: Record<string, any>; birthday?: string | null }) =>
     api.patch('/auth/profile', data),
   updatePreferences: (prefs: Record<string, any>) =>
     api.patch('/auth/profile', { preferences: prefs }),

@@ -92,7 +92,7 @@ export default function DashboardPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <WelcomeBanner userName={user?.name} />
+        <WelcomeBanner userName={user?.name} birthday={user?.birthday} />
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
