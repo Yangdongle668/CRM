@@ -26,6 +26,7 @@ import {
   HiOutlineShieldCheck,
   HiOutlineKey,
   HiOutlineBellAlert,
+  HiOutlineCalendarDays,
 } from 'react-icons/hi2';
 
 interface NavItem {
@@ -53,6 +54,7 @@ const navItems: NavItem[] = [
   { label: '管理中心', href: '/admin', icon: HiOutlineChartBar, adminOnly: true },
   { label: '角色权限', href: '/admin/rbac', icon: HiOutlineKey, permission: 'rbac:read' },
   { label: '审计日志', href: '/admin/audit-logs', icon: HiOutlineShieldCheck, permission: 'audit:read' },
+  { label: '节假日管理', href: '/admin/holidays', icon: HiOutlineCalendarDays, adminOnly: true },
   { label: '系统设置', href: '/settings', icon: HiOutlineCog6Tooth },
 ];
 

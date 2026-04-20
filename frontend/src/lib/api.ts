@@ -296,6 +296,18 @@ export const memosApi = {
   delete: (id: string) => api.delete(`/memos/${id}`),
 };
 
+// ==================== Holidays API ====================
+export const holidaysApi = {
+  list: (params?: { startDate?: string; endDate?: string; year?: number }) =>
+    api.get('/holidays', { params }),
+  listYears: () => api.get('/holidays/years'),
+  create: (data: any) => api.post('/holidays', data),
+  update: (id: string, data: any) => api.patch(`/holidays/${id}`, data),
+  delete: (id: string) => api.delete(`/holidays/${id}`),
+  bulkUpsert: (year: number, items: any[]) =>
+    api.post(`/holidays/bulk/${year}`, { items }),
+};
+
 // ==================== Settings API ====================
 export const settingsApi = {
   getAll: () => api.get('/settings'),

@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
-import { memosApi } from '@/lib/api';
-import type { Memo } from '@/types';
+import { memosApi, holidaysApi } from '@/lib/api';
+import type { Memo, Holiday } from '@/types';
+import { solar2lunar, getSolarTerm } from '@/lib/lunar';
 import {
   HiOutlinePlus,
   HiOutlineTrash,
@@ -25,6 +26,7 @@ const MEMO_COLORS = [
 ];
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
+const MONTH_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
 
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
@@ -41,6 +43,22 @@ function formatDate(d: Date) {
   return `${y}-${m}-${day}`;
 }
 
+function parseDateOnly(iso: string): Date {
+  // Backend returns ISO dates; we want the local Y/M/D the admin typed,
+  // so slice to the date portion before constructing.
+  return new Date(iso.slice(0, 10) + 'T00:00:00');
+}
+
+// Map holiday type → tailwind color tokens for dot + text
+const HOLIDAY_STYLE: Record<string, { text: string; dot: string; bg: string; label: string }> = {
+  CN: { text: 'text-red-600', dot: 'bg-red-500', bg: 'bg-red-50', label: '法定节假日' },
+  CN_TRAD: { text: 'text-amber-700', dot: 'bg-amber-500', bg: 'bg-amber-50', label: '传统节日' },
+  INTL: { text: 'text-indigo-600', dot: 'bg-indigo-500', bg: 'bg-indigo-50', label: '国际节日' },
+  EU: { text: 'text-sky-600', dot: 'bg-sky-500', bg: 'bg-sky-50', label: '欧洲节日' },
+  IN: { text: 'text-orange-600', dot: 'bg-orange-500', bg: 'bg-orange-50', label: '印度节日' },
+  OBS: { text: 'text-purple-600', dot: 'bg-purple-500', bg: 'bg-purple-50', label: '休假高峰' },
+};
+
 export default function MemosPage() {
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
@@ -48,6 +66,7 @@ export default function MemosPage() {
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(today));
   const [memos, setMemos] = useState<Memo[]>([]);
   const [monthMemos, setMonthMemos] = useState<Memo[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Modal state
@@ -72,9 +91,26 @@ export default function MemosPage() {
     }
   }, [currentYear, currentMonth]);
 
+  // Holidays are fetched per year and cached. Re-fetch whenever the visible
+  // year changes so admins who push new-year data see it without a reload.
+  const fetchHolidays = useCallback(async () => {
+    try {
+      const res: any = await holidaysApi.list({ year: currentYear });
+      const data = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+      setHolidays(data);
+    } catch {
+      // Not fatal — calendar still renders without holiday decorations.
+      setHolidays([]);
+    }
+  }, [currentYear]);
+
   useEffect(() => {
     fetchMonthMemos();
   }, [fetchMonthMemos]);
+
+  useEffect(() => {
+    fetchHolidays();
+  }, [fetchHolidays]);
 
   // Filter memos for selected date
   useEffect(() => {
@@ -84,6 +120,18 @@ export default function MemosPage() {
     });
     setMemos(dayMemos);
   }, [selectedDate, monthMemos]);
+
+  // Build date → holiday[] map for O(1) cell lookup
+  const holidayMap = useMemo(() => {
+    const m = new Map<string, Holiday[]>();
+    for (const h of holidays) {
+      const key = h.date.slice(0, 10);
+      const arr = m.get(key) ?? [];
+      arr.push(h);
+      m.set(key, arr);
+    }
+    return m;
+  }, [holidays]);
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -101,6 +149,13 @@ export default function MemosPage() {
     } else {
       setCurrentMonth(currentMonth + 1);
     }
+  };
+
+  const goToday = () => {
+    const n = new Date();
+    setCurrentYear(n.getFullYear());
+    setCurrentMonth(n.getMonth());
+    setSelectedDate(formatDate(n));
   };
 
   const openCreate = () => {
@@ -161,6 +216,9 @@ export default function MemosPage() {
   const calendarDays: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) calendarDays.push(null);
   for (let i = 1; i <= daysInMonth; i++) calendarDays.push(i);
+  // Pad to full 6-row grid for consistent layout
+  while (calendarDays.length % 7 !== 0) calendarDays.push(null);
+  while (calendarDays.length < 42) calendarDays.push(null);
 
   const getMemoCountForDay = (day: number) => {
     const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -169,11 +227,19 @@ export default function MemosPage() {
 
   const todayStr = formatDate(today);
 
+  // Selected-day metadata for the right panel
+  const selectedDt = parseDateOnly(selectedDate);
+  const selectedLunar = solar2lunar(selectedDt);
+  const selectedHolidays = holidayMap.get(selectedDate) ?? [];
+
   return (
     <AppLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-800">备忘录</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-800">备忘录</h1>
+            <p className="text-xs text-gray-500 mt-1">集成农历、节气与国内外节假日</p>
+          </div>
           <button
             onClick={openCreate}
             className="flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-600 transition-colors"
@@ -187,60 +253,128 @@ export default function MemosPage() {
           {/* Calendar */}
           <div className="lg:col-span-2 bg-white rounded-2xl shadow-apple p-6">
             {/* Month navigation */}
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrevMonth}
+                  className="rounded-lg p-2 hover:bg-gray-100 transition-colors"
+                  aria-label="上一月"
+                >
+                  <HiOutlineChevronLeft className="h-5 w-5 text-gray-600" />
+                </button>
+                <h2 className="text-lg font-semibold text-gray-900 min-w-[7rem] text-center">
+                  {currentYear} 年 {MONTH_NAMES[currentMonth]}月
+                </h2>
+                <button
+                  onClick={handleNextMonth}
+                  className="rounded-lg p-2 hover:bg-gray-100 transition-colors"
+                  aria-label="下一月"
+                >
+                  <HiOutlineChevronRight className="h-5 w-5 text-gray-600" />
+                </button>
+              </div>
               <button
-                onClick={handlePrevMonth}
-                className="rounded-lg p-2 hover:bg-gray-100 transition-colors"
+                onClick={goToday}
+                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50 transition-colors"
               >
-                <HiOutlineChevronLeft className="h-5 w-5 text-gray-600" />
-              </button>
-              <h2 className="text-lg font-semibold text-gray-900">
-                {currentYear}年{currentMonth + 1}月
-              </h2>
-              <button
-                onClick={handleNextMonth}
-                className="rounded-lg p-2 hover:bg-gray-100 transition-colors"
-              >
-                <HiOutlineChevronRight className="h-5 w-5 text-gray-600" />
+                今天
               </button>
             </div>
 
             {/* Weekday headers */}
-            <div className="grid grid-cols-7 mb-2">
-              {WEEKDAYS.map((day) => (
-                <div key={day} className="text-center text-xs font-medium text-gray-500 py-2">
-                  {day}
+            <div className="grid grid-cols-7 mb-1 border-b border-gray-100">
+              {WEEKDAYS.map((day, i) => (
+                <div
+                  key={day}
+                  className={`text-center text-xs font-medium py-2 ${
+                    i === 0 || i === 6 ? 'text-red-400' : 'text-gray-500'
+                  }`}
+                >
+                  周{day}
                 </div>
               ))}
             </div>
 
             {/* Calendar grid */}
-            <div className="grid grid-cols-7 gap-1">
+            <div className="grid grid-cols-7 gap-1 mt-2">
               {calendarDays.map((day, idx) => {
                 if (day === null) {
-                  return <div key={`empty-${idx}`} className="aspect-square" />;
+                  return <div key={`empty-${idx}`} className="h-[68px]" />;
                 }
                 const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const isSelected = dateStr === selectedDate;
                 const isToday = dateStr === todayStr;
+                const dow = idx % 7;
+                const isWeekend = dow === 0 || dow === 6;
                 const memoCount = getMemoCountForDay(day);
+
+                const dt = new Date(currentYear, currentMonth, day);
+                const lunar = solar2lunar(dt);
+                const solarTerm = getSolarTerm(dt);
+                const cellHolidays = holidayMap.get(dateStr) ?? [];
+                // Priority: CN (legal) > CN_TRAD > INTL > EU > IN > OBS
+                const primaryHoliday =
+                  cellHolidays.find((h) => h.type === 'CN') ??
+                  cellHolidays.find((h) => h.type === 'CN_TRAD') ??
+                  cellHolidays.find((h) => h.type === 'INTL') ??
+                  cellHolidays.find((h) => h.type === 'EU') ??
+                  cellHolidays.find((h) => h.type === 'IN') ??
+                  cellHolidays[0];
+
+                // Bottom label: holiday name > solar term > lunar label
+                const bottomLabel = primaryHoliday?.name ?? solarTerm ?? lunar?.label ?? '';
+                const bottomStyle = primaryHoliday
+                  ? HOLIDAY_STYLE[primaryHoliday.type]?.text
+                  : solarTerm
+                  ? 'text-emerald-600'
+                  : lunar?.lunarDay === 1
+                  ? 'text-primary-600 font-medium'
+                  : 'text-gray-400';
+
+                const numberColor = isSelected
+                  ? 'text-white'
+                  : primaryHoliday?.type === 'CN' && primaryHoliday.isOff
+                  ? 'text-red-600'
+                  : isWeekend
+                  ? 'text-red-500'
+                  : 'text-gray-800';
 
                 return (
                   <button
                     key={day}
                     onClick={() => setSelectedDate(dateStr)}
-                    className={`aspect-square rounded-xl flex flex-col items-center justify-center relative transition-all text-sm ${
+                    className={`relative h-[68px] rounded-xl flex flex-col items-center justify-center px-1 transition-all group ${
                       isSelected
-                        ? 'bg-primary-500 text-white shadow-apple'
+                        ? 'bg-primary-500 shadow-apple'
                         : isToday
-                        ? 'bg-primary-50 text-primary-600 font-semibold'
-                        : 'hover:bg-gray-50 text-gray-700'
+                        ? 'bg-primary-50 ring-1 ring-primary-200'
+                        : 'hover:bg-gray-50'
                     }`}
                   >
-                    <span>{day}</span>
+                    {/* Holiday off-day indicator (top-right corner) */}
+                    {primaryHoliday?.isOff && !isSelected && (
+                      <span className="absolute top-1 right-1 text-[9px] font-medium text-red-500 leading-none">
+                        休
+                      </span>
+                    )}
+                    {/* Solar number */}
+                    <span className={`text-base leading-none ${numberColor} ${isToday && !isSelected ? 'font-semibold' : ''}`}>
+                      {day}
+                    </span>
+                    {/* Lunar / holiday label */}
+                    {bottomLabel && (
+                      <span
+                        className={`mt-1 text-[10px] leading-tight truncate max-w-full ${
+                          isSelected ? 'text-white/90' : bottomStyle
+                        }`}
+                      >
+                        {bottomLabel}
+                      </span>
+                    )}
+                    {/* Memo indicator */}
                     {memoCount > 0 && (
-                      <div
-                        className={`absolute bottom-1.5 w-1.5 h-1.5 rounded-full ${
+                      <span
+                        className={`absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full ${
                           isSelected ? 'bg-white' : 'bg-primary-400'
                         }`}
                       />
@@ -249,70 +383,138 @@ export default function MemosPage() {
                 );
               })}
             </div>
+
+            {/* Legend */}
+            <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-[11px] text-gray-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-red-500" /> 法定节假日
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-amber-500" /> 传统节日
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-indigo-500" /> 国际节日
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-sky-500" /> 欧洲节日
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-orange-500" /> 印度节日
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-purple-500" /> 休假高峰
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500" /> 节气
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-primary-400" /> 有备忘
+              </span>
+            </div>
           </div>
 
           {/* Memos for selected date */}
-          <div className="bg-white rounded-2xl shadow-apple p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-semibold text-gray-900">
-                {selectedDate.replace(/-/g, '/')} 备忘
-              </h3>
-              <button
-                onClick={openCreate}
-                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
-              >
-                <HiOutlinePlus className="h-4 w-4" />
-              </button>
-            </div>
-
-            {loading ? (
-              <div className="flex h-32 items-center justify-center text-gray-400 text-sm">
-                加载中...
-              </div>
-            ) : memos.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-32 text-gray-400 text-sm">
-                <p>暂无备忘录</p>
+          <div className="bg-white rounded-2xl shadow-apple p-6 flex flex-col">
+            {/* Date header with lunar + holiday info */}
+            <div className="border-b border-gray-100 pb-4 mb-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    {selectedDate.slice(5).replace('-', ' / ')}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {selectedDate.slice(0, 4)} 年 · 周{WEEKDAYS[selectedDt.getDay()]}
+                  </div>
+                  {selectedLunar && (
+                    <div className="mt-2 text-xs text-gray-600">
+                      农历 <span className="text-gray-900">{selectedLunar.monthText}{selectedLunar.dayText}</span>
+                      <span className="ml-2 text-gray-400">
+                        {selectedLunar.ganzhi}年 · 生肖{selectedLunar.zodiac}
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={openCreate}
-                  className="mt-2 text-primary-500 hover:text-primary-600 text-xs"
+                  className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
+                  aria-label="新建备忘"
                 >
-                  点击添加
+                  <HiOutlinePlus className="h-4 w-4" />
                 </button>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {memos.map((memo) => (
-                  <div
-                    key={memo.id}
-                    className="rounded-xl p-4 border border-gray-100 group transition-all hover:shadow-sm"
-                    style={{ backgroundColor: memo.color || '#ffffff' }}
+
+              {/* Holiday tags */}
+              {selectedHolidays.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {selectedHolidays.map((h) => {
+                    const style = HOLIDAY_STYLE[h.type];
+                    return (
+                      <span
+                        key={h.id}
+                        title={h.nameEn || h.note || ''}
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${style?.bg ?? 'bg-gray-50'} ${style?.text ?? 'text-gray-600'}`}
+                      >
+                        <span className={`w-1.5 h-1.5 rounded-full ${style?.dot ?? 'bg-gray-400'}`} />
+                        {h.name}
+                        {h.nameEn && <span className="opacity-60">· {h.nameEn}</span>}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Memos list */}
+            <div className="flex-1 min-h-0">
+              {loading ? (
+                <div className="flex h-32 items-center justify-center text-gray-400 text-sm">
+                  加载中...
+                </div>
+              ) : memos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-32 text-gray-400 text-sm">
+                  <p>暂无备忘录</p>
+                  <button
+                    onClick={openCreate}
+                    className="mt-2 text-primary-500 hover:text-primary-600 text-xs"
                   >
-                    <div className="flex items-start justify-between">
-                      <h4 className="text-sm font-medium text-gray-900">{memo.title}</h4>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => openEdit(memo)}
-                          className="rounded p-1 text-gray-400 hover:text-primary-500 hover:bg-white/50"
-                        >
-                          <HiOutlinePencilSquare className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(memo.id)}
-                          className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-white/50"
-                        >
-                          <HiOutlineTrash className="h-3.5 w-3.5" />
-                        </button>
+                    点击添加
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {memos.map((memo) => (
+                    <div
+                      key={memo.id}
+                      className="rounded-xl p-4 border border-gray-100 group transition-all hover:shadow-sm"
+                      style={{ backgroundColor: memo.color || '#ffffff' }}
+                    >
+                      <div className="flex items-start justify-between">
+                        <h4 className="text-sm font-medium text-gray-900">{memo.title}</h4>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEdit(memo)}
+                            className="rounded p-1 text-gray-400 hover:text-primary-500 hover:bg-white/50"
+                          >
+                            <HiOutlinePencilSquare className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(memo.id)}
+                            className="rounded p-1 text-gray-400 hover:text-red-500 hover:bg-white/50"
+                          >
+                            <HiOutlineTrash className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </div>
+                      {memo.content && (
+                        <p className="mt-1 text-xs text-gray-600 whitespace-pre-wrap line-clamp-3">
+                          {memo.content}
+                        </p>
+                      )}
                     </div>
-                    {memo.content && (
-                      <p className="mt-1 text-xs text-gray-600 whitespace-pre-wrap line-clamp-3">
-                        {memo.content}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -322,6 +524,7 @@ export default function MemosPage() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={editingMemo ? '编辑备忘录' : '新建备忘录'}
+        dismissible={false}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

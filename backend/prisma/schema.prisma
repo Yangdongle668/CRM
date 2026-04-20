@@ -897,6 +897,38 @@ model Memo {
   @@map("memos")
 }
 
+// ==================== 节假日 (Holiday) ====================
+// 存放显示在备忘录日历上的节假日数据。按年度维护，管理员每年初可以通过
+// 后台补录新一年的数据（国务院发布的春节/国庆调休、复活节等浮动节日
+// 每年日期都不同，需要单独录入）。
+// - type:
+//     CN       中国法定节假日
+//     CN_TRAD  中国传统节日
+//     INTL     国际/美国通用节日
+//     EU       欧洲节日（英/德/法/意/西/荷/比/北欧等）
+//     IN       印度节日
+//     OBS      观察期 / 客户休假高峰（如欧洲夏休、圣诞新年）
+// - isOff: 是否放假（仅对 CN 有意义，用来区分"五一"和"五四青年节"这种）
+// - lunar: 是否以农历日期定义（true 时 month/day 解析为农历，需要再转公历保存）
+model Holiday {
+  id        String   @id @default(uuid())
+  year      Int
+  date      DateTime @db.Date
+  name      String
+  nameEn    String?  @map("name_en")
+  type      String   @default("CN") // CN | CN_TRAD | INTL
+  isOff     Boolean  @default(false) @map("is_off")
+  lunar     Boolean  @default(false)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([date, name])
+  @@index([year])
+  @@index([date])
+  @@map("holidays")
+}
+
 // ==================== 站内消息 ====================
 model Message {
   id        String   @id @default(uuid())

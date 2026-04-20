@@ -705,6 +705,7 @@ export default function LeadsPage() {
           onClose={() => setModalOpen(false)}
           title={editingLead ? '编辑线索' : '新建线索'}
           size="2xl"
+          dismissible={false}
         >
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
