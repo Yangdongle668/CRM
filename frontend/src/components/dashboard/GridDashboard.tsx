@@ -125,9 +125,11 @@ function AddWidgetPanel({ availableIds, onAdd, onClose }: AddWidgetPanelProps) {
 
 interface Props {
   data: DashboardData;
+  editMode: boolean;
+  onExitEdit: () => void;
 }
 
-export default function GridDashboard({ data }: Props) {
+export default function GridDashboard({ data, editMode, onExitEdit }: Props) {
   const { user, isAdmin } = useAuth();
   const userRole = user?.role ?? 'SALESPERSON';
 
@@ -142,7 +144,6 @@ export default function GridDashboard({ data }: Props) {
     return getDefaultLayout(userRole, isAdmin);
   });
 
-  const [editMode, setEditMode] = useState(false);
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -235,19 +236,24 @@ export default function GridDashboard({ data }: Props) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 justify-end mb-4">
-        {saving && (
-          <span className="text-xs text-gray-400 flex items-center gap-1">
-            <HiOutlineArrowPath className="w-3 h-3 animate-spin" />
-            保存中...
+      {/* 编辑态才出现的悬浮工具条 —— 非编辑态 0 额外高度 */}
+      {editMode && (
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-primary-200 bg-primary-50/40 px-3 py-2 shadow-sm animate-scale-in">
+          <span className="text-[12px] font-medium text-primary-700 flex items-center gap-1.5">
+            <HiOutlinePencilSquare className="w-4 h-4" />
+            自定义布局中 —— 拖动标题栏移动，右下角改大小
           </span>
-        )}
-        {editMode ? (
-          <>
+          <div className="flex items-center gap-2">
+            {saving && (
+              <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                <HiOutlineArrowPath className="w-3 h-3 animate-spin" />
+                保存中
+              </span>
+            )}
             {addableIds.length > 0 && (
               <button
                 onClick={() => setShowAddPanel((p) => !p)}
-                className="flex items-center gap-1.5 rounded-xl border border-dashed border-primary-400 px-3 py-1.5 text-[12px] font-medium text-primary-600 hover:bg-primary-50 transition-colors"
+                className="flex items-center gap-1.5 rounded-xl border border-dashed border-primary-400 bg-white/60 px-3 py-1.5 text-[12px] font-medium text-primary-600 hover:bg-white transition-colors"
               >
                 <HiOutlinePlus className="w-4 h-4" />
                 添加组件
@@ -255,32 +261,24 @@ export default function GridDashboard({ data }: Props) {
             )}
             <button
               onClick={resetLayout}
-              className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white/60 px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-white transition-colors"
             >
               <HiOutlineArrowPath className="w-4 h-4" />
-              重置布局
+              重置
             </button>
             <button
               onClick={() => {
-                setEditMode(false);
+                onExitEdit();
                 setShowAddPanel(false);
               }}
-              className="flex items-center gap-1.5 rounded-xl bg-primary-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-primary-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-xl bg-primary-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-primary-600 transition-colors shadow-sm"
             >
               <HiOutlineCheck className="w-4 h-4" />
-              完成编辑
+              完成
             </button>
-          </>
-        ) : (
-          <button
-            onClick={() => setEditMode(true)}
-            className="flex items-center gap-1.5 rounded-xl border border-gray-200 px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            <HiOutlinePencilSquare className="w-4 h-4" />
-            自定义布局
-          </button>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
 
       {editMode && showAddPanel && (
         <AddWidgetPanel

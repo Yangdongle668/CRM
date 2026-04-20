@@ -7,6 +7,7 @@ import {
   HiOutlineSparkles,
   HiOutlineInformationCircle,
   HiOutlineGift,
+  HiOutlinePencilSquare,
 } from 'react-icons/hi2';
 import WeatherCard from '@/components/ui/WeatherCard';
 import { getTodayHolidays, isEUSummerPeak } from '@/lib/holiday-reminders';
@@ -31,9 +32,12 @@ function isSameMonthDay(iso: string | null | undefined, now: Date): boolean {
 interface Props {
   userName?: string;
   birthday?: string | null;
+  /** 非编辑态下，点击右上角铅笔按钮进入编辑态。提供才显示。 */
+  onEnterEdit?: () => void;
+  editMode?: boolean;
 }
 
-export default function WelcomeBanner({ userName, birthday }: Props) {
+export default function WelcomeBanner({ userName, birthday, onEnterEdit, editMode }: Props) {
   const { greeting, isDaytime, todayHoliday, summerPeak, isBirthday } = useMemo(() => {
     const now = new Date();
     const hour = now.getHours();
@@ -103,7 +107,18 @@ export default function WelcomeBanner({ userName, birthday }: Props) {
         )}
       </div>
 
-      <WeatherCard />
+      <div className="flex items-center gap-2">
+        {onEnterEdit && !editMode && (
+          <button
+            onClick={onEnterEdit}
+            className="flex items-center justify-center h-8 w-8 rounded-xl border border-gray-200 bg-white/60 text-gray-500 hover:bg-white hover:text-primary-600 hover:border-primary-300 transition-colors"
+            title="自定义布局"
+          >
+            <HiOutlinePencilSquare className="w-4 h-4" />
+          </button>
+        )}
+        <WeatherCard />
+      </div>
     </div>
   );
 }
