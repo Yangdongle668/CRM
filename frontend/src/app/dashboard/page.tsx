@@ -28,6 +28,7 @@ export default function DashboardPage() {
   const { user, isAdmin } = useAuth();
   const [data, setData] = useState<DashboardData>(EMPTY);
   const [loading, setLoading] = useState(true);
+  const [editMode, setEditMode] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -92,14 +93,23 @@ export default function DashboardPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <WelcomeBanner userName={user?.name} birthday={user?.birthday} />
+        <WelcomeBanner
+          userName={user?.name}
+          birthday={user?.birthday}
+          editMode={editMode}
+          onEnterEdit={() => setEditMode(true)}
+        />
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="text-gray-400 text-sm">加载中...</div>
           </div>
         ) : (
-          <GridDashboard data={data} />
+          <GridDashboard
+            data={data}
+            editMode={editMode}
+            onExitEdit={() => setEditMode(false)}
+          />
         )}
       </div>
     </AppLayout>
