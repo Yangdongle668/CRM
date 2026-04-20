@@ -5,6 +5,11 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
+import {
+  getEmailLinkPreference,
+  setEmailLinkPreference,
+  type EmailLinkPreference,
+} from '@/components/ui/EmailLink';
 import BankAccountsPanel from '@/components/settings/BankAccountsPanel';
 import PITemplatesPanel from '@/components/settings/PITemplatesPanel';
 import { useAuth } from '@/contexts/auth-context';
@@ -40,6 +45,18 @@ export default function SettingsPage() {
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<TabKey>('profile');
+
+  // 邮箱链接跳转偏好（保存在本地，登录态独立于服务器，纯个人设置）
+  const [emailPref, setEmailPref] = useState<EmailLinkPreference>('ask');
+  useEffect(() => {
+    setEmailPref(getEmailLinkPreference());
+  }, []);
+  const updateEmailPref = (v: EmailLinkPreference) => {
+    setEmailPref(v);
+    setEmailLinkPreference(v);
+    toast.success('偏好已保存');
+  };
+
 
   // ==================== Profile tab ====================
   const [profileForm, setProfileForm] = useState({ phone: '', bio: '', password: '', confirmPassword: '' });
@@ -566,6 +583,42 @@ export default function SettingsPage() {
                 </button>
               </div>
             </form>
+
+            {/* 邮箱链接跳转偏好 */}
+            <div className="mt-8 border-t border-gray-100 pt-6">
+              <h3 className="text-sm font-semibold text-gray-900">
+                邮箱链接跳转偏好
+              </h3>
+              <p className="mt-1 text-xs text-gray-500">
+                在线索、联系人等页面点击邮箱地址时的默认行为。
+              </p>
+              <div className="mt-3 space-y-2">
+                {[
+                  { key: 'ask', label: '每次询问', desc: '弹窗选择，并可勾选"记住选择"' },
+                  { key: 'internal', label: '系统邮件', desc: '直接在当前系统打开撰写窗口' },
+                  { key: 'external', label: '外部邮箱', desc: '调用系统默认邮件客户端（mailto:）' },
+                ].map((opt) => (
+                  <label
+                    key={opt.key}
+                    className="flex cursor-pointer items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50"
+                  >
+                    <input
+                      type="radio"
+                      name="email-link-pref"
+                      checked={emailPref === opt.key}
+                      onChange={() => updateEmailPref(opt.key as EmailLinkPreference)}
+                      className="mt-0.5 h-4 w-4"
+                    />
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-900">
+                        {opt.label}
+                      </div>
+                      <div className="text-xs text-gray-500">{opt.desc}</div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 

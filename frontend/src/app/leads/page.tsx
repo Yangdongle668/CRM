@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
+import EmailLink from '@/components/ui/EmailLink';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
 import { leadsApi, customersApi, usersApi } from '@/lib/api';
@@ -513,12 +514,10 @@ export default function LeadsPage() {
                     <td className="px-3 py-2 text-xs text-gray-600 min-w-[70px]">{lead.country || '-'}</td>
                     <td className="px-3 py-2 min-w-[120px]">
                       {lead.email ? (
-                        <a
-                          href={`mailto:${lead.email}`}
+                        <EmailLink
+                          email={lead.email}
                           className="text-xs text-blue-600 hover:underline truncate block"
-                        >
-                          {lead.email}
-                        </a>
+                        />
                       ) : (
                         <span className="text-xs text-gray-400">-</span>
                       )}

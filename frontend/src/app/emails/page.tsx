@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
@@ -132,6 +133,19 @@ export default function EmailsPage() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState<ComposeForm>(emptyComposeForm);
   const [sending, setSending] = useState(false);
+
+  // 支持从线索 / 联系人页面带 ?composeTo=xxx 过来，直接打开撰写窗口并预填收件人。
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  useEffect(() => {
+    const to = searchParams.get('composeTo');
+    if (!to) return;
+    setComposeForm({ ...emptyComposeForm, toAddr: to });
+    setComposeOpen(true);
+    // 清理 URL，避免刷新后再次弹出
+    router.replace('/emails');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Template modal
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
