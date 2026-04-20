@@ -494,7 +494,7 @@ export class BackupService {
     manifest: Array<{ file: string; description: string; rows: number }>,
   ): string {
     const lines: string[] = [];
-    lines.push('外贸 CRM — 数据备份 (CSV)');
+    lines.push('维界系统 — 数据备份 (CSV)');
     lines.push(`导出时间: ${new Date().toISOString()}`);
     lines.push('');
     lines.push('包含的表：');
