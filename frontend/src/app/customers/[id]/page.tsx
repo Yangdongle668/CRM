@@ -14,8 +14,8 @@ import {
   CUSTOMER_SOURCES,
   INDUSTRIES,
   ACTIVITY_TYPE_MAP,
-  COUNTRIES,
 } from '@/lib/constants';
+import CountrySelect from '@/components/ui/CountrySelect';
 import type {
   Customer,
   CustomerStatus,
@@ -812,16 +812,10 @@ export default function CustomerDetailPage() {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">国家</label>
-              <select
+              <CountrySelect
                 value={editForm.country || ''}
-                onChange={(e) => setEditForm((f) => ({ ...f, country: e.target.value }))}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">请选择</option>
-                {COUNTRIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                onChange={(v) => setEditForm((f) => ({ ...f, country: v }))}
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">行业</label>
