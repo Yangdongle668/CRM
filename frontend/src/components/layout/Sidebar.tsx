@@ -111,7 +111,7 @@ export default function Sidebar() {
         {!collapsed && (
           <Link href="/dashboard" className="flex items-center gap-2.5">
             <LogoIcon />
-            <span className="text-[15px] font-semibold tracking-tight text-gray-900">云迹系统</span>
+            <span className="text-[15px] font-semibold tracking-tight text-gray-900">维界系统</span>
           </Link>
         )}
         {collapsed && (

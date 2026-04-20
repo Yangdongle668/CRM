@@ -5,8 +5,8 @@ import { LogoProvider } from '@/contexts/logo-context';
 import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
-  title: '云迹系统',
-  description: '云迹系统 —— 客户关系与业务管理平台',
+  title: '维界系统',
+  description: '维界系统 —— 客户关系与业务管理平台',
 };
 
 export default function RootLayout({
