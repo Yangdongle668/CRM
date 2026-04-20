@@ -185,9 +185,17 @@ export default function Sidebar() {
         {!collapsed ? (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-xs font-semibold text-white">
-                {user?.name?.charAt(0) || '?'}
-              </div>
+              {user?.avatar ? (
+                <img
+                  src={user.avatar}
+                  alt={user.name}
+                  className="h-8 w-8 flex-shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-xs font-semibold text-white">
+                  {user?.name?.charAt(0) || '?'}
+                </div>
+              )}
               <div className="min-w-0">
                 <p className="truncate text-[13px] font-medium text-gray-900">
                   {user?.name || '未知用户'}
