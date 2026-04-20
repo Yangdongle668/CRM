@@ -227,7 +227,7 @@ export default function TasksPage() {
         <Pagination page={page} pageSize={pageSize} total={total} onChange={setPage} />
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingTask ? '编辑任务' : '新建任务'} maxWidth="xl">
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingTask ? '编辑任务' : '新建任务'} maxWidth="xl" dismissible={false}>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">任务标题 <span className="text-red-500">*</span></label>

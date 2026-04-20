@@ -795,7 +795,7 @@ export default function CustomerDetailPage() {
       </div>
 
       {/* Edit Customer Modal */}
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑客户信息" maxWidth="2xl">
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑客户信息" maxWidth="2xl" dismissible={false}>
         <form onSubmit={handleUpdateCustomer} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
@@ -936,6 +936,7 @@ export default function CustomerDetailPage() {
         open={contactModalOpen}
         onClose={() => setContactModalOpen(false)}
         title={editingContactId ? '编辑联系人' : '添加联系人'}
+        dismissible={false}
       >
         <form onSubmit={handleSaveContact} className="space-y-4">
           <div>

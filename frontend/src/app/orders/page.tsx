@@ -527,6 +527,7 @@ export default function OrdersPage() {
         onClose={() => setModalOpen(false)}
         title={editingId ? '编辑订单' : '新建订单'}
         size="xl"
+        dismissible={false}
       >
         <div className="space-y-6">
           {/* Basic fields */}
