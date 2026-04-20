@@ -1,6 +1,7 @@
 import {
   IsBoolean,
   IsEmail,
+  IsObject,
   IsOptional,
   IsString,
   MinLength,
@@ -50,6 +51,10 @@ export class UpdateUserDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsObject()
+  @IsOptional()
+  preferences?: Record<string, any>;
 }
 
 /** DTO for self-service profile update — name and role are intentionally excluded */
@@ -70,4 +75,10 @@ export class UpdateProfileDto {
   @IsString()
   @IsOptional()
   avatar?: string;
+
+  // 用户个人偏好：邮箱链接跳转方式、界面语言等（可扩展）。
+  // 写入时会和已有偏好合并，不会整块替换。
+  @IsObject()
+  @IsOptional()
+  preferences?: Record<string, any>;
 }

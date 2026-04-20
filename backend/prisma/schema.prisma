@@ -104,6 +104,12 @@ model User {
   // 客户 / 订单 / 线索 / 任务等数据会自动转移到超级管理员名下，从而
   // 避免因为外键约束导致删不掉用户。
   isSuperAdmin Boolean @default(false) @map("is_super_admin")
+  // 用户级偏好设置，目前存：
+  //   emailLinkPreference: 'ask' | 'external' | 'internal'
+  //     —— 线索/联系人页点击邮箱链接时的默认行为
+  // 用 JSON 方便后续扩展更多偏好（界面语言、时区、默认分页大小等），
+  // 不用每次加偏好都跑一次迁移。
+  preferences Json?    @map("preferences")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

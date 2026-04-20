@@ -46,15 +46,37 @@ export default function SettingsPage() {
 
   const [activeTab, setActiveTab] = useState<TabKey>('profile');
 
-  // 邮箱链接跳转偏好（保存在本地，登录态独立于服务器，纯个人设置）
+  // 邮箱链接跳转偏好：保存在 User.preferences（服务器），登录后同步到
+  // localStorage 作为 EmailLink 的读取缓存。本组件初始值优先用服务器
+  // 返回的，没有就 fallback 到本地 cache。
   const [emailPref, setEmailPref] = useState<EmailLinkPreference>('ask');
+  const [emailPrefSaving, setEmailPrefSaving] = useState(false);
   useEffect(() => {
-    setEmailPref(getEmailLinkPreference());
-  }, []);
-  const updateEmailPref = (v: EmailLinkPreference) => {
+    const fromServer = (currentUser as any)?.preferences?.emailLinkPreference;
+    if (fromServer === 'ask' || fromServer === 'external' || fromServer === 'internal') {
+      setEmailPref(fromServer);
+    } else {
+      setEmailPref(getEmailLinkPreference());
+    }
+  }, [currentUser]);
+  const updateEmailPref = async (v: EmailLinkPreference) => {
+    const prev = emailPref;
     setEmailPref(v);
+    setEmailPrefSaving(true);
+    // 先落本地，UI 立即生效
     setEmailLinkPreference(v);
-    toast.success('偏好已保存');
+    try {
+      await authApi.updateProfile({ preferences: { emailLinkPreference: v } } as any);
+      await refreshUser();
+      toast.success('偏好已保存');
+    } catch {
+      // 回滚
+      setEmailPref(prev);
+      setEmailLinkPreference(prev);
+      toast.error('保存失败，请重试');
+    } finally {
+      setEmailPrefSaving(false);
+    }
   };
 
 
@@ -606,6 +628,7 @@ export default function SettingsPage() {
                       type="radio"
                       name="email-link-pref"
                       checked={emailPref === opt.key}
+                      disabled={emailPrefSaving}
                       onChange={() => updateEmailPref(opt.key as EmailLinkPreference)}
                       className="mt-0.5 h-4 w-4"
                     />

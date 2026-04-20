@@ -30,6 +30,11 @@ export interface User {
   createdAt: string;
   /** Permission codes granted to this user by their role (ADMIN ⇒ ["*"]). */
   permissions?: string[];
+  /** 用户个人偏好设置（JSON 包袋，按需扩展）。 */
+  preferences?: {
+    emailLinkPreference?: 'ask' | 'external' | 'internal';
+    [k: string]: any;
+  } | null;
 }
 
 // ==================== 客户 ====================
