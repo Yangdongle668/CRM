@@ -53,8 +53,8 @@ services:
       UPLOAD_DIR: /app/uploads
       # 邮件追踪像素 / 点击链接里用的对外地址 — 必须是收件人的邮件客户端
       # 可以访问到的域名，不能是 docker 内部 service 名。
-      APP_URL: ${APP_URL:-http://localhost}
-      CORS_ORIGIN: ${APP_URL:-http://localhost}
+      APP_URL: ${APP_URL:-https://crm.07691688.xyz}
+      CORS_ORIGIN: ${APP_URL:-https://crm.07691688.xyz}
       # HMAC secret for tracking click tokens (falls back to JWT_SECRET
       # if unset, but you should use a distinct value in production).
       EMAIL_TRACKING_SECRET: ${EMAIL_TRACKING_SECRET:-${JWT_SECRET:-change-this-tracking-secret}}
@@ -92,8 +92,8 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      # SSL 证书（可选）：把证书放到 ./nginx/ssl/ 下，并取消 nginx.conf 里 HTTPS 块的注释
-      # - ./nginx/ssl:/etc/nginx/ssl:ro
+      # SSL 证书 —— 直接挂载 1Panel 维护的目录，证书续期自动生效
+      - /opt/1panel/www/sites/crm.07691688.xyz/ssl:/etc/nginx/ssl:ro
     depends_on:
       - frontend
       - backend
