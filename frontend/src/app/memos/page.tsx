@@ -107,11 +107,11 @@ export default function MemosPage() {
   const holidayMap = useMemo(() => {
     const map = new Map<string, ComputedHoliday[]>();
     for (const y of [currentYear - 1, currentYear, currentYear + 1]) {
-      for (const [date, arr] of getHolidayMap(y)) {
+      getHolidayMap(y).forEach((arr, date) => {
         const existing = map.get(date);
         if (existing) existing.push(...arr);
         else map.set(date, [...arr]);
-      }
+      });
     }
     return map;
   }, [currentYear]);
