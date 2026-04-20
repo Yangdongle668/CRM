@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateLeadDto, LeadStage } from './dto/create-lead.dto';
@@ -158,6 +159,41 @@ export class LeadsService {
     return lead;
   }
 
+  /**
+   * 规范化邮箱做比对用：去空格 + 小写。为空返回 null。
+   * 导入、单条创建、单条更新都用同一套规则，保证判重行为一致。
+   */
+  private normalizeEmail(email?: string | null): string | null {
+    if (!email) return null;
+    const t = email.trim().toLowerCase();
+    return t || null;
+  }
+
+  /**
+   * 在创建 / 更新线索前检查邮箱是否已被其他线索占用。
+   * 允许多条 email=NULL 的线索共存（未留邮箱的场景）。
+   * 传 excludeId 时忽略自己，用于更新。
+   */
+  private async assertEmailUnique(
+    email: string | null | undefined,
+    excludeId?: string,
+  ): Promise<void> {
+    const norm = this.normalizeEmail(email);
+    if (!norm) return;
+    const existing = await this.prisma.lead.findFirst({
+      where: {
+        email: { equals: norm, mode: 'insensitive' },
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+      select: { id: true, companyName: true },
+    });
+    if (existing) {
+      throw new ConflictException(
+        `邮箱 "${norm}" 已被线索「${existing.companyName || existing.id}」占用`,
+      );
+    }
+  }
+
   async create(dto: CreateLeadDto, userId: string, role: string) {
     const {
       customerId,
@@ -168,6 +204,9 @@ export class LeadsService {
       isPublicPool,
       ...rest
     } = dto;
+
+    // 邮箱查重：有相同邮箱的线索就拒绝创建，避免重复录入。
+    await this.assertEmailUnique(rest.email);
 
     // Determine effective owner
     let effectiveOwnerId: string | null = userId;
@@ -238,6 +277,14 @@ export class LeadsService {
       nextFollowUpAt,
       ...rest
     } = dto;
+
+    // 改邮箱时：如果改成了别的已占用邮箱则拒绝。不传或保持原样则跳过。
+    if (
+      rest.email !== undefined &&
+      this.normalizeEmail(rest.email) !== this.normalizeEmail(lead.email)
+    ) {
+      await this.assertEmailUnique(rest.email, id);
+    }
 
     const data: Prisma.LeadUpdateInput = { ...rest };
 
@@ -735,7 +782,26 @@ export class LeadsService {
     });
     const validUserIds = new Set(allUsers.map((u) => u.id));
 
-    const results = { created: 0, updated: 0, errors: [] as string[] };
+    // 预先把库里所有非空邮箱加载到一个 Map: 归一化后的邮箱 -> leadId。
+    // CSV 行在下面匹配时一律走这个集合，避免逐行查询数据库。
+    const existingEmails = await this.prisma.lead.findMany({
+      where: { email: { not: null } },
+      select: { id: true, email: true },
+    });
+    const emailToLeadId = new Map<string, string>();
+    for (const e of existingEmails) {
+      const n = this.normalizeEmail(e.email);
+      if (n) emailToLeadId.set(n, e.id);
+    }
+    // 本次导入过程中已占用的邮箱（包括这次新建 / 更新到的邮箱）。
+    const seenInBatch = new Set<string>();
+
+    const results = {
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: [] as string[],
+    };
 
     for (let i = 0; i < dataRows.length; i++) {
       const row = dataRows[i];
@@ -750,6 +816,7 @@ export class LeadsService {
         const companyName = get('公司名称');
         if (!companyName) {
           results.errors.push(`第${lineNum}行: 公司名称为空，已跳过`);
+          results.skipped++;
           continue;
         }
 
@@ -772,13 +839,31 @@ export class LeadsService {
         const effectiveOwnerId =
           ownerId && validUserIds.has(ownerId) ? ownerId : null;
 
+        const rawEmail = get('邮箱') || '';
+        const normEmail = this.normalizeEmail(rawEmail);
+
+        // 邮箱查重：
+        //   - 若该邮箱已属于另一条线索（库里的，或本次导入里先出现的），跳过。
+        //   - 对"按 ID 更新已有线索"放行：同一条线索自身的邮箱不算冲突。
+        if (normEmail) {
+          const ownerLeadId = emailToLeadId.get(normEmail);
+          const updatingSelf = id && ownerLeadId === id;
+          if ((ownerLeadId && !updatingSelf) || seenInBatch.has(normEmail)) {
+            results.errors.push(
+              `第${lineNum}行: 邮箱 "${normEmail}" 已存在，已跳过`,
+            );
+            results.skipped++;
+            continue;
+          }
+        }
+
         const leadData: any = {
           title: companyName,
           companyName,
           industry: get('行业') || undefined,
           website: get('网站') || undefined,
           phone: get('电话') || undefined,
-          email: get('邮箱') || undefined,
+          email: rawEmail || undefined,
           country: get('国家') || undefined,
           region: get('地区') || undefined,
           city: get('城市') || undefined,
@@ -804,13 +889,21 @@ export class LeadsService {
               where: { id },
               data: leadData,
             });
+            if (normEmail) {
+              emailToLeadId.set(normEmail, id);
+              seenInBatch.add(normEmail);
+            }
             results.updated++;
             continue;
           }
         }
 
         // Create new lead
-        await this.prisma.lead.create({ data: leadData });
+        const created = await this.prisma.lead.create({ data: leadData });
+        if (normEmail) {
+          emailToLeadId.set(normEmail, created.id);
+          seenInBatch.add(normEmail);
+        }
         results.created++;
       } catch (err: any) {
         results.errors.push(

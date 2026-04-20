@@ -30,23 +30,48 @@ const STAGES: LeadStage[] = [
 interface LeadFormData {
   title: string;
   companyName: string;
+  industry: string;
+  website: string;
   contactName: string;
+  contactTitle: string;
+  contactEmail: string;
   email: string;
   phone: string;
   country: string;
+  region: string;
+  city: string;
+  address: string;
+  postalCode: string;
   stage: LeadStage;
   priority: number;
   source: string;
   notes: string;
 }
 
+// 网站栏点击一键跳转：用户录入时可能只写了 "example.com"，没协议，
+// 浏览器会把没协议的 href 当成相对路径。这里补上 https:// 让跳转成立。
+const normalizeWebsiteUrl = (raw: string): string => {
+  const s = raw.trim();
+  if (!s) return '#';
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://${s}`;
+};
+
 const emptyForm: LeadFormData = {
   title: '',
   companyName: '',
+  industry: '',
+  website: '',
   contactName: '',
+  contactTitle: '',
+  contactEmail: '',
   email: '',
   phone: '',
   country: '',
+  region: '',
+  city: '',
+  address: '',
+  postalCode: '',
   stage: 'NEW',
   priority: 2,
   source: '',
@@ -75,6 +100,7 @@ export default function LeadsPage() {
   const [importResult, setImportResult] = useState<{
     created: number;
     updated: number;
+    skipped?: number;
     errors: string[];
   } | null>(null);
 
@@ -242,11 +268,15 @@ export default function LeadsPage() {
       const data = res.data;
       setImportResult(data);
       if (data.created > 0 || data.updated > 0) {
-        toast.success(`导入完成: 新增 ${data.created}, 更新 ${data.updated}`);
+        const parts = [`新增 ${data.created}`, `更新 ${data.updated}`];
+        if (data.skipped) parts.push(`跳过 ${data.skipped}`);
+        toast.success(`导入完成：${parts.join('，')}`);
         fetchLeads();
+      } else if (data.skipped) {
+        toast(`全部跳过 ${data.skipped} 条（邮箱重复或缺失公司名称）`);
       }
       if (data.errors?.length > 0) {
-        toast.error(`${data.errors.length} 条记录有错误`);
+        toast.error(`${data.errors.length} 条记录有错误/已跳过`);
       }
     } catch {
       toast.error('导入失败');
@@ -266,10 +296,18 @@ export default function LeadsPage() {
     setForm({
       title: lead.title,
       companyName: lead.companyName || '',
+      industry: lead.industry || '',
+      website: lead.website || '',
       contactName: lead.contactName || '',
+      contactTitle: lead.contactTitle || '',
+      contactEmail: lead.contactEmail || '',
       email: lead.email || '',
       phone: lead.phone || '',
       country: lead.country || '',
+      region: lead.region || '',
+      city: lead.city || '',
+      address: lead.address || '',
+      postalCode: lead.postalCode || '',
       stage: lead.stage,
       priority: lead.priority || 2,
       source: lead.source || '',
@@ -474,12 +512,11 @@ export default function LeadsPage() {
                     />
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[140px]">线索</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">来源</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">国家</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[140px]">网站</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[120px]">邮箱</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[100px]">电话</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">状态</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[50px]">评分</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">负责人</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[90px]">最后更新</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700 min-w-[100px] flex-shrink-0">操作</th>
@@ -510,8 +547,23 @@ export default function LeadsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">{lead.source || '-'}</td>
                     <td className="px-3 py-2 text-xs text-gray-600 min-w-[70px]">{lead.country || '-'}</td>
+                    <td className="px-3 py-2 min-w-[140px]">
+                      {lead.website ? (
+                        <a
+                          href={normalizeWebsiteUrl(lead.website)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs text-blue-600 hover:underline truncate block"
+                          title={lead.website}
+                        >
+                          {lead.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 min-w-[120px]">
                       {lead.email ? (
                         <EmailLink
@@ -531,7 +583,6 @@ export default function LeadsPage() {
                         <HiOutlineLockClosed className="h-3 w-3 text-amber-500 inline-block ml-1" />
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[50px] text-center">{lead.score ?? 0}</td>
                     <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">
                       {lead.owner ? (
                         <span className="inline-flex items-center gap-0.5">
@@ -654,26 +705,26 @@ export default function LeadsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">联系人</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">行业</label>
                 <input
                   type="text"
-                  value={form.contactName}
-                  onChange={(e) => setForm({ ...form, contactName: e.target.value })}
+                  value={form.industry}
+                  onChange={(e) => setForm({ ...form, industry: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="联系人"
+                  placeholder="行业"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">网站</label>
                 <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                  type="text"
+                  value={form.website}
+                  onChange={(e) => setForm({ ...form, website: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="email@example.com"
+                  placeholder="https://example.com"
                 />
               </div>
               <div>
@@ -690,13 +741,13 @@ export default function LeadsPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">国家</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
                 <input
-                  type="text"
-                  value={form.country}
-                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="国家"
+                  placeholder="company@example.com"
                 />
               </div>
               <div>
@@ -714,6 +765,95 @@ export default function LeadsPage() {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* 对接人（个人）信息 */}
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">对接人姓名</label>
+                <input
+                  type="text"
+                  value={form.contactName}
+                  onChange={(e) => setForm({ ...form, contactName: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="对接人姓名"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">对接人头衔</label>
+                <input
+                  type="text"
+                  value={form.contactTitle}
+                  onChange={(e) => setForm({ ...form, contactTitle: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="如：采购经理"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">对接人邮箱</label>
+                <input
+                  type="email"
+                  value={form.contactEmail}
+                  onChange={(e) => setForm({ ...form, contactEmail: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="contact@example.com"
+                />
+              </div>
+            </div>
+
+            {/* 地址 */}
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">国家</label>
+                <input
+                  type="text"
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="国家"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">地区</label>
+                <input
+                  type="text"
+                  value={form.region}
+                  onChange={(e) => setForm({ ...form, region: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="省/州"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">城市</label>
+                <input
+                  type="text"
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="城市"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">邮编</label>
+                <input
+                  type="text"
+                  value={form.postalCode}
+                  onChange={(e) => setForm({ ...form, postalCode: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="邮编"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">地址</label>
+              <input
+                type="text"
+                value={form.address}
+                onChange={(e) => setForm({ ...form, address: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="详细地址"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -897,11 +1037,12 @@ export default function LeadsPage() {
               <div className="bg-gray-50 rounded-lg p-4 text-sm">
                 <p className="font-medium text-gray-800">
                   导入结果：新增 {importResult.created} 条，更新 {importResult.updated} 条
+                  {importResult.skipped ? `，跳过 ${importResult.skipped} 条` : ''}
                 </p>
                 {importResult.errors.length > 0 && (
                   <div className="mt-2">
                     <p className="text-red-600 font-medium">
-                      错误 ({importResult.errors.length})：
+                      错误/已跳过 ({importResult.errors.length})：
                     </p>
                     <ul className="mt-1 max-h-40 overflow-y-auto space-y-0.5">
                       {importResult.errors.map((err, i) => (

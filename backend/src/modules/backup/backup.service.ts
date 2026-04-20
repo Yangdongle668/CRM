@@ -740,9 +740,20 @@ export class BackupService {
         }
         imported.contacts = contacts.length;
 
-        // Leads
+        // Leads —— 备份里如果有重复邮箱（同一个人被导出了两次，或备份文件
+        // 被用户手改过），这里按邮箱去重：同邮箱的第二条及之后全部跳过，
+        // 和 CSV 导入 / 单条新建保持一致的"一邮箱一条线索"规则。
+        const seenLeadEmails = new Set<string>();
+        let leadsInserted = 0;
         for (const l of leads) {
           if (!l.id || !l.title) continue;
+          const normEmail = (l.email || '').trim().toLowerCase();
+          if (normEmail && seenLeadEmails.has(normEmail)) {
+            this.logger.warn(
+              `Skipping duplicate lead email in backup: ${normEmail} (${l.companyName || l.id})`,
+            );
+            continue;
+          }
           await tx.lead.create({
             data: {
               id: l.id,
@@ -778,8 +789,10 @@ export class BackupService {
               updatedAt: this.parseDate(l.updatedAt) || undefined,
             },
           });
+          if (normEmail) seenLeadEmails.add(normEmail);
+          leadsInserted++;
         }
-        imported.leads = leads.length;
+        imported.leads = leadsInserted;
 
         // Quotations
         for (const q of quotations) {
