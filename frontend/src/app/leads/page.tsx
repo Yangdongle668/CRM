@@ -48,6 +48,15 @@ interface LeadFormData {
   notes: string;
 }
 
+// 网站栏点击一键跳转：用户录入时可能只写了 "example.com"，没协议，
+// 浏览器会把没协议的 href 当成相对路径。这里补上 https:// 让跳转成立。
+const normalizeWebsiteUrl = (raw: string): string => {
+  const s = raw.trim();
+  if (!s) return '#';
+  if (/^https?:\/\//i.test(s)) return s;
+  return `https://${s}`;
+};
+
 const emptyForm: LeadFormData = {
   title: '',
   companyName: '',
@@ -503,12 +512,11 @@ export default function LeadsPage() {
                     />
                   </th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[140px]">线索</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">来源</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">国家</th>
+                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[140px]">网站</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[120px]">邮箱</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[100px]">电话</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[70px]">状态</th>
-                  <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[50px]">评分</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[80px]">负责人</th>
                   <th className="px-3 py-2 text-left text-xs font-semibold text-gray-700 min-w-[90px]">最后更新</th>
                   <th className="px-3 py-2 text-center text-xs font-semibold text-gray-700 min-w-[100px] flex-shrink-0">操作</th>
@@ -539,8 +547,23 @@ export default function LeadsPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">{lead.source || '-'}</td>
                     <td className="px-3 py-2 text-xs text-gray-600 min-w-[70px]">{lead.country || '-'}</td>
+                    <td className="px-3 py-2 min-w-[140px]">
+                      {lead.website ? (
+                        <a
+                          href={normalizeWebsiteUrl(lead.website)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-xs text-blue-600 hover:underline truncate block"
+                          title={lead.website}
+                        >
+                          {lead.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 min-w-[120px]">
                       {lead.email ? (
                         <EmailLink
@@ -560,7 +583,6 @@ export default function LeadsPage() {
                         <HiOutlineLockClosed className="h-3 w-3 text-amber-500 inline-block ml-1" />
                       )}
                     </td>
-                    <td className="px-3 py-2 text-xs text-gray-600 min-w-[50px] text-center">{lead.score ?? 0}</td>
                     <td className="px-3 py-2 text-xs text-gray-600 min-w-[80px]">
                       {lead.owner ? (
                         <span className="inline-flex items-center gap-0.5">
