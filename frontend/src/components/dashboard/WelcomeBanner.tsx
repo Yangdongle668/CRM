@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   HiOutlineSun,
   HiOutlineMoon,
@@ -11,6 +11,7 @@ import {
 } from 'react-icons/hi2';
 import WeatherCard from '@/components/ui/WeatherCard';
 import { getTodayHolidays, isEUSummerPeak } from '@/lib/holiday-reminders';
+import { getRandomWelcomeMessage } from '@/lib/welcome-messages';
 
 function getTimeGreeting(hour: number): string {
   if (hour < 6) return '夜深了';
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export default function WelcomeBanner({ userName, birthday, onEnterEdit, editMode }: Props) {
+  const [welcomeMsg] = useState(() => getRandomWelcomeMessage());
   const { greeting, isDaytime, todayHoliday, summerPeak, isBirthday } = useMemo(() => {
     const now = new Date();
     const hour = now.getHours();
@@ -102,7 +104,7 @@ export default function WelcomeBanner({ userName, birthday, onEnterEdit, editMod
 
         {!showBirthday && !showHoliday && !showSummer && (
           <p className="mt-2 text-[13px] text-gray-500">
-            欢迎回来，愿今天一切顺利
+            {welcomeMsg}
           </p>
         )}
       </div>
