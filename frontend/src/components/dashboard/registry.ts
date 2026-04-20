@@ -8,6 +8,7 @@ import { RankingsWidget } from './widgets/RankingsWidget';
 import { TasksWidget } from './widgets/TasksWidget';
 import { HolidayCountdownWidget } from './widgets/HolidayCountdownWidget';
 import { BirthdayWidget } from './widgets/BirthdayWidget';
+import { DormantCustomersWidget } from './widgets/DormantCustomersWidget';
 import type { GridItem, SavedLayout, WidgetDef } from './types';
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -106,6 +107,16 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minW: 3,
     minH: 3,
   },
+  {
+    id: 'dormant-customers',
+    title: '好久没联系',
+    component: DormantCustomersWidget,
+    defaultW: 6,
+    defaultH: 4,
+    minW: 3,
+    minH: 3,
+    financeHidden: true,
+  },
 ];
 
 /** Build default layout positions for a given set of widget IDs (top-to-bottom, auto-packing). */
@@ -144,6 +155,7 @@ export const DEFAULT_LAYOUT_ADMIN: SavedLayout = buildLayout([
   'team-followups',
   'holiday-countdown',
   'birthdays',
+  'dormant-customers',
   'tasks',
   'rankings',
 ]);
@@ -154,6 +166,7 @@ export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
   'funnel',
   'memos',
   'my-followups',
+  'dormant-customers',
   'holiday-countdown',
   'birthdays',
   'tasks',

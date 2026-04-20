@@ -21,6 +21,7 @@ import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
 import { useAuth } from '@/contexts/auth-context';
 import { pisApi, customersApi } from '@/lib/api';
+import { celebrate } from '@/lib/celebrate';
 import { PI_STATUS_MAP } from '@/lib/constants';
 import type { ProformaInvoice, Customer } from '@/types';
 
@@ -135,6 +136,7 @@ export default function PIsPage() {
     try {
       await pisApi.approve(piId);
       toast.success('PI已批准');
+      celebrate();
       fetchPIs();
     } catch {
       toast.error('批准失败');

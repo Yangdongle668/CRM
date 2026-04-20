@@ -74,6 +74,9 @@ export const customersApi = {
   delete: (id: string) => api.delete(`/customers/${id}`),
   syncEmails: (id: string) => api.post(`/customers/${id}/sync-emails`, {}),
   refreshTimeline: (id: string) => api.post(`/customers/${id}/refresh-timeline`, {}),
+  /** "好久没联系"的客户 —— 给仪表盘温度组件用 */
+  dormant: (params?: { days?: number; limit?: number }) =>
+    api.get('/customers/dormant', { params }),
 };
 
 // ==================== Contacts API ====================

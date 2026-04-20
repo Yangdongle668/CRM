@@ -7,6 +7,7 @@ import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
 import { ordersApi, customersApi, documentsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
+import { celebrate } from '@/lib/celebrate';
 import { ORDER_STATUS_MAP, PAYMENT_STATUS_MAP, CURRENCIES } from '@/lib/constants';
 import toast from 'react-hot-toast';
 import type {
@@ -268,6 +269,7 @@ export default function OrdersPage() {
     try {
       await ordersApi.updateStatus(id, status);
       toast.success('订单状态已更新');
+      if (status === 'COMPLETED') celebrate();
       fetchOrders();
       // refresh detail if open
       if (detailOrder?.id === id) {
@@ -281,6 +283,7 @@ export default function OrdersPage() {
     try {
       await ordersApi.updatePayment(id, paymentStatus);
       toast.success('付款状态已更新');
+      if (paymentStatus === 'PAID') celebrate();
       fetchOrders();
       if (detailOrder?.id === id) {
         const res: any = await ordersApi.getById(id);

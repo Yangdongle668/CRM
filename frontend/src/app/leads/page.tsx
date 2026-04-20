@@ -10,6 +10,7 @@ import Pagination from '@/components/ui/Pagination';
 import { leadsApi, customersApi, usersApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { LEAD_STAGE_MAP, CUSTOMER_SOURCES } from '@/lib/constants';
+import { celebrate } from '@/lib/celebrate';
 import type { Lead, Customer, PaginatedData, LeadStage, User } from '@/types';
 import toast from 'react-hot-toast';
 import {
@@ -336,11 +337,20 @@ export default function LeadsPage() {
         priority: form.priority || 2,
       };
       if (editingLead) {
+        const prevStage = editingLead.stage;
         await leadsApi.update(editingLead.id, payload);
         toast.success('线索已更新');
+        // 温度系统：从非成交状态推进到 CLOSED_WON 时撒一把彩带
+        if (prevStage !== 'CLOSED_WON' && payload.stage === 'CLOSED_WON') {
+          celebrate();
+          toast.success('恭喜拿下订单！');
+        }
       } else {
         await leadsApi.create(payload);
         toast.success('线索已创建');
+        if (payload.stage === 'CLOSED_WON') {
+          celebrate();
+        }
       }
       setModalOpen(false);
       fetchLeads();
