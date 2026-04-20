@@ -37,6 +37,26 @@ export class CustomersController {
     return this.customersService.findAll(query, user.id, user.role);
   }
 
+  /**
+   * "好久没联系"名单 —— 给仪表盘温度小组件用。
+   * 静态路由必须声明在 :id 前面，避免被当作 id 捕获。
+   */
+  @Get('dormant')
+  findDormant(
+    @Query('days') days: string,
+    @Query('limit') limit: string,
+    @CurrentUser() user: { id: string; role: string },
+  ) {
+    const d = Number(days);
+    const l = Number(limit);
+    return this.customersService.findDormant(
+      user.id,
+      user.role,
+      Number.isFinite(d) && d > 0 ? d : 30,
+      Number.isFinite(l) && l > 0 ? l : 20,
+    );
+  }
+
   @Get(':id')
   findOne(
     @Param('id') id: string,

@@ -110,6 +110,9 @@ model User {
   // 用 JSON 方便后续扩展更多偏好（界面语言、时区、默认分页大小等），
   // 不用每次加偏好都跑一次迁移。
   preferences Json?    @map("preferences")
+  // 生日（年月日 DateTime；前端展示时只关心月/日，年份不敏感）。
+  // 用于"生日提醒"小组件，可为空。
+  birthday   DateTime? @map("birthday") @db.Date
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

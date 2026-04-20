@@ -56,6 +56,73 @@ export class CustomersService {
     return { items, total, page, pageSize };
   }
 
+  /**
+   * 沉默客户 —— "好久没联系"的温度提示。
+   *
+   * 找出所有 ACTIVE 状态的客户中，最近一次活动（Activity）距今超过
+   * dormantDays 天的那些。SALESPERSON 只看自己的；ADMIN 看全部（虽然
+   * 仪表盘组件里一般只关心自己的，这里按角色自动收束）。
+   *
+   * 无活动记录的，退化成看 updatedAt —— 把客户录入日期当作"首次接触"。
+   */
+  async findDormant(
+    userId: string,
+    role: string,
+    dormantDays = 30,
+    limit = 20,
+  ) {
+    const threshold = new Date(Date.now() - dormantDays * 86400000);
+
+    const where: Prisma.CustomerWhereInput = { status: 'ACTIVE' };
+    if (role === 'SALESPERSON') {
+      where.ownerId = userId;
+    }
+
+    // 预加载最后一条活动的时间；查多一些（2x）再在应用层过滤，避免边缘
+    // 情况漏掉
+    const candidates = await this.prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        companyName: true,
+        country: true,
+        status: true,
+        updatedAt: true,
+        createdAt: true,
+        ownerId: true,
+        owner: { select: { id: true, name: true } },
+        activities: {
+          select: { createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit * 3,
+    });
+
+    const result = candidates
+      .map((c) => {
+        const lastActivity = c.activities[0]?.createdAt ?? c.updatedAt;
+        return {
+          id: c.id,
+          companyName: c.companyName,
+          country: c.country,
+          ownerId: c.ownerId,
+          owner: c.owner,
+          lastContactAt: lastActivity,
+          daysSince: Math.floor(
+            (Date.now() - new Date(lastActivity).getTime()) / 86400000,
+          ),
+        };
+      })
+      .filter((c) => new Date(c.lastContactAt).getTime() < threshold.getTime())
+      .sort((a, b) => b.daysSince - a.daysSince)
+      .slice(0, limit);
+
+    return result;
+  }
+
   async findOne(id: string, userId: string, role: string) {
     const customer = await this.prisma.customer.findUnique({
       where: { id },

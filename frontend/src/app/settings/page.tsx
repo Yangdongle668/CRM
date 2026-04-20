@@ -81,7 +81,7 @@ export default function SettingsPage() {
 
 
   // ==================== Profile tab ====================
-  const [profileForm, setProfileForm] = useState({ phone: '', bio: '', password: '', confirmPassword: '' });
+  const [profileForm, setProfileForm] = useState({ phone: '', bio: '', birthday: '', password: '', confirmPassword: '' });
   const [profileSaving, setProfileSaving] = useState(false);
   const [avatarUploading, setAvatarUploading] = useState(false);
 
@@ -190,7 +190,14 @@ export default function SettingsPage() {
   // Sync profile form when user loads
   useEffect(() => {
     if (currentUser) {
-      setProfileForm({ phone: currentUser.phone || '', bio: currentUser.bio || '', password: '', confirmPassword: '' });
+      setProfileForm({
+        phone: currentUser.phone || '',
+        bio: currentUser.bio || '',
+        // HTML <input type="date"> 只能吃 "YYYY-MM-DD"，所以把 ISO 切一下
+        birthday: currentUser.birthday ? String(currentUser.birthday).slice(0, 10) : '',
+        password: '',
+        confirmPassword: '',
+      });
     }
   }, [currentUser]);
 
@@ -427,6 +434,8 @@ export default function SettingsPage() {
     setProfileSaving(true);
     try {
       const payload: any = { phone: profileForm.phone, bio: profileForm.bio };
+      // 生日传空串表示清除；否则传 YYYY-MM-DD，后端会解析
+      payload.birthday = profileForm.birthday || null;
       if (profileForm.password) payload.password = profileForm.password;
       await authApi.updateProfile(payload);
       await refreshUser();
@@ -563,6 +572,16 @@ export default function SettingsPage() {
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
                   placeholder="请输入手机号"
                 />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium text-gray-700">生日</label>
+                <input
+                  type="date"
+                  value={profileForm.birthday}
+                  onChange={(e) => setProfileForm({ ...profileForm, birthday: e.target.value })}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-gray-400">填写后仪表盘会显示生日提醒，同事也能收到你的生日提示</p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-medium text-gray-700">个性签名</label>

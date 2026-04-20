@@ -49,7 +49,7 @@ export const authApi = {
     api.post('/auth/login', data),
   getProfile: () => api.get('/auth/profile'),
   register: (data: any) => api.post('/auth/register', data),
-  updateProfile: (data: { password?: string; phone?: string; bio?: string; avatar?: string; preferences?: Record<string, any> }) =>
+  updateProfile: (data: { password?: string; phone?: string; bio?: string; avatar?: string; preferences?: Record<string, any>; birthday?: string | null }) =>
     api.patch('/auth/profile', data),
   updatePreferences: (prefs: Record<string, any>) =>
     api.patch('/auth/profile', { preferences: prefs }),
@@ -74,6 +74,9 @@ export const customersApi = {
   delete: (id: string) => api.delete(`/customers/${id}`),
   syncEmails: (id: string) => api.post(`/customers/${id}/sync-emails`, {}),
   refreshTimeline: (id: string) => api.post(`/customers/${id}/refresh-timeline`, {}),
+  /** "好久没联系"的客户 —— 给仪表盘温度组件用 */
+  dormant: (params?: { days?: number; limit?: number }) =>
+    api.get('/customers/dormant', { params }),
 };
 
 // ==================== Contacts API ====================

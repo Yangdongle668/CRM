@@ -55,6 +55,10 @@ export class UpdateUserDto {
   @IsObject()
   @IsOptional()
   preferences?: Record<string, any>;
+
+  // 生日（ISO 日期字符串，如 "1990-05-20"）。传 null 或空串表示清除。
+  @IsOptional()
+  birthday?: string | null;
 }
 
 /** DTO for self-service profile update — name and role are intentionally excluded */
@@ -81,4 +85,8 @@ export class UpdateProfileDto {
   @IsObject()
   @IsOptional()
   preferences?: Record<string, any>;
+
+  // 生日（ISO 日期字符串，如 "1990-05-20"）。传 null 或空串表示清除。
+  @IsOptional()
+  birthday?: string | null;
 }

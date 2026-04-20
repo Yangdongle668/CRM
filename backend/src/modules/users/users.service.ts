@@ -22,6 +22,7 @@ export class UsersService {
     isActive: true,
     isSuperAdmin: true,
     preferences: true,
+    birthday: true,
     createdAt: true,
     updatedAt: true,
   };
@@ -100,6 +101,15 @@ export class UsersService {
     if (dto.preferences && typeof dto.preferences === 'object') {
       const current = (existing as any).preferences || {};
       data.preferences = { ...current, ...dto.preferences };
+    }
+    // birthday: 前端传 ISO 日期字符串（"YYYY-MM-DD"）或 null / 空串清除。
+    if (dto.birthday !== undefined) {
+      if (dto.birthday === null || dto.birthday === '') {
+        data.birthday = null;
+      } else if (typeof dto.birthday === 'string') {
+        const parsed = new Date(dto.birthday);
+        data.birthday = isNaN(parsed.getTime()) ? null : parsed;
+      }
     }
 
     return this.prisma.user.update({
