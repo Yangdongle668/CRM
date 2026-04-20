@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleInit,
+  OnModuleDestroy,
+} from '@nestjs/common';
 
 export interface RatesPayload {
   base: string;
@@ -8,70 +13,88 @@ export interface RatesPayload {
 }
 
 /**
- * Primary: 中国银行外汇牌价 (https://www.boc.cn/sourcedb/whpj/).
+ * 汇率 —— 只用中国银行外汇牌价 (https://www.boc.cn/sourcedb/whpj/)。
+ * 使用"现汇买入价"：外贸出口商把美元/欧元结算回人民币时银行执行的价格。
  *
- * 为什么用中行：
- * - 国内官方数据，银行实际换汇参考；
- * - 无需 API Key、无次数封顶、国内访问稳定；
- * - 使用"现汇买入价"：银行从客户手里买入外汇（电汇结汇）时执行的价格，
- *   也就是外贸出口商把美元/欧元结算回人民币时真实拿到的汇率。
- *
- * Fallback: open.er-api.com (keyless, ~hourly).
+ * 行为特点：后端**主动轮询**，不靠请求触发。
+ *   - 启动后立即拉一次；
+ *   - 成功 → 把结果缓存起来，15 分钟后再拉下一次；
+ *   - 失败 → 30s、1m、2m、4m、5m（上限）指数退避继续重试，
+ *            直到拿到数据才进入 15 分钟刷新周期。
+ *   - GET /api/rates 只读内存缓存，不阻塞等上游。
  */
 @Injectable()
-export class RatesService {
+export class RatesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RatesService.name);
 
+  private readonly SUCCESS_INTERVAL = 15 * 60 * 1000; // 15 分钟
+  private readonly BACKOFF_MS = [30_000, 60_000, 120_000, 240_000, 300_000];
+
   private cache: RatesPayload | null = null;
-  private cacheTime = 0;
-  // 中行无次数封顶；牌价本身一天内会多次更新（交易时段每几分钟），
-  // 15 分钟缓存足够新鲜，也避免频繁抓取中行页面。
-  private readonly TTL = 15 * 60 * 1000;
+  private consecutiveFailures = 0;
+  private timer: NodeJS.Timeout | null = null;
+  private stopped = false;
 
+  onModuleInit() {
+    // 启动后立刻拉一次；不 await，避免卡住 Nest 启动。
+    void this.runPoll();
+  }
+
+  onModuleDestroy() {
+    this.stopped = true;
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  /** API 层：只返回内存缓存或占位值，不发网络。 */
   async getRates(): Promise<RatesPayload> {
-    const now = Date.now();
-    if (this.cache && now - this.cacheTime < this.TTL) {
-      return this.cache;
-    }
-
-    // 1) 主：中国银行外汇牌价
-    try {
-      const payload = await this.fetchBocRates(now);
-      this.cache = payload;
-      this.cacheTime = now;
-      return payload;
-    } catch (err: any) {
-      this.logger.warn(`BOC rates failed: ${err.message}. Trying fallback.`);
-    }
-
-    // 2) 备：open.er-api.com
-    try {
-      const payload = await this.fetchFallbackRates(now);
-      this.cache = payload;
-      this.cacheTime = now;
-      return payload;
-    } catch (err: any) {
-      this.logger.warn(`Fallback rates failed: ${err.message}.`);
-    }
-
-    // 3) 最后兜底：上次缓存或 0 值，保证 UI 不崩
     if (this.cache) return this.cache;
+    // 还没拿到过 → 返回 0 占位；前端看到 USD_CNY=0 会自动隐藏汇率条。
     return {
       base: 'USD',
-      source: 'none',
-      updatedAt: new Date(now).toISOString(),
+      source: 'loading',
+      updatedAt: new Date().toISOString(),
       rates: { USD_CNY: 0, EUR_CNY: 0, EUR_USD: 0 },
     };
   }
 
+  private scheduleNext(delayMs: number) {
+    if (this.stopped) return;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.runPoll(), delayMs);
+  }
+
+  private async runPoll() {
+    if (this.stopped) return;
+    try {
+      const payload = await this.fetchBocRates(Date.now());
+      this.cache = payload;
+      this.consecutiveFailures = 0;
+      this.logger.log(
+        `BOC rates updated: USD=${payload.rates.USD_CNY} EUR=${payload.rates.EUR_CNY}`,
+      );
+      this.scheduleNext(this.SUCCESS_INTERVAL);
+    } catch (err: any) {
+      const failIdx = Math.min(
+        this.consecutiveFailures,
+        this.BACKOFF_MS.length - 1,
+      );
+      const delay = this.BACKOFF_MS[failIdx];
+      this.consecutiveFailures++;
+      this.logger.warn(
+        `BOC rates fetch failed (attempt ${this.consecutiveFailures}): ${err?.message}. Retrying in ${delay / 1000}s.`,
+      );
+      this.scheduleNext(delay);
+    }
+  }
+
   /**
-   * 抓取中国银行外汇牌价页面并解析"中行折算价"。
-   * 中行牌价展示的是 100 单位外币兑换人民币的金额，需除以 100。
+   * 抓取中行页面并解析"现汇买入价"。
+   * 中行牌价表格一行是 100 单位外币兑换人民币的金额，所以除以 100。
    */
   private async fetchBocRates(now: number): Promise<RatesPayload> {
     const res = await fetch('https://www.boc.cn/sourcedb/whpj/', {
       headers: {
-        // 某些情况下中行会根据 UA 返回不同编码/布局
+        // 某些情况下中行根据 UA 返回不同编码/布局
         'User-Agent':
           'Mozilla/5.0 (compatible; TradeCRM/1.0; +https://example.com)',
         Accept: 'text/html,application/xhtml+xml',
@@ -80,13 +103,13 @@ export class RatesService {
     if (!res.ok) throw new Error(`boc http ${res.status}`);
 
     const buf = Buffer.from(await res.arrayBuffer());
-    // 中行页面目前是 UTF-8；若未来切回 GBK，TextDecoder('gbk') 在 Node 18+ 可用。
+    // 中行页面现在是 UTF-8；若未来切回 GBK，TextDecoder('gbk') 在 Node 18+ 可用。
     let html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     if (!html.includes('美元')) {
       try {
         html = new TextDecoder('gbk' as any, { fatal: false }).decode(buf);
       } catch {
-        // ignore: 解码失败会在下方抛错
+        /* ignore, 下面解析会抛 */
       }
     }
 
@@ -113,8 +136,7 @@ export class RatesService {
   /**
    * 中行牌价表格某一行的列顺序：
    * 货币名称 | 现汇买入价 | 现钞买入价 | 现汇卖出价 | 现钞卖出价 | 中行折算价 | 发布时间
-   * 返回"现汇买入价"（索引 0，去掉名称列后）—— 银行从客户手里买入外汇的价格，
-   * 也就是外贸出口商把美元/欧元结算回人民币时真实拿到的汇率。
+   * 返回"现汇买入价"（索引 0，去掉名称列后）。
    */
   private extractBocRow(html: string, currency: string): number | null {
     const rowRe = new RegExp(
@@ -128,26 +150,5 @@ export class RatesService {
     );
     const buyPrice = parseFloat(cells[0]);
     return Number.isFinite(buyPrice) && buyPrice > 0 ? buyPrice : null;
-  }
-
-  private async fetchFallbackRates(now: number): Promise<RatesPayload> {
-    const res = await fetch('https://open.er-api.com/v6/latest/USD');
-    if (!res.ok) throw new Error(`er-api http ${res.status}`);
-    const data: any = await res.json();
-    const cny = data?.rates?.CNY;
-    const eur = data?.rates?.EUR;
-    if (typeof cny !== 'number' || typeof eur !== 'number') {
-      throw new Error('er-api invalid payload');
-    }
-    return {
-      base: 'USD',
-      source: 'open.er-api.com',
-      updatedAt: new Date(now).toISOString(),
-      rates: {
-        USD_CNY: Number(cny.toFixed(4)),
-        EUR_CNY: Number((cny / eur).toFixed(4)),
-        EUR_USD: Number((1 / eur).toFixed(4)),
-      },
-    };
   }
 }

@@ -12,7 +12,7 @@ interface RatesData {
 
 const SOURCE_LABEL: Record<string, string> = {
   BOC: '中国银行外汇牌价',
-  'open.er-api.com': 'open.er-api.com',
+  loading: '加载中',
 };
 
 export default function ExchangeRates() {

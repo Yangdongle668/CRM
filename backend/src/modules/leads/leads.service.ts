@@ -65,6 +65,9 @@ export class LeadsService {
           { isPublicPool: true },
           { ownerId: null },
         ];
+      } else if (ownerId) {
+        // ADMIN 可在 scope=all 下再按负责人过滤
+        where.ownerId = ownerId;
       }
     } else {
       // Default (no scope specified): SALESPERSON sees only own leads + public pool

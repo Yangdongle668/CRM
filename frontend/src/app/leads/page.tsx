@@ -89,6 +89,8 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [scope, setScope] = useState<'mine' | 'pool' | 'all'>('mine');
   const [stage, setStage] = useState('');
+  // 管理员专属：按负责人筛选（scope=all 时生效）
+  const [ownerFilter, setOwnerFilter] = useState<string>('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [form, setForm] = useState<LeadFormData>(emptyForm);
@@ -125,6 +127,10 @@ export default function LeadsPage() {
       const params: Record<string, any> = { page, pageSize, scope };
       if (search) params.search = search;
       if (stage) params.stage = stage;
+      // 后端只在 ADMIN + scope=all 时接受 ownerId；销售员角色就算传了也会被忽略。
+      if (user?.role === 'ADMIN' && scope === 'all' && ownerFilter) {
+        params.ownerId = ownerFilter;
+      }
       const res: any = await leadsApi.list(params);
       setLeads(res.data.items);
       setTotal(res.data.total);
@@ -133,7 +139,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, scope, stage]);
+  }, [page, pageSize, search, scope, stage, ownerFilter, user?.role]);
 
   useEffect(() => {
     fetchLeads();
@@ -454,12 +460,32 @@ export default function LeadsPage() {
               ))}
             </select>
 
+            {/* Owner filter — 仅管理员；只在 scope=all 下使用，"我的线索"本来就过滤成自己了 */}
+            {user?.role === 'ADMIN' && scope === 'all' && (
+              <select
+                value={ownerFilter}
+                onChange={(e) => {
+                  setOwnerFilter(e.target.value);
+                  setPage(1);
+                }}
+                className="px-3 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">全部负责人</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            )}
+
             {/* Clear button */}
             <button
               onClick={() => {
                 setSearch('');
                 setScope('mine');
                 setStage('');
+                setOwnerFilter('');
                 setPage(1);
               }}
               className="px-3 py-1 bg-gray-100 text-gray-700 rounded text-sm hover:bg-gray-200"
