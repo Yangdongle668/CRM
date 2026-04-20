@@ -6,6 +6,7 @@ import { MyFollowUpsWidget } from './widgets/MyFollowUpsWidget';
 import { TeamFollowUpsWidget } from './widgets/TeamFollowUpsWidget';
 import { RankingsWidget } from './widgets/RankingsWidget';
 import { TasksWidget } from './widgets/TasksWidget';
+import { HolidayCountdownWidget } from './widgets/HolidayCountdownWidget';
 import type { GridItem, SavedLayout, WidgetDef } from './types';
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -86,6 +87,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minW: 3,
     minH: 3,
   },
+  {
+    id: 'holiday-countdown',
+    title: '节日提醒',
+    component: HolidayCountdownWidget,
+    defaultW: 6,
+    defaultH: 5,
+    minW: 3,
+    minH: 3,
+  },
 ];
 
 /** Build default layout positions for a given set of widget IDs (top-to-bottom, auto-packing). */
@@ -122,8 +132,9 @@ export const DEFAULT_LAYOUT_ADMIN: SavedLayout = buildLayout([
   'memos',
   'my-followups',
   'team-followups',
-  'rankings',
+  'holiday-countdown',
   'tasks',
+  'rankings',
 ]);
 
 export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
@@ -132,11 +143,13 @@ export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
   'funnel',
   'memos',
   'my-followups',
+  'holiday-countdown',
   'tasks',
 ]);
 
 export const DEFAULT_LAYOUT_FINANCE: SavedLayout = buildLayout([
   'stats',
+  'holiday-countdown',
   'tasks',
 ]);
 

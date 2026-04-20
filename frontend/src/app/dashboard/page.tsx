@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import dynamic from 'next/dynamic';
 import AppLayout from '@/components/layout/AppLayout';
-import WeatherCard from '@/components/ui/WeatherCard';
+import WelcomeBanner from '@/components/dashboard/WelcomeBanner';
 import { dashboardApi, tasksApi, memosApi, followUpsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { DashboardData } from '@/components/dashboard/types';
@@ -92,14 +92,7 @@ export default function DashboardPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        {/* Page header */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">仪表盘</h1>
-            <p className="text-gray-500 mt-1">欢迎回来，{user?.name || '用户'}</p>
-          </div>
-          <WeatherCard />
-        </div>
+        <WelcomeBanner userName={user?.name} />
 
         {loading ? (
           <div className="flex items-center justify-center h-64">
