@@ -1,5 +1,4 @@
 import { PrismaClient } from '@prisma/client';
-import { seedHolidays } from './seed-holidays';
 
 const prisma = new PrismaClient();
 
@@ -53,8 +52,6 @@ async function main() {
   } else {
     console.log('邮件模板已存在，跳过');
   }
-
-  await seedHolidays(prisma);
 
   console.log('数据初始化完成！');
   console.log('---');

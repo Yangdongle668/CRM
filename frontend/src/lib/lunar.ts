@@ -65,6 +65,41 @@ function monthDays(y: number, m: number): number {
   return (LUNAR_INFO[y - 1900] & (0x10000 >> m)) ? 30 : 29;
 }
 
+/**
+ * 农历 → 公历。给定农历年/月/日（可指定闰月），返回对应公历日期的 YYYY-MM-DD。
+ * 用于算春节 / 端午 / 中秋等农历节日落在哪一天。
+ */
+export function lunar2solar(
+  lYear: number,
+  lMonth: number,
+  lDay: number,
+  isLeap = false,
+): string | null {
+  if (lYear < 1900 || lYear > 2100) return null;
+
+  let offsetDays = 0;
+  for (let y = 1900; y < lYear; y++) offsetDays += lYearDays(y);
+
+  const leap = leapMonth(lYear);
+  // 一直累加到目标月前
+  for (let m = 1; m < lMonth; m++) {
+    offsetDays += monthDays(lYear, m);
+    // 当月之后如果紧跟闰月，把闰月天数也加进来
+    if (m === leap) offsetDays += leapDays(lYear);
+  }
+  // 如果要求的是本月的闰版本，那还要再加一个本月的天数（跳过常规月）
+  if (isLeap && lMonth === leap) offsetDays += monthDays(lYear, lMonth);
+
+  offsetDays += lDay - 1;
+
+  const ms = Date.UTC(1900, 0, 31) + offsetDays * 86400000;
+  const d = new Date(ms);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+
 export function formatLunarDay(day: number): string {
   if (day === 10) return '初十';
   if (day === 20) return '二十';

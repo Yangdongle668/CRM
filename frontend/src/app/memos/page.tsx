@@ -4,9 +4,10 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
-import { memosApi, holidaysApi } from '@/lib/api';
-import type { Memo, Holiday } from '@/types';
+import { memosApi } from '@/lib/api';
+import type { Memo } from '@/types';
 import { solar2lunar, getSolarTerm } from '@/lib/lunar';
+import { getHolidayMap, type ComputedHoliday } from '@/lib/holidays';
 import {
   HiOutlinePlus,
   HiOutlineTrash,
@@ -56,7 +57,6 @@ const HOLIDAY_STYLE: Record<string, { text: string; dot: string; bg: string; lab
   INTL: { text: 'text-indigo-600', dot: 'bg-indigo-500', bg: 'bg-indigo-50', label: '国际节日' },
   EU: { text: 'text-sky-600', dot: 'bg-sky-500', bg: 'bg-sky-50', label: '欧洲节日' },
   IN: { text: 'text-orange-600', dot: 'bg-orange-500', bg: 'bg-orange-50', label: '印度节日' },
-  OBS: { text: 'text-purple-600', dot: 'bg-purple-500', bg: 'bg-purple-50', label: '休假高峰' },
 };
 
 export default function MemosPage() {
@@ -66,7 +66,6 @@ export default function MemosPage() {
   const [selectedDate, setSelectedDate] = useState<string>(formatDate(today));
   const [memos, setMemos] = useState<Memo[]>([]);
   const [monthMemos, setMonthMemos] = useState<Memo[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Modal state
@@ -91,26 +90,9 @@ export default function MemosPage() {
     }
   }, [currentYear, currentMonth]);
 
-  // Holidays are fetched per year and cached. Re-fetch whenever the visible
-  // year changes so admins who push new-year data see it without a reload.
-  const fetchHolidays = useCallback(async () => {
-    try {
-      const res: any = await holidaysApi.list({ year: currentYear });
-      const data = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
-      setHolidays(data);
-    } catch {
-      // Not fatal — calendar still renders without holiday decorations.
-      setHolidays([]);
-    }
-  }, [currentYear]);
-
   useEffect(() => {
     fetchMonthMemos();
   }, [fetchMonthMemos]);
-
-  useEffect(() => {
-    fetchHolidays();
-  }, [fetchHolidays]);
 
   // Filter memos for selected date
   useEffect(() => {
@@ -121,17 +103,18 @@ export default function MemosPage() {
     setMemos(dayMemos);
   }, [selectedDate, monthMemos]);
 
-  // Build date → holiday[] map for O(1) cell lookup
+  // 本地算当年 + 邻年的节假日，切月份时跨年也能拿到数据
   const holidayMap = useMemo(() => {
-    const m = new Map<string, Holiday[]>();
-    for (const h of holidays) {
-      const key = h.date.slice(0, 10);
-      const arr = m.get(key) ?? [];
-      arr.push(h);
-      m.set(key, arr);
+    const map = new Map<string, ComputedHoliday[]>();
+    for (const y of [currentYear - 1, currentYear, currentYear + 1]) {
+      for (const [date, arr] of getHolidayMap(y)) {
+        const existing = map.get(date);
+        if (existing) existing.push(...arr);
+        else map.set(date, [...arr]);
+      }
     }
-    return m;
-  }, [holidays]);
+    return map;
+  }, [currentYear]);
 
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
@@ -312,7 +295,7 @@ export default function MemosPage() {
                 const lunar = solar2lunar(dt);
                 const solarTerm = getSolarTerm(dt);
                 const cellHolidays = holidayMap.get(dateStr) ?? [];
-                // Priority: CN (legal) > CN_TRAD > INTL > EU > IN > OBS
+                // Priority: CN (legal) > CN_TRAD > INTL > EU > IN
                 const primaryHoliday =
                   cellHolidays.find((h) => h.type === 'CN') ??
                   cellHolidays.find((h) => h.type === 'CN_TRAD') ??
@@ -402,9 +385,6 @@ export default function MemosPage() {
                 <span className="w-2 h-2 rounded-full bg-orange-500" /> 印度节日
               </span>
               <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-purple-500" /> 休假高峰
-              </span>
-              <span className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500" /> 节气
               </span>
               <span className="flex items-center gap-1.5">
@@ -446,11 +426,11 @@ export default function MemosPage() {
               {/* Holiday tags */}
               {selectedHolidays.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {selectedHolidays.map((h) => {
+                  {selectedHolidays.map((h, i) => {
                     const style = HOLIDAY_STYLE[h.type];
                     return (
                       <span
-                        key={h.id}
+                        key={`${h.date}-${h.name}-${i}`}
                         title={h.nameEn || h.note || ''}
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${style?.bg ?? 'bg-gray-50'} ${style?.text ?? 'text-gray-600'}`}
                       >

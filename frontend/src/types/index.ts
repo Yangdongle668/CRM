@@ -378,22 +378,6 @@ export interface Memo {
   updatedAt: string;
 }
 
-// ==================== 节假日 ====================
-export type HolidayType = 'CN' | 'CN_TRAD' | 'INTL' | 'EU' | 'IN' | 'OBS';
-
-export interface Holiday {
-  id: string;
-  year: number;
-  date: string; // ISO date
-  name: string;
-  nameEn?: string;
-  type: HolidayType;
-  isOff: boolean;
-  lunar: boolean;
-  note?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 // ==================== 仪表盘 ====================
 export interface DashboardStats {
