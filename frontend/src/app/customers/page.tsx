@@ -11,7 +11,8 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
 import { customersApi } from '@/lib/api';
 import { useInfiniteList } from '@/lib/useInfiniteList';
-import { CUSTOMER_STATUS_MAP, CUSTOMER_SOURCES, INDUSTRIES, COUNTRIES } from '@/lib/constants';
+import { CUSTOMER_STATUS_MAP, CUSTOMER_SOURCES, INDUSTRIES } from '@/lib/constants';
+import CountrySelect from '@/components/ui/CountrySelect';
 import type { Customer, CustomerStatus, PaginatedData } from '@/types';
 
 const initialForm = {
@@ -174,22 +175,16 @@ export default function CustomersPage() {
               </option>
             ))}
           </select>
-          <select
-            value={countryFilter}
-            onChange={(e) => {
-              const v = e.target.value;
-              setCountryFilter(v);
-              setAppliedQuery((q) => ({ ...q, country: v }));
-            }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          >
-            <option value="">全部国家</option>
-            {COUNTRIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <div className="w-48">
+            <CountrySelect
+              value={countryFilter}
+              onChange={(v) => {
+                setCountryFilter(v);
+                setAppliedQuery((q) => ({ ...q, country: v }));
+              }}
+              placeholder="全部国家"
+            />
+          </div>
         </div>
 
         {/* Virtualized table: header + windowed body + infinite scroll. */}
@@ -300,16 +295,10 @@ export default function CustomersPage() {
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">国家</label>
-              <select
+              <CountrySelect
                 value={form.country}
-                onChange={(e) => updateField('country', e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-              >
-                <option value="">请选择</option>
-                {COUNTRIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                onChange={(v) => updateField('country', v)}
+              />
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">行业</label>
