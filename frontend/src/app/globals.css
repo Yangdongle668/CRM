@@ -123,3 +123,22 @@
 .animate-scale-in {
   animation: scaleIn 0.2s ease-out;
 }
+
+/* react-grid-layout overrides —— 拖拽占位和调整手柄跟整体视觉一致 */
+.react-grid-item.react-grid-placeholder {
+  background: rgb(59 130 246 / 0.15) !important;
+  border: 2px dashed rgb(59 130 246 / 0.5);
+  border-radius: 12px;
+  opacity: 1 !important;
+  transition-duration: 100ms;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-right-color: rgb(107 114 128);
+  border-bottom-color: rgb(107 114 128);
+}
+
+.react-grid-item.react-draggable-dragging {
+  z-index: 20;
+  opacity: 0.92;
+}
