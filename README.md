@@ -1167,3 +1167,401 @@ PUT    /settings/company-info     # 更新公司信息
 POST   /translate                 # 文本翻译（body: {segments:[{index,text}], target:"zh-CN"}）
 GET    /weather                   # 天气查询（?city=北京）
 ```
+
+---
+
+## 角色权限
+
+### 内置角色
+
+| 角色 | 代码 | 权限范围 |
+|------|------|---------|
+| 管理员 | `ADMIN` | 通配符 `*`，拥有全部权限；可管理用户、系统参数、数据备份、RBAC、审计日志 |
+| 业务员 | `SALESPERSON` | 全部业务模块读写（客户/线索/报价/PI/订单/任务/邮件/文件）；数据隔离：只能看自己负责的客户和订单 |
+| 财务人员 | `FINANCE` | **只读**所有订单和报价；无法创建/修改/删除业务数据；可编辑自己的个人资料 |
+
+### 细粒度权限码
+
+```
+# 用户
+user:read / user:create / user:update / user:delete
+
+# 客户
+customer:read / customer:create / customer:update / customer:delete / customer:assign
+
+# 线索
+lead:read / lead:create / lead:update / lead:delete / lead:assign
+
+# 报价
+quotation:read / quotation:create / quotation:update / quotation:delete / quotation:send
+
+# 形式发票
+pi:read / pi:create / pi:update / pi:delete / pi:approve
+
+# 订单
+order:read / order:create / order:update / order:delete / order:status / order:payment
+
+# 邮件
+email:read / email:send / email:delete / email:config
+
+# 任务
+task:read / task:create / task:update / task:delete
+
+# 活动 / 文件 / 跟进
+activity:read / activity:create
+document:read / document:upload / document:delete
+followup:read / followup:create / followup:update
+
+# 系统管理
+settings:read / settings:update
+backup:export / backup:import
+rbac:read / rbac:update
+audit:read
+```
+
+### 权限实现机制
+
+```
+请求 → JwtAuthGuard（验证 JWT）
+      → PermissionsGuard（加载角色权限，检查 @RequirePermissions 装饰器）
+      → RolesGuard（检查 @Roles 装饰器，硬编码角色限制）
+      → Controller 方法
+```
+
+- ADMIN 角色持有 `*` 通配符，`hasPermission('*', 'customer:delete')` 返回 true
+- 自定义角色从 `RolePermission` 表动态加载权限列表
+- `@Public()` 装饰器标记的路由跳过所有鉴权（如追踪像素、Logo 接口）
+- 用户删除时所有关联数据（客户/线索/订单）自动转移给超级管理员
+
+### 个人资料（所有角色可操作）
+
+所有用户均可自助修改：头像、手机号、个性签名（bio）、密码；姓名和角色字段只读（需管理员修改）。
+
+---
+
+## 快速部署
+
+### 前置要求
+
+- Linux 服务器（Ubuntu 20.04+ / CentOS 7+ / Debian 10+）
+- 内存 2GB+，磁盘 20GB+
+- Docker & Docker Compose（deploy.sh 可自动安装）
+
+### 一键部署
+
+```bash
+git clone https://github.com/Yangdongle668/CRM && cd CRM
+chmod +x deploy.sh
+./deploy.sh
+```
+
+脚本自动完成以下步骤：
+1. 检测并安装 Docker / Docker Compose
+2. 生成随机数据库密码（20位）和 JWT 密钥（40位）
+3. 创建 `.env` 配置文件
+4. 构建全部镜像（backend / frontend / nginx）
+5. 启动所有容器（postgres → redis → backend → frontend → nginx）
+6. 执行数据库迁移（`prisma migrate deploy`）
+7. 打印访问地址
+
+访问 `http://<服务器IP>` 进入系统，首次注册的用户自动成为超级管理员。
+
+### 升级
+
+```bash
+./deploy.sh upgrade
+# 自动：git pull → 重新构建镜像 → 执行新迁移 → 重启容器
+```
+
+### 其他操作
+
+```bash
+./deploy.sh dev      # 本地开发模式（仅启动 pg + redis，本地跑前后端）
+./deploy.sh stop     # 停止所有容器
+./deploy.sh restart  # 重启所有容器
+./deploy.sh logs     # 查看容器日志
+./deploy.sh reset    # 危险：销毁所有数据（--volumes + 删除 .env）
+```
+
+### Docker Compose 服务
+
+| 服务 | 镜像 | 端口 | 说明 |
+|------|------|------|------|
+| postgres | postgres:16 | 5432 | 主数据库，volume 持久化，health check |
+| redis | redis:7 | 6379 | 队列 + 缓存，volume 持久化 |
+| backend | 本地构建 | 3001 | NestJS API，depends on postgres+redis |
+| frontend | 本地构建 | 3000 | Next.js，depends on backend |
+| nginx | nginx:alpine | 80 / 443 | SSL 终止 + 反向代理，client_max_body_size 200M |
+
+---
+
+## 本地开发
+
+### 前置条件
+
+- Node.js 18+ / npm 9+
+- PostgreSQL 16
+- Redis 7
+
+### 后端
+
+```bash
+cd backend
+npm install
+
+# 首次初始化数据库
+npx prisma migrate dev
+npx prisma generate
+
+# 启动（热重载，:3001）
+npm run start:dev
+
+# Swagger 文档
+open http://localhost:3001/api-docs
+```
+
+### 前端
+
+```bash
+cd frontend
+npm install
+
+# 启动开发服务器（:3000）
+npm run dev
+```
+
+### 生产构建
+
+```bash
+# 后端
+cd backend && npm run build && npm run start:prod
+
+# 前端
+cd frontend && npm run build && npm start
+```
+
+---
+
+## 环境变量
+
+### `backend/.env`
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `DATABASE_URL` | PostgreSQL 连接串 | `postgresql://crm_user:pass@localhost:5432/trade_crm` |
+| `REDIS_HOST` | Redis 主机 | `localhost` |
+| `REDIS_PORT` | Redis 端口 | `6379` |
+| `JWT_SECRET` | JWT 签名密钥（务必保密） | 40 位随机字符串 |
+| `JWT_EXPIRES_IN` | Token 有效期 | `7d` |
+| `PORT` | 后端监听端口 | `3001` |
+| `NODE_ENV` | 运行环境 | `production` |
+| `APP_URL` | 对外访问地址（邮件追踪像素用） | `https://crm.example.com` |
+| `UPLOAD_DIR` | 文件上传目录 | `./uploads` |
+| `EMAIL_TRACKING_SECRET` | 追踪链接 HMAC 签名密钥 | 随机字符串 |
+| `CORS_ORIGIN` | 允许的跨域来源 | `http://localhost:3000` |
+
+### 根目录 `.env`（Docker Compose 用）
+
+| 变量 | 说明 |
+|------|------|
+| `POSTGRES_USER` | 数据库用户名（默认 `crm_user`）|
+| `POSTGRES_PASSWORD` | 数据库密码（deploy.sh 自动生成）|
+| `POSTGRES_DB` | 数据库名（默认 `trade_crm`）|
+| `JWT_SECRET` | JWT 密钥（deploy.sh 自动生成）|
+| `FRONTEND_PORT` | 前端端口（默认 3000）|
+| `BACKEND_PORT` | 后端端口（默认 3001）|
+| `NGINX_PORT` | Nginx HTTP 端口（默认 80）|
+
+---
+
+## 目录结构
+
+```
+CRM/
+├── backend/
+│   ├── src/
+│   │   ├── modules/                  # 业务模块（每个模块含 controller / service / dto / module）
+│   │   │   ├── auth/                 # JWT 认证、登录、注册、系统初始化检测
+│   │   │   ├── users/                # 用户管理、头像上传、超管转移
+│   │   │   ├── customers/            # 客户档案、域名邮件关联、沉睡检测
+│   │   │   ├── contacts/             # 联系人
+│   │   │   ├── leads/                # 线索全生命周期、公海池、批量操作、CSV 导入导出
+│   │   │   ├── follow-ups/           # 邮件跟进任务、自动触发/关闭
+│   │   │   ├── quotations/           # 报价单、PDF 生成、邮件发送
+│   │   │   ├── pis/                  # 形式发票、审批流、PDF 生成下载
+│   │   │   ├── orders/               # 订单、双状态管理、价格审计
+│   │   │   ├── emails/               # 多账户邮件、IMAP 同步、追踪像素、群发活动
+│   │   │   ├── tasks/                # 任务管理、优先级、指派
+│   │   │   ├── activities/           # 客户时间线、13 种活动类型
+│   │   │   ├── messages/             # 团队即时消息、WebSocket 网关
+│   │   │   ├── documents/            # 文件上传下载
+│   │   │   ├── memos/                # 个人备忘录
+│   │   │   ├── dashboard/            # 仪表盘统计、图表数据
+│   │   │   ├── settings/             # 系统参数、Logo、公司信息、银行账户、PI 模板
+│   │   │   ├── permissions/          # RBAC 角色权限管理
+│   │   │   ├── audit/                # 审计日志查询
+│   │   │   ├── backup/               # 数据备份导出/导入
+│   │   │   ├── rates/                # 实时汇率轮询缓存
+│   │   │   ├── translate/            # 文本翻译
+│   │   │   └── weather/              # 天气查询
+│   │   ├── common/
+│   │   │   ├── guards/               # JwtAuthGuard / RolesGuard / PermissionsGuard
+│   │   │   ├── decorators/           # @CurrentUser / @Public / @Roles / @RequirePermissions
+│   │   │   ├── permissions/          # PermissionsService（权限加载与校验）
+│   │   │   ├── filters/              # HttpExceptionFilter（全局错误格式化）
+│   │   │   ├── interceptors/         # TransformInterceptor（统一响应封装）
+│   │   │   └── pipes/                # ValidationPipe（DTO 自动校验）
+│   │   ├── queue/                    # BullMQ 队列定义（email / pdf / backup）
+│   │   ├── prisma/                   # PrismaService
+│   │   └── main.ts                   # 应用入口，全局中间件注册
+│   ├── prisma/
+│   │   ├── schema.prisma             # 30+ 模型定义
+│   │   └── migrations/               # 所有迁移文件（按时间戳命名）
+│   └── uploads/                      # 上传文件存储（头像 / Logo / 附件）
+│
+├── frontend/
+│   └── src/
+│       ├── app/                      # Next.js 14 App Router 页面
+│       │   ├── (auth)/login/         # 登录页
+│       │   ├── dashboard/            # 仪表盘
+│       │   ├── customers/            # 客户列表 + [id] 详情
+│       │   ├── contacts/             # 联系人
+│       │   ├── leads/                # 线索管理
+│       │   ├── follow-ups/           # 跟进任务
+│       │   ├── quotations/           # 报价单
+│       │   ├── pis/                  # 形式发票 + [id] 详情
+│       │   ├── orders/               # 订单管理
+│       │   ├── emails/               # 邮件中心
+│       │   ├── tasks/                # 任务管理
+│       │   ├── messages/             # 团队消息
+│       │   ├── documents/            # 文件管理
+│       │   ├── memos/                # 备忘录
+│       │   ├── settings/             # 系统设置
+│       │   └── admin/
+│       │       ├── rbac/             # 角色权限管理
+│       │       └── audit-logs/       # 审计日志
+│       ├── components/               # 可复用组件（Sidebar / Modal / Pagination / 邮件 UI 等）
+│       ├── contexts/                 # AuthContext / LogoContext
+│       ├── lib/                      # API 客户端（axios 封装）/ constants
+│       └── types/                    # TypeScript 类型定义
+│
+├── nginx/
+│   └── nginx.conf                    # 反向代理配置（HTTP→HTTPS 重定向、路由规则、gzip、安全头）
+├── docker-compose.yml                # 五服务编排
+├── deploy.sh                         # 一键部署/升级/重置脚本
+└── README.md
+```
+
+---
+
+## 常用运维命令
+
+```bash
+# 查看实时日志
+docker compose logs -f backend
+docker compose logs -f frontend
+docker compose logs -f nginx
+
+# 进入数据库交互
+docker compose exec postgres psql -U crm_user -d trade_crm
+
+# 手动执行数据库迁移
+docker compose exec backend npx prisma migrate deploy
+
+# 查看 Prisma Studio（数据库可视化）
+docker compose exec backend npx prisma studio
+
+# 重启单个服务
+docker compose restart backend
+docker compose restart frontend
+
+# 完全重新构建（不丢数据）
+docker compose down
+docker compose up -d --build
+
+# 查看容器状态
+docker compose ps
+
+# 查看磁盘占用
+docker system df
+
+# 清理无用镜像
+docker image prune -f
+```
+
+---
+
+## 优化方向
+
+以下按优先级和性价比排序，供后续迭代参考。
+
+### 高优先级 ⭐⭐⭐
+
+1. **文件存储迁移到对象存储**
+   - 当前头像、Logo、附件全部存本地 `uploads/`，多实例部署时无法共享，备份不便
+   - 接入 S3 兼容存储（阿里云 OSS / MinIO / AWS S3），使用预签名 URL 直传直下
+   - 顺便加图片压缩和 CDN 加速
+
+2. **完善测试覆盖**
+   - 目前无单元测试和 E2E 测试，核心业务逻辑缺乏保障
+   - 添加 Jest 单测覆盖 `*.service.ts`（订单创建、权限校验、邮件追踪计算等）
+   - 用 Playwright 做关键路径 E2E（登录 → 创建订单 → 发邮件 → 查看追踪）
+
+3. **全文搜索**
+   - 当前搜索基于 `ILIKE`，客户/订单/邮件量大时性能下降明显
+   - 接入 PostgreSQL `tsvector` + `tsquery`，或引入 MeiliSearch
+   - 支持跨模块全局搜索（客户 + 线索 + 邮件 + 订单一框搜索）
+
+4. **API 限流与安全加固**
+   - 登录接口缺乏暴力破解防护，接入 `@nestjs/throttler` 限流
+   - HTTPS 强制 + Let's Encrypt 自动续签脚本
+   - 安全响应头完善（CSP / HSTS 已有，继续补充）
+   - 文件上传增加 MIME 校验防止伪造
+
+### 中优先级 ⭐⭐
+
+5. **前端性能优化**
+   - 客户/订单大列表用 `react-window` 虚拟滚动
+   - 客户详情时间线改为无限滚动或分页（活动记录膨胀后页面卡顿）
+   - 邮件列表正文懒加载（IntersectionObserver）
+   - Next.js `<Image>` 组件统一替换 `<img>`
+
+6. **数据库性能优化**
+   - `Email`、`Activity`、`AuditLog`、`Message` 表随时间线性膨胀
+   - 增加按月分区或定期归档机制
+   - 为高频查询补充复合索引（`customerId + createdAt`、`ownerId + status` 等）
+
+7. **邮件模板引擎化**
+   - 当前模板为纯文本 + 简单变量替换
+   - 升级为 Handlebars/MJML，支持条件判断、列表渲染、响应式 HTML 邮件
+   - 模板变量自动从客户/联系人资料提取（称呼、公司名、国家）
+
+8. **CI/CD 流水线**
+   - GitHub Actions 实现：代码提交 → Lint → 测试 → 构建 Docker 镜像 → 推送镜像仓库
+   - 服务器端 Webhook 自动拉取新镜像、滚动重启（蓝绿部署）
+
+### 低优先级 ⭐
+
+9. **移动端适配** — 当前响应式仅满足大屏，手机访问体验差，适配 iPad / 手机布局
+10. **多语言 i18n** — 引入 `next-intl`，支持中英文界面切换（外贸场景海外同事演示需要）
+11. **数据可视化增强** — 销售漏斗、客户地图分布、邮件打开率趋势、按国家/季度统计报表
+12. **系统监控** — 接入 Prometheus + Grafana 监控 API 响应时间/错误率，Sentry 收集异常
+13. **数据库主从备份** — 目前仅 JSON 快照，补充 PostgreSQL WAL 归档或定时 pg_dump
+
+### 产品层面 💡
+
+| 功能 | 说明 |
+|------|------|
+| 客户标签系统 | 自定义标签，快速筛选潜在客户 |
+| 邮件合并发送 | 批量群发，每封邮件填入不同变量（称呼、产品等）|
+| 客户跟进提醒 | 超过 N 天未联系自动提醒业务员（结合现有 FollowUp 模块扩展）|
+| 展会/询盘管理 | 从广交会、阿里国际站等渠道导入询盘数据 |
+| 多币种统计 | 订单金额统一换算到基准货币（结合实时汇率）|
+| 佣金/提成计算 | 按订单 `totalAmount` 和 `floorPrice` 自动计算业务员提成 |
+| 客户满意度 | 订单完成后自动发送满意度调查邮件 |
+
+---
+
+## License
+
+Private project. All rights reserved.
