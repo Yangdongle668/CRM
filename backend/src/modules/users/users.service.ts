@@ -92,15 +92,12 @@ export class UsersService {
     const data: any = { ...dto };
     // The super-admin flag is never set via the public update endpoint.
     delete data.isSuperAdmin;
+    // preferences 走下面的 jsonb || 原子合并，不能混在 Prisma 的整块写入里，
+    // 否则并发保存（如世界时钟 worldClockTimezones 与仪表盘 dashboardLayout）
+    // 会发生 read-modify-write 竞态，后写的请求把先写的覆盖掉。
+    delete data.preferences;
     if (dto.password) {
       data.password = await bcrypt.hash(dto.password, 10);
-    }
-    // preferences 是 JSON，允许客户端只传需要修改的键；
-    // 这里跟已有偏好做浅合并，避免一次"只想改邮箱跳转偏好"却把语言、
-    // 时区等其它偏好全擦掉。
-    if (dto.preferences && typeof dto.preferences === 'object') {
-      const current = (existing as any).preferences || {};
-      data.preferences = { ...current, ...dto.preferences };
     }
     // birthday: 前端传 ISO 日期字符串（"YYYY-MM-DD"）或 null / 空串清除。
     if (dto.birthday !== undefined) {
@@ -112,10 +109,35 @@ export class UsersService {
       }
     }
 
-    return this.prisma.user.update({
-      where: { id },
-      data,
-      select: this.userSelect,
+    const mergePreferences =
+      dto.preferences &&
+      typeof dto.preferences === 'object' &&
+      !Array.isArray(dto.preferences);
+    const hasOtherFields = Object.keys(data).length > 0;
+
+    return this.prisma.$transaction(async (tx) => {
+      if (hasOtherFields) {
+        await tx.user.update({ where: { id }, data });
+      }
+      if (mergePreferences) {
+        // 用 Postgres 的 jsonb || 原子浅合并：只覆盖这次请求里提到的顶层键，
+        // 其余键保持原值。单条 UPDATE 直接读当前值合并写入，没有中间 SELECT，
+        // 所以并发请求之间不会互相丢更新。
+        const prefsJson = JSON.stringify(dto.preferences);
+        await tx.$executeRaw`
+          UPDATE "users"
+          SET "preferences" = COALESCE("preferences", '{}'::jsonb) || ${prefsJson}::jsonb
+          WHERE "id" = ${id}
+        `;
+      }
+      const fresh = await tx.user.findUnique({
+        where: { id },
+        select: this.userSelect,
+      });
+      if (!fresh) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+      return fresh;
     });
   }
 
