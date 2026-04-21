@@ -24,6 +24,7 @@ import { RatesModule } from './modules/rates/rates.module';
 import { WeatherModule } from './modules/weather/weather.module';
 import { FollowUpsModule } from './modules/follow-ups/follow-ups.module';
 import { TranslateModule } from './modules/translate/translate.module';
+import { SearchModule } from './modules/search/search.module';
 import { QueueModule } from './queue/queue.module';
 import { PermissionsModule } from './common/permissions/permissions.module';
 import { AuditModule } from './modules/audit/audit.module';
@@ -61,6 +62,7 @@ import { AuditModule } from './modules/audit/audit.module';
     WeatherModule,
     FollowUpsModule,
     TranslateModule,
+    SearchModule,
   ],
 })
 export class AppModule {}

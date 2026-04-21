@@ -614,6 +614,7 @@ export class EmailsService {
       emailConfigId?: string;
       category?: string;
       flagged?: string;
+      search?: string;
     },
   ) {
     const page = query.page || 1;
@@ -654,6 +655,18 @@ export class EmailsService {
 
     if (query.flagged === 'true') {
       where.flagged = true;
+    }
+
+    // Full-text-ish search across subject / addresses / body.
+    // Backed by pg_trgm GIN indexes (migration 20260421000000).
+    if (query.search && query.search.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { subject: { contains: q, mode: 'insensitive' } },
+        { fromAddr: { contains: q, mode: 'insensitive' } },
+        { toAddr: { contains: q, mode: 'insensitive' } },
+        { bodyText: { contains: q, mode: 'insensitive' } },
+      ];
     }
 
     let orderBy: any;

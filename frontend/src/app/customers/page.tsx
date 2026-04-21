@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
@@ -94,6 +94,15 @@ export default function CustomersPage() {
       country: countryFilter,
     });
   };
+
+  // 搜索输入防抖 300ms 后自动触发查询（无需点击提交按钮）
+  useEffect(() => {
+    if (search === appliedQuery.search) return;
+    const t = setTimeout(() => {
+      setAppliedQuery((q) => ({ ...q, search }));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search, appliedQuery.search]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

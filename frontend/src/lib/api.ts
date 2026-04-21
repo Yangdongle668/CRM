@@ -431,3 +431,30 @@ export const rbacApi = {
 export const auditApi = {
   list: (params: Record<string, any>) => api.get('/audit-logs', { params }),
 };
+
+// ==================== Search API ====================
+export type SearchType = 'customer' | 'lead' | 'order' | 'email';
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  subtitle?: string;
+  snippet?: string;
+  meta?: Record<string, any>;
+}
+
+export interface SearchGroup {
+  type: SearchType;
+  hits: SearchHit[];
+}
+
+export const searchApi = {
+  global: (params: { q: string; types?: SearchType[]; limit?: number }) =>
+    api.get<any, SearchGroup[]>('/search', {
+      params: {
+        q: params.q,
+        types: params.types?.join(','),
+        limit: params.limit,
+      },
+    }),
+};

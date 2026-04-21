@@ -121,6 +121,9 @@ export default function EmailsPage() {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  // 邮件搜索：主题/收发件地址/正文（后端走 pg_trgm 索引）
+  const [searchInput, setSearchInput] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
 
@@ -210,6 +213,13 @@ export default function EmailsPage() {
         emailConfigId: selectedAccountId || undefined,
       };
 
+      // 搜索时禁用 grouped，避免线程聚合把非命中邮件也带出来
+      const trimmedSearch = searchQuery.trim();
+      if (trimmedSearch) {
+        params.search = trimmedSearch;
+        params.grouped = 'false';
+      }
+
       switch (activeFolder) {
         case 'inbox':
           params.category = 'inbox';
@@ -239,7 +249,18 @@ export default function EmailsPage() {
 
       const res: any = await emailsApi.list(params);
       const data = res.data;
-      const items = Array.isArray(data.items) ? data.items : [];
+      const rawItems = Array.isArray(data.items) ? data.items : [];
+      // 搜索模式返回的是扁平 Email[]，需要包成 thread 形状以复用渲染逻辑
+      const items: EmailThreadItem[] = trimmedSearch
+        ? rawItems.map((em: Email) => ({
+            threadId: em.threadId || em.id,
+            subject: em.subject,
+            latestEmail: em,
+            count: 1,
+            unreadCount: 0,
+            emails: [em],
+          } as unknown as EmailThreadItem))
+        : rawItems;
       setThreads(items);
       setEmails(items.map((t: EmailThreadItem) => t.latestEmail).filter(Boolean));
       setTotal(data.total || 0);
@@ -248,7 +269,22 @@ export default function EmailsPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeFolder, page, pageSize, selectedAccountId]);
+  }, [activeFolder, page, pageSize, selectedAccountId, searchQuery]);
+
+  // 搜索输入防抖：300ms 后提交到实际查询状态
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearchQuery(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // 切换文件夹时清空搜索
+  useEffect(() => {
+    setSearchInput('');
+    setSearchQuery('');
+  }, [activeFolder]);
 
   const fetchTemplates = useCallback(async () => {
     try {
@@ -2197,6 +2233,41 @@ export default function EmailsPage() {
                   it doesn't stretch across huge screens when the detail
                   view is closed (the detail is now a slide-in modal). */}
               <div className="flex-1 flex flex-col border-r bg-white max-w-4xl w-full">
+                {/* 搜索框：主题 / 收发件地址 / 正文 */}
+                <div className="px-3 py-2 border-b flex-shrink-0 bg-gray-50/60">
+                  <div className="relative">
+                    <svg
+                      className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400"
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M21 21l-4.35-4.35M10.5 17a6.5 6.5 0 110-13 6.5 6.5 0 010 13z" />
+                    </svg>
+                    <input
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
+                      placeholder="搜索当前文件夹内的邮件（主题、收发件人、正文）…"
+                      className="w-full pl-8 pr-8 py-1.5 text-sm bg-white rounded-md border border-gray-200
+                                 focus:border-blue-400 focus:ring-1 focus:ring-blue-100 outline-none"
+                    />
+                    {searchInput && (
+                      <button
+                        onClick={() => { setSearchInput(''); setSearchQuery(''); }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded text-gray-400 hover:bg-gray-100"
+                        aria-label="清空搜索"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  {searchQuery && !loading && (
+                    <div className="mt-1.5 text-[11px] text-gray-500">
+                      搜索 “{searchQuery}” 找到 {total} 封邮件
+                    </div>
+                  )}
+                </div>
                 {/* List header with mark-all-read */}
                 {(activeFolder === 'inbox' || activeFolder === 'unread') && unreadCount > 0 && (
                   <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">
