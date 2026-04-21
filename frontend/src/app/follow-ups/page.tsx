@@ -143,18 +143,16 @@ export default function FollowUpsPage() {
   return (
     <AppLayout>
       <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-800">跟进</h1>
-            <p className="mt-1 text-gray-500 text-sm">
-              向线索发出邮件后自动建立提醒；对方回信或手动完成后自动关闭。
-            </p>
-          </div>
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-800">跟进</h1>
+          <p className="mt-1 text-xs sm:text-sm text-gray-500">
+            向线索发出邮件后自动建立提醒；对方回信或手动完成后自动关闭。
+          </p>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-3 rounded-lg bg-white border border-gray-200 px-4 py-3 shadow-sm">
-          <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-lg bg-white border border-gray-200 px-3 sm:px-4 py-3 shadow-sm">
+          <div className="flex gap-1 flex-wrap">
             {statusOptions.map((opt) => (
               <button
                 key={opt.key}
@@ -198,6 +196,106 @@ export default function FollowUpsPage() {
 
         {/* List */}
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+          {/* 移动端卡片 */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-400">加载中...</div>
+            ) : items.length === 0 ? (
+              <div className="px-4 py-10 text-center text-sm text-gray-400">暂无跟进</div>
+            ) : (
+              items.map((fu) => {
+                const due = formatDue(fu.dueAt);
+                const stageLabel = fu.lead?.stage
+                  ? LEAD_STAGE_MAP[fu.lead.stage]?.label || fu.lead.stage
+                  : '';
+                const overdue = fu.status === 'PENDING' && due.overdue;
+                return (
+                  <div key={fu.id} className={`px-4 py-3 ${overdue ? 'bg-red-50/50' : ''}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        {fu.lead ? (
+                          <Link href={`/leads?highlight=${fu.lead.id}`} className="block">
+                            <div className="text-sm font-semibold text-gray-900 truncate">
+                              {fu.lead.companyName || fu.lead.title}
+                            </div>
+                            <div className="mt-0.5 text-[11px] text-gray-500 truncate">
+                              {stageLabel}
+                              {fu.lead.country ? ` · ${fu.lead.country}` : ''}
+                              {fu.lead.email ? ` · ${fu.lead.email}` : ''}
+                            </div>
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-gray-400">-</span>
+                        )}
+                      </div>
+                      <Badge className={STATUS_COLOR[fu.status]}>
+                        {STATUS_LABEL[fu.status]}
+                      </Badge>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                      <span className={overdue ? 'font-semibold text-red-600' : ''}>
+                        {due.label}
+                        <span className="ml-1.5 text-gray-400">
+                          {new Date(fu.dueAt).toLocaleDateString('zh-CN')}
+                        </span>
+                      </span>
+                      {fu.reason && (
+                        <span className="text-gray-400">
+                          · {REASON_LABEL[fu.reason] || fu.reason}
+                        </span>
+                      )}
+                      {isAdmin && fu.owner?.name && (
+                        <span className="text-gray-400">· {fu.owner.name}</span>
+                      )}
+                    </div>
+                    {fu.status === 'PENDING' ? (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => handleDone(fu)}
+                          className="rounded px-2 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100"
+                        >
+                          已跟进
+                        </button>
+                        <button
+                          onClick={() => handleSnooze(fu, 3)}
+                          className="rounded px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 hover:bg-blue-100"
+                          title="推后 3 天"
+                        >
+                          +3 天
+                        </button>
+                        <button
+                          onClick={() => handleDismiss(fu)}
+                          className="rounded px-2 py-1 text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200"
+                        >
+                          取消
+                        </button>
+                        {isAdmin && (
+                          <button
+                            onClick={() => {
+                              setReassignTarget(fu);
+                              setReassignOwnerId(fu.ownerId);
+                            }}
+                            className="rounded px-2 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+                          >
+                            转派
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      fu.completedAt && (
+                        <div className="mt-1.5 text-[11px] text-gray-400">
+                          于 {new Date(fu.completedAt).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      )
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* 桌面端表格 */}
+          <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr className="text-xs uppercase text-gray-500">
@@ -320,6 +418,7 @@ export default function FollowUpsPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </div>
 
