@@ -1712,7 +1712,7 @@ export default function EmailsPage() {
       dismissible={false}
     >
       <form onSubmit={handleSaveAccount} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               邮箱地址 <span className="text-red-500">*</span>
@@ -1751,7 +1751,7 @@ export default function EmailsPage() {
 
         <div className="border-t pt-4">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">SMTP 发件服务器</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 服务器地址 <span className="text-red-500">*</span>
@@ -1814,7 +1814,7 @@ export default function EmailsPage() {
 
         <div className="border-t pt-4">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">IMAP 收件服务器</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 服务器地址 <span className="text-red-500">*</span>

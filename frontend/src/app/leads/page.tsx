@@ -861,7 +861,7 @@ export default function LeadsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">公司名称</label>
                 <input
@@ -884,7 +884,7 @@ export default function LeadsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">网站</label>
                 <input
@@ -907,7 +907,7 @@ export default function LeadsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
                 <input
@@ -936,7 +936,7 @@ export default function LeadsPage() {
             </div>
 
             {/* 对接人（个人）信息 */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">对接人姓名</label>
                 <input
@@ -970,7 +970,7 @@ export default function LeadsPage() {
             </div>
 
             {/* 地址 */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">国家</label>
                 <CountrySelect
@@ -1021,7 +1021,7 @@ export default function LeadsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">阶段</label>
                 <select

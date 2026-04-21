@@ -305,7 +305,7 @@ export default function TasksPage() {
               placeholder="请输入任务描述" />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">优先级</label>
               <select value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value as TaskPriority })}
@@ -322,7 +322,7 @@ export default function TasksPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">截止日期</label>
               <input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })}

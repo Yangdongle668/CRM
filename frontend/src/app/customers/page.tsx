@@ -350,7 +350,7 @@ export default function CustomersPage() {
       {/* Create Customer Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="新建客户" maxWidth="2xl" dismissible={false}>
         <form onSubmit={handleCreate} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 公司名称 <span className="text-red-500">*</span>

@@ -62,24 +62,29 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size, 
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4 animate-fade-in"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-2 sm:p-4 animate-fade-in"
     >
       <div
-        className={`w-full ${maxWidthClasses[width]} rounded-2xl bg-white/95 backdrop-blur-xl shadow-apple-xl animate-scale-in`}
+        className={`w-full ${maxWidthClasses[width]} rounded-xl sm:rounded-2xl bg-white/95 backdrop-blur-xl shadow-apple-xl animate-scale-in`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-          <h2 className="text-[17px] font-semibold tracking-tight text-gray-900">{title}</h2>
+        <div className="flex items-center justify-between border-b border-gray-100 px-4 sm:px-6 py-3 sm:py-4">
+          <h2 className="text-[15px] sm:text-[17px] font-semibold tracking-tight text-gray-900 truncate pr-2">
+            {title}
+          </h2>
           <button
             onClick={onClose}
-            className="rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            aria-label="关闭"
+            className="flex-shrink-0 rounded-full p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
           >
             <HiOutlineXMark className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Content */}
-        <div className="max-h-[80vh] overflow-y-auto px-6 py-5">{children}</div>
+        {/* Content —— 移动端给更多可用高度（头部更矮，边距更小） */}
+        <div className="max-h-[calc(100vh-6rem)] sm:max-h-[80vh] overflow-y-auto px-4 sm:px-6 py-4 sm:py-5">
+          {children}
+        </div>
       </div>
     </div>
   );

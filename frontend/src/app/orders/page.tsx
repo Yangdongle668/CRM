@@ -606,7 +606,7 @@ export default function OrdersPage() {
       >
         <div className="space-y-6">
           {/* Basic fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">客户 *</label>
               <select
@@ -869,7 +869,7 @@ export default function OrdersPage() {
         {detailOrder && (
           <div className="space-y-6">
             {/* Basic info */}
-            <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <div>
                 <span className="font-medium text-gray-500">订单编号：</span>
                 <span className="text-gray-900">{detailOrder.orderNo}</span>
