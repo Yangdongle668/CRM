@@ -132,9 +132,11 @@ export default function ComposeWindow({
   const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [size, setSize] = useState<{ w: number; h: number }>({ w: DEFAULT_WIDTH, h: DEFAULT_HEIGHT });
 
-  // 打开时把窗口居中到视口里
+  // 打开时把窗口居中到视口里。手机 / 窄屏 (<md) 自动走最大化模式 ——
+  // normal 模式的 MIN_WIDTH=480px 在 <480 屏上会溢出，拖拽/缩放也没意义。
   useEffect(() => {
     if (!open) return;
+    const isNarrow = window.innerWidth < 768;
     const w = Math.min(DEFAULT_WIDTH, window.innerWidth - 40);
     const h = Math.min(DEFAULT_HEIGHT, window.innerHeight - 40);
     setSize({ w, h });
@@ -142,7 +144,7 @@ export default function ComposeWindow({
       x: Math.max(20, (window.innerWidth - w) / 2),
       y: Math.max(20, (window.innerHeight - h) / 2),
     });
-    setMode(initialMaximized ? 'maximized' : 'normal');
+    setMode(isNarrow || initialMaximized ? 'maximized' : 'normal');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -266,10 +268,12 @@ export default function ComposeWindow({
       return { left: 10, top: 10, width: 'calc(100vw - 20px)', height: 'calc(100vh - 20px)' };
     }
     if (mode === 'minimized') {
+      // 最小化尺寸在超窄屏上适配：留 20px 右边距，不能比屏宽还宽。
+      const w = typeof window !== 'undefined' ? Math.min(320, window.innerWidth - 40) : 320;
       return {
         right: 20,
         bottom: 20,
-        width: 320,
+        width: w,
         height: 44,
       };
     }

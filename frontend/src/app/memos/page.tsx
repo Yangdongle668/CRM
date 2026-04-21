@@ -282,7 +282,7 @@ export default function MemosPage() {
             <div className="grid grid-cols-7 gap-1 mt-2">
               {calendarDays.map((day, idx) => {
                 if (day === null) {
-                  return <div key={`empty-${idx}`} className="h-[68px]" />;
+                  return <div key={`empty-${idx}`} className="h-[52px] sm:h-[68px]" />;
                 }
                 const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                 const isSelected = dateStr === selectedDate;
@@ -326,7 +326,7 @@ export default function MemosPage() {
                   <button
                     key={day}
                     onClick={() => setSelectedDate(dateStr)}
-                    className={`relative h-[68px] rounded-xl flex flex-col items-center justify-center px-1 transition-all group ${
+                    className={`relative h-[52px] sm:h-[68px] rounded-xl flex flex-col items-center justify-center px-1 transition-all group ${
                       isSelected
                         ? 'bg-primary-500 shadow-apple'
                         : isToday

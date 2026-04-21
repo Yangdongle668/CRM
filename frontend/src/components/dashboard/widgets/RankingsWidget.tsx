@@ -6,8 +6,8 @@ import type { WidgetProps } from '../types';
 export function RankingsWidget({ data }: WidgetProps) {
   const { rankings } = data;
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto -mx-1">
+      <table className="w-full min-w-[18rem] text-sm">
         <thead>
           <tr className="border-b border-gray-200">
             <th className="py-2 px-2 text-left font-medium text-gray-600">排名</th>

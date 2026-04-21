@@ -401,9 +401,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
             <HiChevronDown className="h-3 w-3 text-gray-500" />
           </button>
           {openDropdown === 'foreColor' && (
-            <div className="absolute left-0 top-full z-20 mt-1 w-[280px] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
+            <div className="absolute left-0 top-full z-20 mt-1 w-[min(280px,calc(100vw-2rem))] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
               <div className="mb-1.5 text-[11px] text-gray-500">文字颜色</div>
-              <div className="grid grid-cols-10 gap-1.5">
+              <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-1.5">
                 {TEXT_COLORS.map((c) => (
                   <button
                     key={c}
@@ -448,9 +448,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
             <HiChevronDown className="h-3 w-3 text-gray-500" />
           </button>
           {openDropdown === 'hiliteColor' && (
-            <div className="absolute left-0 top-full z-20 mt-1 w-[260px] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
+            <div className="absolute left-0 top-full z-20 mt-1 w-[min(260px,calc(100vw-2rem))] rounded-md border border-gray-200 bg-white p-3 shadow-lg">
               <div className="mb-1.5 text-[11px] text-gray-500">背景颜色</div>
-              <div className="grid grid-cols-8 gap-1.5">
+              <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
                 {HIGHLIGHT_COLORS.map((c) => (
                   <button
                     key={c}

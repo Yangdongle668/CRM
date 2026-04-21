@@ -126,24 +126,24 @@ export default function LoginPage() {
         <div className="floating-orb" style={{ width: '160px', height: '160px', bottom: '5%', right: '30%', opacity: 0.18, background: 'rgba(0, 122, 255, 0.2)', animation: 'float 9s ease-in-out infinite 2.5s' }} />
       </div>
 
-      <div className="w-full max-w-[400px] mx-4 relative z-10">
+      <div className="w-full max-w-[400px] mx-3 sm:mx-4 relative z-10">
         {/* Logo & Title */}
-        <div className="text-center mb-8">
+        <div className="text-center mb-6 sm:mb-8">
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="h-16 w-16 rounded-2xl object-cover shadow-apple-md mb-4 inline-block" />
+            <img src={logoUrl} alt="Logo" className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl object-cover shadow-apple-md mb-3 sm:mb-4 inline-block" />
           ) : (
-            <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-500 text-xl font-bold text-white shadow-apple-md mb-4">
+            <div className="inline-flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-primary-500 text-lg sm:text-xl font-bold text-white shadow-apple-md mb-3 sm:mb-4">
               维界
             </div>
           )}
-          <h1 className="text-[28px] font-bold tracking-tight text-gray-900">维界系统</h1>
-          <p className="text-[15px] text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-[28px] font-bold tracking-tight text-gray-900">维界系统</h1>
+          <p className="text-sm sm:text-[15px] text-gray-500 mt-1">
             {isSetupMode ? '首次使用，请设置管理员账户' : '请登录您的账户'}
           </p>
         </div>
 
         {/* Card */}
-        <div className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-apple-lg border border-white/60 p-8">
+        <div className="bg-white/70 backdrop-blur-xl rounded-2xl shadow-apple-lg border border-white/60 px-5 py-6 sm:p-8">
           <form onSubmit={handleSubmit} noValidate className="space-y-4">
             {isSetupMode && (
               <div>
