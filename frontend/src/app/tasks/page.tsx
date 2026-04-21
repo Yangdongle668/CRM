@@ -147,28 +147,91 @@ export default function TasksPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">任务管理</h1>
-          <button onClick={openCreate} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">任务管理</h1>
+          <button onClick={openCreate} className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
             新建任务
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <select value={filterStatus} onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+            className="flex-1 sm:flex-none min-w-[7rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
             <option value="">全部状态</option>
             {Object.entries(TASK_STATUS_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <select value={filterPriority} onChange={(e) => { setFilterPriority(e.target.value); setPage(1); }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
+            className="flex-1 sm:flex-none min-w-[7rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none">
             <option value="">全部优先级</option>
             {Object.entries(TASK_PRIORITY_MAP).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        {/* 移动端卡片列表 */}
+        <div className="md:hidden space-y-2">
+          {loading ? (
+            <div className="rounded-lg border border-gray-200 bg-white py-12 text-center text-sm text-gray-500">加载中...</div>
+          ) : tasks.length === 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-white py-12 text-center text-sm text-gray-500">暂无任务数据</div>
+          ) : tasks.map((task) => {
+            const overdue = isOverdue(task);
+            return (
+              <div key={task.id} className={`rounded-lg border p-3 ${overdue ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className={`text-sm font-semibold ${overdue ? 'text-red-600' : 'text-gray-900'}`}>
+                      {task.title}
+                    </div>
+                    {task.description && (
+                      <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{task.description}</p>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      <Badge className={TASK_PRIORITY_MAP[task.priority]?.color || ''}>
+                        {TASK_PRIORITY_MAP[task.priority]?.label || task.priority}
+                      </Badge>
+                      <button
+                        onClick={() => setStatusDropdownId(statusDropdownId === task.id ? null : task.id)}
+                        className="relative"
+                      >
+                        <Badge className={TASK_STATUS_MAP[task.status]?.color || ''}>
+                          {TASK_STATUS_MAP[task.status]?.label || task.status}
+                        </Badge>
+                        {statusDropdownId === task.id && (
+                          <div className="absolute left-0 top-full z-20 mt-1 w-32 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                            {Object.entries(TASK_STATUS_MAP).map(([k, v]) => (
+                              <button key={k} onClick={(e) => { e.stopPropagation(); handleStatusChange(task.id, k as TaskStatus); }}
+                                className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 ${task.status === k ? 'font-semibold text-blue-600' : 'text-gray-700'}`}>
+                                {v.label}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 gap-2.5 text-sm">
+                    <button onClick={() => openEdit(task)} className="text-blue-600 hover:text-blue-800">编辑</button>
+                    <button onClick={() => handleDelete(task.id)} className="text-red-600 hover:text-red-800">删除</button>
+                  </div>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1 text-xs text-gray-500">
+                  <div>
+                    <span className="text-gray-400">截止：</span>
+                    <span className={overdue ? 'font-medium text-red-600' : ''}>{fmt(task.dueDate)}</span>
+                  </div>
+                  <div className="truncate">
+                    <span className="text-gray-400">负责：</span>
+                    {task.owner?.name || '-'}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* 桌面端表格 */}
+        <div className="hidden md:block overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
