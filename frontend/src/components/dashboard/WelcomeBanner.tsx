@@ -65,11 +65,11 @@ export default function WelcomeBanner({ userName, birthday, onEnterEdit, editMod
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {isDaytime ? (
-            <HiOutlineSun className="w-6 h-6 text-amber-500 flex-shrink-0" />
+            <HiOutlineSun className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 flex-shrink-0" />
           ) : (
-            <HiOutlineMoon className="w-6 h-6 text-indigo-500 flex-shrink-0" />
+            <HiOutlineMoon className="w-5 h-5 sm:w-6 sm:h-6 text-indigo-500 flex-shrink-0" />
           )}
-          <h1 className="text-2xl font-bold text-gray-800">
+          <h1 className="text-base sm:text-2xl font-bold text-gray-800 truncate">
             {greeting}，{userName || '同事'}
           </h1>
         </div>
