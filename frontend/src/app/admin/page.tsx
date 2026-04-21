@@ -211,16 +211,16 @@ export default function AdminPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">管理中心</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">管理中心</h1>
+            <p className="mt-1 text-xs sm:text-sm text-gray-500">
               全局统计数据、业务员工作量与跟进进度监控
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-xl bg-gray-100 p-0.5">
+          <div className="flex items-center gap-1 sm:gap-2 rounded-xl bg-gray-100 p-0.5 overflow-x-auto">
             {PERIOD_OPTIONS.map((opt) => (
               <button
                 key={opt.key}

@@ -252,9 +252,9 @@ export default function RbacPage() {
 
   return (
     <AppLayout>
-      <div className="flex gap-4 h-[calc(100vh-112px)]">
+      <div className="flex flex-col lg:flex-row gap-4 lg:h-[calc(100vh-112px)]">
         {/* Role list */}
-        <div className="w-72 flex-shrink-0 flex flex-col rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="w-full lg:w-72 flex-shrink-0 flex flex-col rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden max-h-60 lg:max-h-none">
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <h2 className="text-sm font-semibold text-gray-900">角色列表</h2>
             {canWrite && (
