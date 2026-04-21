@@ -2427,10 +2427,24 @@ export default function EmailsPage() {
               selectedEmail ? 'translate-x-0' : 'translate-x-full'
             }`}
           >
-            {/* Close button */}
+            {/* 移动端返回栏 —— 详情是全屏覆盖层，右上角小 X 不够显眼，
+                给一个左上明确的"返回"按钮 */}
+            <div className="md:hidden flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 flex-shrink-0">
+              <button
+                onClick={() => setSelectedEmail(null)}
+                className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+                返回
+              </button>
+              <span className="text-xs text-gray-400 truncate">邮件详情</span>
+            </div>
+            {/* 桌面端关闭按钮（悬浮于右上角） */}
             <button
               onClick={() => setSelectedEmail(null)}
-              className="absolute top-4 right-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-500 shadow hover:bg-white hover:text-gray-900 transition-colors"
+              className="hidden md:flex absolute top-4 right-4 z-10 h-8 w-8 items-center justify-center rounded-full bg-white/80 text-gray-500 shadow hover:bg-white hover:text-gray-900 transition-colors"
               title="关闭 (Esc)"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
