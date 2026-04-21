@@ -61,3 +61,98 @@
 任务(Task) / 文件(Document) / 活动时间线(Activity) / 邮件(Email)                  │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+
+---
+
+## 技术架构
+
+### 技术栈
+
+| 层级 | 技术 | 版本 | 说明 |
+|------|------|------|------|
+| **前端框架** | Next.js | 14 (App Router) | SSR + 客户端路由，页面按模块组织 |
+| **UI 库** | React | 18 | 函数组件 + Hooks |
+| **类型系统** | TypeScript | 5 | 前后端全量类型覆盖 |
+| **样式** | Tailwind CSS | 3 | 原子化 CSS，响应式布局 |
+| **后端框架** | NestJS | 10 | 模块化架构，依赖注入，装饰器驱动 |
+| **ORM** | Prisma | 5 | 类型安全查询，自动迁移，Schema First |
+| **数据库** | PostgreSQL | 16 | 主数据库，含复合索引优化 |
+| **缓存 / 队列** | Redis 7 + BullMQ | — | 异步任务队列（邮件收发、PDF、备份）|
+| **实时通讯** | Socket.IO | — | WebSocket 即时消息，JWT 鉴权 |
+| **邮件收件** | node-imap + mailparser | — | IMAP 多账户收件、附件懒加载 |
+| **邮件发件** | Nodemailer | — | SMTP 发件，HTML 链接改写 + 跟踪像素注入 |
+| **PDF 生成** | pdfkit | — | 服务端生成形式发票 PDF |
+| **反向代理** | Nginx (Alpine) | — | SSL 终止、静态资源缓存、gzip 压缩 |
+| **容器编排** | Docker + Compose | — | 五服务编排（pg / redis / backend / frontend / nginx）|
+| **API 文档** | Swagger / OpenAPI | — | 自动生成，访问 `/api-docs` |
+
+### 关键依赖
+
+**前端** (`frontend/package.json`)
+
+| 包 | 用途 |
+|----|------|
+| `axios` | HTTP 请求客户端 |
+| `swr` | 数据请求缓存与重新验证 |
+| `zustand` | 轻量全局状态管理 |
+| `chart.js` + `react-chartjs-2` | 仪表盘图表 |
+| `socket.io-client` | WebSocket 实时消息 |
+| `react-grid-layout` | 仪表盘拖拽布局 |
+| `dayjs` | 日期格式化 |
+| `react-hot-toast` | 消息通知 Toast |
+| `react-icons` | 图标库 |
+
+**后端** (`backend/package.json`)
+
+| 包 | 用途 |
+|----|------|
+| `@nestjs/jwt` + `passport-jwt` | JWT 签发与验证 |
+| `@prisma/client` | 数据库 ORM 客户端 |
+| `bcryptjs` | 密码哈希 |
+| `nodemailer` | SMTP 发件 |
+| `node-imap` + `mailparser` | IMAP 收件与邮件解析 |
+| `pdfkit` | PDF 生成（发票）|
+| `@nestjs/bullmq` + `bullmq` | 异步任务队列 |
+| `@nestjs/schedule` | 定时任务（汇率轮询）|
+| `@nestjs/websockets` + `socket.io` | WebSocket 网关 |
+| `multer` | 文件上传处理 |
+| `class-validator` + `class-transformer` | DTO 自动校验 |
+| `archiver` | ZIP 打包（数据备份导出）|
+
+### 系统架构图
+
+```
+                        ┌─────────────────────────────┐
+                        │       Nginx (Alpine)         │
+                        │  :80 → HTTPS 重定向          │
+                        │  :443 SSL 终止 + 路由分发     │
+                        │  gzip / 安全响应头 / 大文件上传│
+                        └────────────┬────────────────┘
+                                     │
+              ┌──────────────────────┴──────────────────────┐
+              │                                             │
+   ┌──────────▼──────────┐                      ┌──────────▼──────────┐
+   │   Frontend (:3000)   │                      │   Backend (:3001)   │
+   │   Next.js 14         │◄──── REST + WS ─────►│   NestJS 10         │
+   │   App Router / TSX   │     /api/*            │   Prisma ORM        │
+   │   Tailwind CSS        │     /socket.io/*      │   BullMQ Workers    │
+   └──────────────────────┘     /uploads/*        └──────────┬──────────┘
+                                                             │
+              ┌──────────────────────┬──────────────────────┤
+              │                      │                      │
+   ┌──────────▼──────────┐ ┌────────▼────────┐  ┌──────────▼──────────┐
+   │   PostgreSQL 16      │ │    Redis 7       │  │   IMAP / SMTP       │
+   │   主数据库 (:5432)    │ │  队列 + 缓存     │  │   Gmail / Outlook   │
+   │   21 个模型           │ │  BullMQ Jobs    │  │   企业邮箱           │
+   │   复合索引优化        │ │  汇率缓存 15min  │  │   附件懒加载         │
+   └──────────────────────┘ └─────────────────┘  └──────────────────────┘
+
+   Nginx 路由规则：
+   /api/*         → backend:3001 (NestJS REST API)
+   /socket.io/*   → backend:3001 (WebSocket)
+   /ws/*          → backend:3001 (WebSocket 备用)
+   /uploads/*     → backend:3001 (静态文件, 7天缓存)
+   /api-docs      → backend:3001 (Swagger 文档)
+   /*.{js,css}    → frontend:3000 (静态资源, 30天缓存)
+   /              → frontend:3000 (Next.js SSR)
+```
