@@ -8,12 +8,14 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
-import { customersApi, contactsApi, activitiesApi, documentsApi, emailsApi } from '@/lib/api';
+import { customersApi, contactsApi, activitiesApi, documentsApi, emailsApi, ordersApi } from '@/lib/api';
 import {
   CUSTOMER_STATUS_MAP,
   CUSTOMER_SOURCES,
   INDUSTRIES,
   ACTIVITY_TYPE_MAP,
+  ORDER_STATUS_MAP,
+  PAYMENT_STATUS_MAP,
 } from '@/lib/constants';
 import CountrySelect from '@/components/ui/CountrySelect';
 import type {
@@ -24,11 +26,13 @@ import type {
   ActivityType,
   Document,
   Email,
+  Order,
 } from '@/types';
 
 const TABS = [
   { key: 'info', label: '基本信息' },
   { key: 'contacts', label: '联系人' },
+  { key: 'orders', label: '订单' },
   { key: 'activities', label: '时间线' },
   { key: 'files', label: '文件' },
   { key: 'emails', label: '邮件' },
@@ -85,6 +89,9 @@ export default function CustomerDetailPage() {
   const EMAIL_PAGE_SIZE = 10;
   const [collapsedThreads, setCollapsedThreads] = useState<Set<string>>(new Set());
 
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+
   // Delete contact
   const [deleteContactId, setDeleteContactId] = useState<string | null>(null);
   const [deletingContact, setDeletingContact] = useState(false);
@@ -139,6 +146,18 @@ export default function CustomerDetailPage() {
     }
   }, [customerId]);
 
+  const fetchOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    try {
+      const res: any = await ordersApi.list({ customerId, pageSize: 100 });
+      setOrders(res.data?.items || res.data || []);
+    } catch {
+      // handled by interceptor
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, [customerId]);
+
   useEffect(() => {
     fetchCustomer();
   }, [fetchCustomer]);
@@ -148,7 +167,8 @@ export default function CustomerDetailPage() {
     if (activeTab === 'activities') fetchActivities();
     if (activeTab === 'files') fetchDocuments();
     if (activeTab === 'emails') fetchEmails();
-  }, [activeTab, fetchContacts, fetchActivities, fetchDocuments, fetchEmails]);
+    if (activeTab === 'orders') fetchOrders();
+  }, [activeTab, fetchContacts, fetchActivities, fetchDocuments, fetchEmails, fetchOrders]);
 
   // Edit customer
   const openEditModal = () => {
@@ -476,6 +496,93 @@ export default function CustomerDetailPage() {
               )}
             </div>
           )}
+
+          {/* Orders Tab - 自动关联该客户的所有订单 */}
+          {activeTab === 'orders' && (() => {
+            const totalByCurrency = orders.reduce<Record<string, number>>((acc, o) => {
+              if (o.status === 'CANCELLED') return acc;
+              const cur = o.currency || 'USD';
+              acc[cur] = (acc[cur] || 0) + Number(o.totalAmount || 0);
+              return acc;
+            }, {});
+            return (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-sm text-gray-500">
+                  共 <span className="font-semibold text-gray-800">{orders.length}</span> 个订单
+                  {Object.keys(totalByCurrency).length > 0 && (
+                    <span className="ml-2 text-gray-400">·</span>
+                  )}
+                  {Object.entries(totalByCurrency).map(([cur, amt]) => (
+                    <span key={cur} className="ml-2 font-medium text-gray-700">
+                      {cur} {amt.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  ))}
+                  <span className="ml-2 text-gray-400">（已取消订单不计入合计）</span>
+                </div>
+                <button
+                  onClick={() => router.push('/orders')}
+                  className="text-xs text-primary-600 hover:text-primary-700 font-medium"
+                >
+                  前往订单页 →
+                </button>
+              </div>
+              {ordersLoading ? (
+                <div className="text-center py-12 text-gray-400 text-sm">
+                  <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary-500 border-t-transparent mx-auto mb-2" />
+                  加载中...
+                </div>
+              ) : orders.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 text-sm bg-gray-50 rounded-lg">
+                  该客户暂无订单
+                </div>
+              ) : (
+                <div className="overflow-x-auto border border-gray-200 rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-gray-600">
+                      <tr>
+                        <th className="px-3 py-2.5 text-left font-medium">订单号</th>
+                        <th className="px-3 py-2.5 text-left font-medium">标题</th>
+                        <th className="px-3 py-2.5 text-right font-medium">金额</th>
+                        <th className="px-3 py-2.5 text-left font-medium">订单状态</th>
+                        <th className="px-3 py-2.5 text-left font-medium">付款状态</th>
+                        <th className="px-3 py-2.5 text-left font-medium">负责人</th>
+                        <th className="px-3 py-2.5 text-left font-medium">创建时间</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {orders.map((o) => (
+                        <tr key={o.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2.5 font-mono text-xs text-gray-800">{o.orderNo}</td>
+                          <td className="px-3 py-2.5 text-gray-800 max-w-[240px] truncate" title={o.title}>
+                            {o.title}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-medium text-gray-800 whitespace-nowrap">
+                            {o.currency} {Number(o.totalAmount).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Badge className={ORDER_STATUS_MAP[o.status]?.color}>
+                              {ORDER_STATUS_MAP[o.status]?.label || o.status}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <Badge className={PAYMENT_STATUS_MAP[o.paymentStatus]?.color}>
+                              {PAYMENT_STATUS_MAP[o.paymentStatus]?.label || o.paymentStatus}
+                            </Badge>
+                          </td>
+                          <td className="px-3 py-2.5 text-gray-600">{o.owner?.name || '-'}</td>
+                          <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">
+                            {new Date(o.createdAt).toLocaleDateString('zh-CN')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            );
+          })()}
 
           {/* Activities Tab - Timeline */}
           {activeTab === 'activities' && (
