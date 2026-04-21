@@ -45,7 +45,7 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="flex items-center justify-between gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
+        <div className="relative z-[100] flex items-center justify-between gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
           <GlobalSearch />
           <ExchangeRates />
         </div>
