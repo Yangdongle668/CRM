@@ -199,7 +199,7 @@ export default function GlobalSearch() {
 
       {open && query.trim() && (
         <div
-          className="absolute top-full mt-2 right-0 w-[420px] bg-white rounded-xl shadow-2xl
+          className="absolute top-full mt-2 left-0 w-[420px] bg-white rounded-xl shadow-2xl
                      border border-gray-200/80 z-[1000] max-h-[70vh] overflow-y-auto"
         >
           {loading && (
