@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/auth-context';
 import Sidebar from './Sidebar';
 import ExchangeRates from './ExchangeRates';
 import FollowUpBanner from './FollowUpBanner';
+import GlobalSearch from './GlobalSearch';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -44,7 +45,8 @@ export default function AppLayout({ children }: AppLayoutProps) {
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <div className="flex items-center justify-end gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
+        <div className="flex items-center justify-between gap-4 h-12 px-6 bg-white/60 backdrop-blur-xl border-b border-gray-200/60 flex-shrink-0">
+          <GlobalSearch />
           <ExchangeRates />
         </div>
         <FollowUpBanner />
