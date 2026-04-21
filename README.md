@@ -694,3 +694,205 @@ key   String @unique  // company_name / company_logo / company_address 等
 value String @db.Text
 label String?
 ```
+
+---
+
+## 功能模块
+
+### 1. 仪表盘
+
+业务数据总览，区分普通用户视图与管理员视图。
+
+**普通用户指标**
+- 客户总数、线索总数、订单总数、总营收（排除 CANCELLED 订单）
+- 待处理任务数（PENDING 状态）、本月新增线索数
+- 12 个月销售趋势折线图（金额 + 数量）
+- 线索阶段漏斗图（各 Stage 数量分布）
+- 业绩排行榜（Top 销售员）
+
+**管理员专属视图**
+- 团队整体数据（按 month / quarter / year 维度切换）
+- 每个业务员的成交量、营收明细
+- 跟进任务 KPI（待处理数、逾期数、完成率）
+- 趋势图（day / month 粒度，自定义天数范围）
+
+**API**
+```
+GET /dashboard/stats                  # 当前用户关键指标
+GET /dashboard/sales-trend            # 月度销售趋势
+GET /dashboard/funnel                 # 线索阶段漏斗
+GET /dashboard/rankings               # 销售排行榜
+GET /dashboard/admin/overview         # 管理员团队概览（需 ADMIN 角色）
+GET /dashboard/admin/salesperson-stats # 每人业绩明细
+GET /dashboard/admin/follow-up-progress # 跟进 KPI
+GET /dashboard/admin/trend            # 趋势图（?granularity=day|month&days=30）
+```
+
+---
+
+### 2. 客户管理
+
+**功能列表**
+- 多字段客户档案：公司名、国家（60+ 国家/地区）、地址、主副网站域名、行业、规模、来源（LinkedIn / Instagram / Facebook / TikTok 等）、状态、备注
+- 客户列表支持分页、搜索、按状态/来源/负责人筛选
+- 角色数据隔离：业务员只看自己负责的客户，管理员/财务可见全部
+- **客户详情页时间线**：自动聚合该客户所有活动记录（邮件、报价、订单、任务、拜访、投诉等），按时间倒序排列
+- **邮件域名自动关联**：收发邮件时根据 `website` / `website2` 字段匹配，自动挂接到客户
+- **沉睡客户检测**：`GET /customers/dormant?days=30&limit=20`，查找超过 N 天未联系的客户
+- 支持手动同步邮件关联：`POST /customers/:id/sync-emails`
+
+**API**
+```
+GET    /customers                     # 列表（分页 + 筛选）
+GET    /customers/dormant             # 沉睡客户列表
+GET    /customers/:id                 # 客户详情 + 时间线
+POST   /customers                     # 新建客户（ownerId 默认为当前用户）
+PATCH  /customers/:id                 # 更新客户信息
+DELETE /customers/:id                 # 删除客户
+POST   /customers/:id/sync-emails     # 按域名同步邮件关联
+POST   /customers/:id/refresh-timeline # 刷新活动时间线
+```
+
+**权限码**：`customer:read` `customer:create` `customer:update` `customer:delete` `customer:assign`
+
+---
+
+### 3. 联系人管理
+
+每个客户可挂载多个联系人，记录完整沟通信息。
+
+**字段**：姓名、职位、邮箱、电话、微信、WhatsApp、是否主要联系人、备注
+
+**API**
+```
+GET    /contacts                      # 列表（?customerId=&search=&page=&pageSize=）
+GET    /contacts/:id                  # 联系人详情
+POST   /contacts                      # 新建联系人
+PATCH  /contacts/:id                  # 更新
+DELETE /contacts/:id                  # 删除
+```
+
+---
+
+### 4. 销售线索
+
+全生命周期状态机管理，支持公海池、批量操作、CSV 导入导出。
+
+**核心特性**
+- **7 阶段状态机**：NEW → CONTACTED → QUALIFIED → PROPOSAL → NEGOTIATION → CLOSED_WON / CLOSED_LOST
+- **公海池机制**：`isPublicPool=true` 时所有业务员可见，可自由认领（claim）或释放（release）
+- **线索评分**：0-100 分，人工评估潜力
+- **跟进记录**（LeadActivity）：每条跟进含时间戳和内容，独立于客户活动时间线
+- **CSV 批量操作**：支持导入（`POST /leads/import/csv`）和导出（`GET /leads/export/csv`）
+- **批量操作**：批量分配负责人、批量释放到公海、批量删除
+- **一键转化**：`POST /leads/:id/convert` 将线索转化为客户，数据迁移
+
+**API**
+```
+GET    /leads                         # 列表（?scope=mine|pool|all）
+GET    /leads/export/csv              # 导出 CSV
+POST   /leads/import/csv              # 导入 CSV（multipart/form-data）
+GET    /leads/:id                     # 线索详情
+GET    /leads/:id/activities          # 跟进记录列表
+POST   /leads/:id/activities          # 添加跟进记录
+POST   /leads                         # 新建线索
+PATCH  /leads/:id                     # 更新线索
+PATCH  /leads/:id/stage               # 仅更新阶段
+POST   /leads/:id/claim               # 认领（ownerId → 当前用户）
+POST   /leads/:id/release             # 释放到公海（ownerId → null）
+POST   /leads/:id/assign              # 指派给指定用户
+POST   /leads/:id/convert             # 转化为客户
+POST   /leads/batch-assign            # 批量分配（body: {ids, ownerId}）
+POST   /leads/batch-release           # 批量释放到公海
+POST   /leads/batch-delete            # 批量删除
+DELETE /leads/:id                     # 删除线索
+```
+
+**权限码**：`lead:read` `lead:create` `lead:update` `lead:delete` `lead:assign`
+
+---
+
+### 5. 邮件跟进（FollowUp）
+
+邮件发出后自动触发跟进提醒，支持完成、延期、转移、驳回。
+
+**工作流**
+1. 发送首封外发邮件 → 后端自动创建 FollowUp（`reason: FIRST_OUTREACH`，dueAt = 发送时间 + 3天）
+2. 收到客户回复 → 自动将关联 FollowUp 状态置为 DONE
+3. 到期未处理 → 逾期标记，管理员可在「团队跟进概览」中查看全员逾期情况
+4. 业务员可手动操作：标记完成、延期 N 天（SNOOZED）、驳回（DISMISSED）、转移给他人
+
+**API**
+```
+GET    /follow-ups/summary            # 当前用户待处理/逾期数量摘要
+GET    /follow-ups/admin/overview     # 管理员：全员跟进概览
+GET    /follow-ups                    # 列表（?status=&overdueOnly=&leadId=&ownerId=）
+POST   /follow-ups                    # 手动新建跟进
+PATCH  /follow-ups/:id/done           # 标记完成
+PATCH  /follow-ups/:id/snooze         # 延期（body: {days: N}）
+PATCH  /follow-ups/:id/dismiss        # 驳回/忽略
+PATCH  /follow-ups/:id/reassign       # 转移给其他人（body: {ownerId}）
+DELETE /follow-ups/:id                # 删除
+```
+
+---
+
+### 6. 邮件中心
+
+多账户统一邮件管理，含收发件、追踪、模板、群发活动。
+
+**核心特性**
+
+**多账户管理**
+- 每个用户可绑定多个邮箱账号（Gmail / Outlook / 企业邮箱）
+- 每账户独立配置 SMTP（发件）和 IMAP（收件）参数
+- 支持测试 SMTP 连接是否可用
+
+**收发件**
+- IMAP 异步同步（BullMQ 队列，不阻塞请求）：收件箱 / 发件箱 / 已发送 / 草稿
+- 左右三栏布局：账户列表 → 邮件列表 → 邮件内容
+- 支持回复、转发、附件上传
+- **附件懒加载**：附件元信息随邮件存入数据库，正文内容按需从 IMAP 拉取，不占用存储
+- 基于 `In-Reply-To` / `References` 头将邮件归入会话线程
+
+**邮件追踪（发出邮件）**
+- 发送时自动在 HTML 正文末尾注入 1x1 像素跟踪图片（`/emails/track/:id/pixel.png`）
+- 正文中所有超链接改写为跟踪重定向链接（`/emails/track/:id/click/:linkId`）
+- 打开事件分类：HUMAN / PROXY / PREFETCH / BOT / DUP（重复），计算 `openConfidence`（0-1）
+- 记录：`firstHumanOpenAt`（首次人工阅读）、`lastOpenedAt`、`totalClicks`、`viewCount`
+
+**邮件模板 & 群发活动**
+- 创建/管理邮件模板（含 subject + HTML body + 分类）
+- 邮件活动（Campaign）：批量群发，追踪每个收件人的打开/点击统计
+- EmailRecipient 表记录每个收件人的历史行为（总发送数、总打开数、总点击数）
+
+**API**
+```
+# 邮箱账户
+GET    /emails/accounts               # 当前用户的邮箱账户列表
+GET    /emails/accounts/:id           # 账户详情
+POST   /emails/accounts               # 添加邮箱账户（SMTP + IMAP 配置）
+PUT    /emails/accounts/:id           # 更新账户配置
+DELETE /emails/accounts/:id           # 删除账户
+POST   /emails/accounts/:id/test      # 测试 SMTP 连通性
+POST   /emails/accounts/:id/fetch     # 触发 IMAP 同步（异步入队）
+
+# 邮件
+GET    /emails                        # 邮件列表（?campaignId=&status=&direction=&page=）
+GET    /emails/:id                    # 邮件详情（含追踪统计）
+POST   /emails/send                   # 发送邮件（异步队列，含追踪像素注入）
+DELETE /emails/:id                    # 删除邮件
+
+# 模板
+GET    /emails/templates              # 模板列表
+POST   /emails/templates              # 新建模板
+
+# 活动群发
+GET    /emails/campaigns              # 群发活动列表
+POST   /emails/campaigns              # 新建活动
+PATCH  /emails/campaigns/:id          # 更新活动
+
+# 追踪（公开路由，无需登录）
+GET    /emails/track/:emailId/pixel.png          # 追踪像素（返回 1x1 GIF）
+GET    /emails/track/:emailId/click/:linkId      # 点击追踪（302 重定向到原链接）
+```
