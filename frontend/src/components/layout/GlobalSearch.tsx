@@ -163,7 +163,7 @@ export default function GlobalSearch() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-72">
+    <div ref={containerRef} className="relative w-72 z-[1000]">
       <div className="relative">
         <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
@@ -200,7 +200,7 @@ export default function GlobalSearch() {
       {open && query.trim() && (
         <div
           className="absolute top-full mt-2 right-0 w-[420px] bg-white rounded-xl shadow-2xl
-                     border border-gray-200/80 z-50 max-h-[70vh] overflow-y-auto"
+                     border border-gray-200/80 z-[1000] max-h-[70vh] overflow-y-auto"
         >
           {loading && (
             <div className="px-4 py-6 text-center text-sm text-gray-400">

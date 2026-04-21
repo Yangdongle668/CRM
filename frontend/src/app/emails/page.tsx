@@ -213,38 +213,39 @@ export default function EmailsPage() {
         emailConfigId: selectedAccountId || undefined,
       };
 
-      // 搜索时禁用 grouped，避免线程聚合把非命中邮件也带出来
+      // 搜索时禁用 grouped + 跨所有文件夹搜索（不限 category/direction），
+      // 否则当前文件夹过滤会把命中结果挡掉。
       const trimmedSearch = searchQuery.trim();
       if (trimmedSearch) {
         params.search = trimmedSearch;
         params.grouped = 'false';
-      }
-
-      switch (activeFolder) {
-        case 'inbox':
-          params.category = 'inbox';
-          params.direction = 'INBOUND';
-          break;
-        case 'unread':
-          params.status = 'RECEIVED';
-          params.category = 'inbox';
-          params.direction = 'INBOUND';
-          break;
-        case 'sent':
-          params.direction = 'OUTBOUND';
-          break;
-        case 'customer':
-          params.category = 'customer';
-          break;
-        case 'advertisement':
-          params.category = 'advertisement';
-          break;
-        case 'trash':
-          params.category = 'trash';
-          break;
-        case 'spam':
-          params.category = 'spam';
-          break;
+      } else {
+        switch (activeFolder) {
+          case 'inbox':
+            params.category = 'inbox';
+            params.direction = 'INBOUND';
+            break;
+          case 'unread':
+            params.status = 'RECEIVED';
+            params.category = 'inbox';
+            params.direction = 'INBOUND';
+            break;
+          case 'sent':
+            params.direction = 'OUTBOUND';
+            break;
+          case 'customer':
+            params.category = 'customer';
+            break;
+          case 'advertisement':
+            params.category = 'advertisement';
+            break;
+          case 'trash':
+            params.category = 'trash';
+            break;
+          case 'spam':
+            params.category = 'spam';
+            break;
+        }
       }
 
       const res: any = await emailsApi.list(params);
