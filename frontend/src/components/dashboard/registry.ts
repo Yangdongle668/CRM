@@ -9,6 +9,7 @@ import { TasksWidget } from './widgets/TasksWidget';
 import { HolidayCountdownWidget } from './widgets/HolidayCountdownWidget';
 import { BirthdayWidget } from './widgets/BirthdayWidget';
 import { DormantCustomersWidget } from './widgets/DormantCustomersWidget';
+import { WorldClockWidget } from './widgets/WorldClockWidget';
 import type { GridItem, SavedLayout, WidgetDef } from './types';
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -117,6 +118,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minH: 3,
     financeHidden: true,
   },
+  {
+    id: 'world-clock',
+    title: '世界时间',
+    component: WorldClockWidget,
+    defaultW: 6,
+    defaultH: 4,
+    minW: 3,
+    minH: 3,
+  },
 ];
 
 /** Build default layout positions for a given set of widget IDs (top-to-bottom, auto-packing). */
@@ -155,6 +165,7 @@ export const DEFAULT_LAYOUT_ADMIN: SavedLayout = buildLayout([
   'team-followups',
   'holiday-countdown',
   'birthdays',
+  'world-clock',
   'dormant-customers',
   'tasks',
   'rankings',
@@ -169,6 +180,7 @@ export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
   'dormant-customers',
   'holiday-countdown',
   'birthdays',
+  'world-clock',
   'tasks',
 ]);
 
@@ -176,6 +188,7 @@ export const DEFAULT_LAYOUT_FINANCE: SavedLayout = buildLayout([
   'stats',
   'holiday-countdown',
   'birthdays',
+  'world-clock',
   'tasks',
 ]);
 

@@ -14,6 +14,25 @@ export class DashboardController {
     return this.dashboardService.getStats(user.id, user.role);
   }
 
+  /**
+   * 服务器时间诊断：把服务器当前时间 / 时区 / 偏移量一起吐出来，
+   * 前端可以拿来跟客户端本地时间对比，排查"发件时间比实际晚 X 分钟"
+   * 之类的时钟漂移问题（宿主机 NTP 没同步时常见）。
+   */
+  @Get('time')
+  getServerTime() {
+    const now = new Date();
+    return {
+      serverTime: now.toISOString(),
+      epochMs: now.getTime(),
+      tz:
+        process.env.TZ ||
+        Intl.DateTimeFormat().resolvedOptions().timeZone ||
+        'UTC',
+      tzOffsetMinutes: -now.getTimezoneOffset(),
+    };
+  }
+
   @Get('sales-trend')
   getSalesTrend(@CurrentUser() user: any) {
     return this.dashboardService.getSalesTrend(user.id, user.role);
