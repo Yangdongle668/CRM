@@ -271,6 +271,7 @@ export class EmailsController {
     @Query('emailConfigId') emailConfigId?: string,
     @Query('category') category?: string,
     @Query('flagged') flagged?: string,
+    @Query('search') search?: string,
   ) {
     return this.emailsService.findAll(user.id, user.role, {
       customerId,
@@ -282,6 +283,7 @@ export class EmailsController {
       emailConfigId,
       category,
       flagged,
+      search,
     });
   }
 
