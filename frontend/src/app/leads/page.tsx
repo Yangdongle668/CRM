@@ -88,6 +88,8 @@ export default function LeadsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  // 防抖后的搜索值，实际传给后端
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [scope, setScope] = useState<'mine' | 'pool' | 'all'>('mine');
   const [stage, setStage] = useState('');
   // 管理员专属：按负责人筛选（scope=all 时生效）
@@ -126,7 +128,7 @@ export default function LeadsPage() {
     setSelectedIds(new Set());
     try {
       const params: Record<string, any> = { page, pageSize, scope };
-      if (search) params.search = search;
+      if (debouncedSearch) params.search = debouncedSearch;
       if (stage) params.stage = stage;
       // 后端只在 ADMIN + scope=all 时接受 ownerId；销售员角色就算传了也会被忽略。
       if (user?.role === 'ADMIN' && scope === 'all' && ownerFilter) {
@@ -140,7 +142,16 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, scope, stage, ownerFilter, user?.role]);
+  }, [page, pageSize, debouncedSearch, scope, stage, ownerFilter, user?.role]);
+
+  // 搜索输入防抖 300ms
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   useEffect(() => {
     fetchLeads();
