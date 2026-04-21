@@ -9,6 +9,7 @@ import { TasksWidget } from './widgets/TasksWidget';
 import { HolidayCountdownWidget } from './widgets/HolidayCountdownWidget';
 import { BirthdayWidget } from './widgets/BirthdayWidget';
 import { DormantCustomersWidget } from './widgets/DormantCustomersWidget';
+import { WorldClockWidget } from './widgets/WorldClockWidget';
 import type { GridItem, SavedLayout, WidgetDef } from './types';
 
 export const WIDGET_REGISTRY: WidgetDef[] = [
@@ -116,6 +117,15 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     minW: 3,
     minH: 3,
     financeHidden: true,
+  },
+  {
+    id: 'world-clock',
+    title: '世界时钟',
+    component: WorldClockWidget,
+    defaultW: 6,
+    defaultH: 4,
+    minW: 3,
+    minH: 3,
   },
 ];
 

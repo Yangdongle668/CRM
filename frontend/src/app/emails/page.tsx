@@ -1184,6 +1184,18 @@ export default function EmailsPage() {
 
     return (
       <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Back button bar */}
+        <div className="flex items-center gap-2 px-4 py-2 border-b bg-white flex-shrink-0">
+          <button
+            onClick={() => setSelectedEmail(null)}
+            className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 transition-colors rounded-md px-2 py-1 hover:bg-gray-100"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+            返回列表
+          </button>
+        </div>
         {/* Email header */}
         <div className="px-6 py-4 border-b bg-white flex-shrink-0">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">
