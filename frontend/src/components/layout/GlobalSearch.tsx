@@ -75,8 +75,8 @@ export default function GlobalSearch() {
   // 扁平化所有 hit，便于键盘导航
   const flatHits = useMemo(
     () =>
-      results.flatMap((g) =>
-        g.hits.map((h) => ({ type: g.type, hit: h })),
+      (Array.isArray(results) ? results : []).flatMap((g) =>
+        (g.hits || []).map((h) => ({ type: g.type, hit: h })),
       ),
     [results],
   );
@@ -92,8 +92,11 @@ export default function GlobalSearch() {
     setLoading(true);
     const timer = setTimeout(async () => {
       try {
-        const data = await searchApi.global({ q, limit: 5 });
-        setResults(data);
+        const res: any = await searchApi.global({ q, limit: 5 });
+        // 后端 TransformInterceptor 会把响应包成 { code, data, message }
+        // 前端 axios 拦截器已解出 response.data → 这里再取 .data 得到真正的 SearchGroup[]
+        const groups = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+        setResults(groups);
         setActiveIdx(0);
       } catch {
         setResults([]);
