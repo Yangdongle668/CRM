@@ -2411,9 +2411,11 @@ export default function EmailsPage() {
         {/* Email detail — slide-in panel from the right.
             The overlay covers most of the viewport while leaving the
             folder sidebar visible. Clicking the backdrop or the close
-            button clears selectedEmail and slides the panel back out. */}
+            button clears selectedEmail and slides the panel back out.
+            z-index 必须高于 AppLayout 顶栏（z-[100]），否则手机端全屏
+            覆盖时左上角的"返回"按钮会被顶栏挡住。 */}
         <div
-          className={`fixed inset-0 z-40 transition-opacity duration-300 ${
+          className={`fixed inset-0 z-[110] transition-opacity duration-300 ${
             selectedEmail ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
           }`}
         >
