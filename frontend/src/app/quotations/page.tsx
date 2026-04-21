@@ -214,27 +214,27 @@ export default function QuotationsPage() {
   // ---------- render ----------
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">报价管理</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">报价管理</h1>
           <button
             onClick={openCreate}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             新建报价
           </button>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 sm:flex-none min-w-[7rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
             <option value="">全部状态</option>
             {Object.entries(QUOTATION_STATUS_MAP).map(([key, val]) => (
@@ -251,13 +251,58 @@ export default function QuotationsPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full sm:w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           />
         </div>
 
-        {/* Table */}
+        {/* List */}
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          {/* 移动端卡片 */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">加载中...</div>
+            ) : quotations.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">暂无数据</div>
+            ) : (
+              quotations.map((q) => {
+                const status = QUOTATION_STATUS_MAP[q.status];
+                return (
+                  <div key={q.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900 truncate">{q.quotationNo}</div>
+                        <div className="mt-0.5 text-xs text-gray-600 truncate">{q.title}</div>
+                        <div className="mt-0.5 text-xs text-gray-500 truncate">
+                          {q.customer?.companyName ?? '-'}
+                        </div>
+                      </div>
+                      <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                        <div className="text-sm font-semibold text-gray-900 whitespace-nowrap">
+                          {q.currency} {(q.totalAmount ?? 0).toLocaleString()}
+                        </div>
+                        {status && <Badge className={status.color}>{status.label}</Badge>}
+                      </div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                      <span>
+                        {q.validUntil ? `有效至 ${q.validUntil.slice(0, 10)}` : '-'}
+                        <span className="mx-1.5 text-gray-300">·</span>
+                        {q.createdAt?.slice(0, 10)}
+                      </span>
+                      <div className="flex flex-wrap gap-2.5 text-xs">
+                        <button onClick={() => openEdit(q)} className="text-blue-600 hover:text-blue-800">查看</button>
+                        <button onClick={() => handleGeneratePdf(q.id)} className="text-green-600 hover:text-green-800">PDF</button>
+                        <button onClick={() => handleSendEmail(q.id)} className="text-purple-600 hover:text-purple-800">发送</button>
+                        <button onClick={() => handleDelete(q.id)} className="text-red-600 hover:text-red-800">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {/* 桌面端表格 */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -369,7 +414,7 @@ export default function QuotationsPage() {
       >
         <div className="space-y-6">
           {/* Basic fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">客户 *</label>
               <select

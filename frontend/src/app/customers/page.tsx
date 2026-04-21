@@ -29,11 +29,28 @@ const initialForm = {
 };
 
 const PAGE_SIZE = 50;
-const ROW_HEIGHT = 56;
+const ROW_HEIGHT_DESKTOP = 56;
+const ROW_HEIGHT_MOBILE = 116;
+
+/** 监听 md 以下断点。VirtualList 的行高是固定 px，所以要据此切换 */
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 767px)');
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener('change', update);
+    return () => mq.removeEventListener('change', update);
+  }, []);
+  return isMobile;
+}
 
 export default function CustomersPage() {
   const router = useRouter();
   const { isAdmin, can } = useAuth();
+  const isMobile = useIsMobile();
+  const rowHeight = isMobile ? ROW_HEIGHT_MOBILE : ROW_HEIGHT_DESKTOP;
   // Prefer an explicit permission if the server exposes it; otherwise
   // fall back to the admin-role shortcut (keeps behaviour unchanged for
   // unmigrated environments).
@@ -145,27 +162,27 @@ export default function CustomersPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">客户管理</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">客户管理</h1>
           <button
             onClick={() => setModalOpen(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             新建客户
           </button>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
-          <form onSubmit={handleSearch} className="flex-1">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
+          <form onSubmit={handleSearch} className="w-full sm:flex-1">
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索公司名称..."
-              className="w-full max-w-sm rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full sm:max-w-sm rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </form>
           <select
@@ -175,7 +192,7 @@ export default function CustomersPage() {
               setStatusFilter(v);
               setAppliedQuery((q) => ({ ...q, status: v }));
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 sm:flex-none min-w-[7rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
             <option value="">全部状态</option>
             {Object.entries(CUSTOMER_STATUS_MAP).map(([key, val]) => (
@@ -184,7 +201,7 @@ export default function CustomersPage() {
               </option>
             ))}
           </select>
-          <div className="w-48">
+          <div className="flex-1 sm:w-48 sm:flex-none min-w-[9rem]">
             <CountrySelect
               value={countryFilter}
               onChange={(v) => {
@@ -196,11 +213,13 @@ export default function CustomersPage() {
           </div>
         </div>
 
-        {/* Virtualized table: header + windowed body + infinite scroll. */}
+        {/* Virtualized list: header + windowed body + infinite scroll.
+            桌面端按表格式网格展示；移动端同一份 VirtualList 切换成卡片渲染，
+            行高随断点切换（见 ROW_HEIGHT_MOBILE / _DESKTOP）。 */}
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          {/* Header (static). Grid columns kept in sync with row template. */}
+          {/* 桌面端表头（移动端隐藏）。列宽与行模板保持同步。 */}
           <div
-            className="grid bg-gray-50 border-b border-gray-200 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500"
+            className="hidden md:grid bg-gray-50 border-b border-gray-200 px-6 py-3 text-xs font-medium uppercase tracking-wider text-gray-500"
             style={{
               gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 80px',
             }}
@@ -219,7 +238,7 @@ export default function CustomersPage() {
           ) : (
             <VirtualList
               items={customers}
-              rowHeight={ROW_HEIGHT}
+              rowHeight={rowHeight}
               onEndReached={() => {
                 if (hasMore && !loadingMore) void loadMore();
               }}
@@ -230,7 +249,7 @@ export default function CustomersPage() {
                 </div>
               }
               footer={
-                <div className="px-6 py-3 text-center text-xs text-gray-400 border-t border-gray-100">
+                <div className="px-4 sm:px-6 py-3 text-center text-xs text-gray-400 border-t border-gray-100">
                   {loadingMore
                     ? '加载中...'
                     : hasMore
@@ -240,13 +259,55 @@ export default function CustomersPage() {
               }
               renderRow={(customer) => {
                 const statusInfo = CUSTOMER_STATUS_MAP[customer.status];
+                if (isMobile) {
+                  return (
+                    <div
+                      onClick={() => router.push(`/customers/${customer.id}`)}
+                      className="flex h-full flex-col justify-center gap-1 border-b border-gray-100 px-4 py-2 cursor-pointer hover:bg-gray-50"
+                      style={{ height: rowHeight }}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1 text-sm font-semibold text-gray-900 truncate">
+                          {customer.companyName}
+                        </div>
+                        <div className="flex flex-shrink-0 items-center gap-2">
+                          <Badge className={statusInfo?.color || ''}>
+                            {statusInfo?.label || customer.status}
+                          </Badge>
+                          {canDelete && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteId(customer.id);
+                              }}
+                              className="text-xs text-red-600 hover:text-red-800"
+                            >
+                              删除
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-500 truncate">
+                        {[customer.country, customer.industry].filter(Boolean).join(' · ') || '-'}
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-gray-400">
+                        <span className="truncate">
+                          负责：{customer.owner?.name || '-'}
+                        </span>
+                        <span className="flex-shrink-0">
+                          {new Date(customer.createdAt).toLocaleDateString('zh-CN')}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     onClick={() => router.push(`/customers/${customer.id}`)}
                     className="grid items-center px-6 border-b border-gray-100 cursor-pointer hover:bg-gray-50 text-sm"
                     style={{
                       gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr 1fr 80px',
-                      height: ROW_HEIGHT,
+                      height: rowHeight,
                     }}
                   >
                     <div className="font-medium text-gray-900 truncate pr-2">
@@ -289,7 +350,7 @@ export default function CustomersPage() {
       {/* Create Customer Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="新建客户" maxWidth="2xl" dismissible={false}>
         <form onSubmit={handleCreate} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 公司名称 <span className="text-red-500">*</span>

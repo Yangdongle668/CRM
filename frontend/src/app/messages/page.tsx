@@ -236,9 +236,15 @@ export default function MessagesPage() {
     <AppLayout>
       {profileUser && <ProfileCard user={profileUser} onClose={() => setProfileUser(null)} />}
 
-      <div className="flex h-[calc(100vh-112px)] rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-        {/* Conversation list */}
-        <div className="w-64 flex-shrink-0 border-r border-gray-200 flex flex-col">
+      {/* 整体高度：头部 / followup banner 占位后剩余视口。移动端切成
+          "列表 ↔ 对话"两级，用 activeUserId / showNewChat 判断，md+ 并排。 */}
+      <div className="flex h-[calc(100vh-8rem)] sm:h-[calc(100vh-112px)] rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        {/* Conversation list —— 手机端没进对话时占满，进了对话就隐藏 */}
+        <div
+          className={`w-full md:w-64 md:flex-shrink-0 border-r border-gray-200 flex-col ${
+            activeUserId || showNewChat ? 'hidden md:flex' : 'flex'
+          }`}
+        >
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
             <h2 className="text-base font-semibold text-gray-900">消息</h2>
             <button
@@ -279,12 +285,25 @@ export default function MessagesPage() {
           </div>
         </div>
 
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col">
+        {/* Chat area —— 手机端进了对话时占满，没进时隐藏；md+ 始终显示 */}
+        <div
+          className={`flex-1 flex-col ${
+            activeUserId || showNewChat ? 'flex' : 'hidden md:flex'
+          }`}
+        >
           {showNewChat ? (
-            <div className="flex-1 p-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">选择联系人</h3>
-              <div className="grid grid-cols-2 gap-2 max-h-96 overflow-y-auto">
+            <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-gray-700">选择联系人</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowNewChat(false)}
+                  className="md:hidden text-xs text-gray-500 hover:text-gray-700"
+                >
+                  ← 返回列表
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {allUsers.map((u) => (
                   <button
                     key={u.id}
@@ -309,19 +328,29 @@ export default function MessagesPage() {
             </div>
           ) : (
             <>
-              {/* Header */}
-              <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-3">
+              {/* Header —— 手机端左侧给一个返回按钮回到会话列表 */}
+              <div className="px-3 sm:px-5 py-3 border-b border-gray-100 flex items-center gap-2 sm:gap-3">
+                <button
+                  type="button"
+                  onClick={() => setActiveUserId(null)}
+                  className="md:hidden flex-shrink-0 rounded-lg p-1.5 text-gray-500 hover:bg-gray-100"
+                  aria-label="返回列表"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
                 {activePartner && (
                   <UserAvatar user={activePartner} size={8} onClick={() => showProfile(activePartner)} />
                 )}
-                <div>
-                  <p className="text-sm font-semibold text-gray-900">{activePartner?.name}</p>
-                  <p className="text-xs text-gray-400">{ROLE_MAP[activePartner?.role || ''] || activePartner?.role}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{activePartner?.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{ROLE_MAP[activePartner?.role || ''] || activePartner?.role}</p>
                 </div>
               </div>
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+              <div className="flex-1 overflow-y-auto px-3 sm:px-5 py-4 space-y-3">
                 {history.length === 0 && (
                   <p className="text-center text-sm text-gray-400 py-8">暂无消息，发送第一条消息吧</p>
                 )}
@@ -351,7 +380,7 @@ export default function MessagesPage() {
               </div>
 
               {/* Input */}
-              <form onSubmit={handleSend} className="px-5 py-3 border-t border-gray-100 flex items-center gap-3">
+              <form onSubmit={handleSend} className="px-3 sm:px-5 py-3 border-t border-gray-100 flex items-center gap-2 sm:gap-3">
                 <input
                   value={input}
                   onChange={(e) => setInput(e.target.value)}

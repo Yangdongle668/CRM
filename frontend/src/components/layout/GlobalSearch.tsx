@@ -163,7 +163,7 @@ export default function GlobalSearch() {
   };
 
   return (
-    <div ref={containerRef} className="relative w-72 z-[1000]">
+    <div ref={containerRef} className="relative w-full max-w-xs sm:max-w-sm md:w-72 z-[1000]">
       <div className="relative">
         <HiOutlineSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
@@ -173,7 +173,7 @@ export default function GlobalSearch() {
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
           placeholder="搜索客户、线索、订单、邮件…"
-          className="w-full pl-9 pr-16 py-1.5 text-sm rounded-lg bg-gray-100/70 border border-transparent
+          className="w-full pl-9 pr-12 sm:pr-16 py-1.5 text-sm rounded-lg bg-gray-100/70 border border-transparent
                      focus:bg-white focus:border-primary-300 focus:outline-none focus:ring-2 focus:ring-primary-100
                      transition placeholder:text-gray-400"
         />
@@ -199,8 +199,9 @@ export default function GlobalSearch() {
 
       {open && query.trim() && (
         <div
-          className="absolute top-full mt-2 left-0 w-[420px] bg-white rounded-xl shadow-2xl
-                     border border-gray-200/80 z-[1000] max-h-[70vh] overflow-y-auto"
+          className="absolute top-full mt-2 left-0 bg-white rounded-xl shadow-2xl
+                     border border-gray-200/80 z-[1000] max-h-[70vh] overflow-y-auto
+                     w-[min(420px,calc(100vw-1.5rem))] sm:w-[420px]"
         >
           {loading && (
             <div className="px-4 py-6 text-center text-sm text-gray-400">

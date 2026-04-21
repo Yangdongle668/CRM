@@ -355,32 +355,32 @@ export default function CustomerDetailPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
             <button
               onClick={() => router.push('/customers')}
-              className="text-gray-500 hover:text-gray-700"
+              className="flex-shrink-0 text-gray-500 hover:text-gray-700"
             >
               &larr; 返回
             </button>
-            <h1 className="text-2xl font-bold text-gray-900">{customer.companyName}</h1>
+            <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">{customer.companyName}</h1>
             <Badge className={statusInfo?.color || ''}>
               {statusInfo?.label || customer.status}
             </Badge>
           </div>
           <button
             onClick={openEditModal}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             编辑
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200">
-          <nav className="flex space-x-8">
+        {/* Tabs —— 窄屏下可横向滚动 */}
+        <div className="border-b border-gray-200 -mx-3 sm:mx-0 overflow-x-auto">
+          <nav className="flex space-x-6 sm:space-x-8 px-3 sm:px-0 whitespace-nowrap">
             {TABS.map((tab) => (
               <button
                 key={tab.key}
@@ -904,7 +904,7 @@ export default function CustomerDetailPage() {
       {/* Edit Customer Modal */}
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑客户信息" maxWidth="2xl" dismissible={false}>
         <form onSubmit={handleUpdateCustomer} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">
                 公司名称 <span className="text-red-500">*</span>
@@ -1061,7 +1061,7 @@ export default function CustomerDetailPage() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">邮箱</label>
               <input
@@ -1081,7 +1081,7 @@ export default function CustomerDetailPage() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">微信</label>
               <input

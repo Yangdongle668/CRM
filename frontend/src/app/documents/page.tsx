@@ -132,24 +132,24 @@ export default function DocumentsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">文件管理</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">文件管理</h1>
           <button
             onClick={() => setUploadOpen(true)}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
           >
             上传文件
           </button>
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <select
             value={filterCategory}
             onChange={(e) => { setFilterCategory(e.target.value); setPage(1); }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="flex-1 sm:flex-none min-w-[7rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           >
             <option value="">全部类别</option>
             {CATEGORIES.map((cat) => (
@@ -158,8 +158,58 @@ export default function DocumentsPage() {
           </select>
         </div>
 
-        {/* Table */}
-        <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        {/* List —— <md 卡片；>=md 原表格 */}
+        <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
+          {/* 移动端卡片 */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">加载中...</div>
+            ) : documents.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">暂无文件数据</div>
+            ) : (
+              documents.map((doc) => {
+                const customerName = customers.find((c) => c.id === doc.customerId)?.companyName;
+                return (
+                  <div key={doc.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-gray-900 truncate">{doc.fileName}</div>
+                        <div className="mt-0.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-gray-500">
+                          {doc.category && <span>{doc.category}</span>}
+                          <span>{formatFileSize(doc.fileSize)}</span>
+                          <span>{formatDate(doc.createdAt)}</span>
+                        </div>
+                        {(customerName || doc.owner?.name) && (
+                          <div className="mt-0.5 text-[11px] text-gray-400 truncate">
+                            {customerName && <>客户：{customerName}</>}
+                            {customerName && doc.owner?.name && <span className="mx-1">·</span>}
+                            {doc.owner?.name && <>上传：{doc.owner.name}</>}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-shrink-0 gap-3 text-sm">
+                        <button
+                          onClick={() => handleDownload(doc)}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          下载
+                        </button>
+                        <button
+                          onClick={() => handleDelete(doc.id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* 桌面端表格 */}
+          <div className="hidden md:block overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
@@ -227,6 +277,7 @@ export default function DocumentsPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Pagination */}

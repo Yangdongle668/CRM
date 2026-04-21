@@ -135,13 +135,13 @@ export default function ContactsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">联系人管理</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">联系人管理</h1>
           <button
             onClick={openCreate}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             + 新建联系人
           </button>
@@ -157,13 +157,83 @@ export default function ContactsPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-full max-w-md rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full sm:max-w-md rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
 
-        {/* Table */}
+        {/* List：≥md 走桌面表格；<md 走卡片 */}
         <div className="overflow-hidden rounded-lg bg-white shadow">
-          <div className="overflow-x-auto">
+          {/* 移动端卡片列表 */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {loading ? (
+              <div className="py-12 text-center text-sm text-gray-500">加载中...</div>
+            ) : contacts.length === 0 ? (
+              <div className="py-12 text-center text-sm text-gray-500">暂无联系人数据</div>
+            ) : (
+              contacts.map((contact) => {
+                const customerName =
+                  customers.find((c) => c.id === contact.customerId)?.companyName || '';
+                return (
+                  <div key={contact.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {contact.name}
+                          </span>
+                          {contact.isPrimary && (
+                            <span className="inline-flex rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-800">
+                              主要联系人
+                            </span>
+                          )}
+                        </div>
+                        {(contact.title || customerName) && (
+                          <div className="mt-0.5 text-xs text-gray-500 truncate">
+                            {contact.title}
+                            {contact.title && customerName && <span className="mx-1">·</span>}
+                            {customerName}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-shrink-0 gap-3 text-sm">
+                        <button
+                          onClick={() => openEdit(contact)}
+                          className="text-blue-600 hover:text-blue-800"
+                        >
+                          编辑
+                        </button>
+                        <button
+                          onClick={() => setDeleteId(contact.id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
+                          删除
+                        </button>
+                      </div>
+                    </div>
+                    {(contact.email || contact.phone) && (
+                      <div className="mt-2 space-y-1 text-xs text-gray-600">
+                        {contact.email && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-10 flex-shrink-0 text-gray-400">邮箱</span>
+                            <EmailLink email={contact.email} />
+                          </div>
+                        )}
+                        {contact.phone && (
+                          <div className="flex items-center gap-2">
+                            <span className="w-10 flex-shrink-0 text-gray-400">电话</span>
+                            <span>{contact.phone}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* 桌面端表格 */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>

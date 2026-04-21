@@ -484,13 +484,13 @@ export default function SettingsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <h1 className="text-2xl font-bold text-gray-900">设置</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">设置</h1>
 
-        {/* Tabs */}
-        <div className="border-b border-gray-200">
-          <nav className="flex gap-6">
+        {/* Tabs —— 窄屏可横滚，别挤成一坨 */}
+        <div className="border-b border-gray-200 -mx-3 sm:mx-0 overflow-x-auto">
+          <nav className="flex gap-4 sm:gap-6 px-3 sm:px-0 whitespace-nowrap">
             {tabs.map((tab) => (
               <button
                 key={tab.key}
@@ -509,9 +509,9 @@ export default function SettingsPage() {
 
         {/* ==================== Profile Tab ==================== */}
         {activeTab === 'profile' && (
-          <div className="max-w-lg space-y-6">
+          <div className="w-full max-w-lg space-y-6">
             {/* Avatar */}
-            <div className="flex items-center gap-5">
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-5">
               <div className="relative">
                 {currentUser.avatar ? (
                   <img

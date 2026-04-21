@@ -347,20 +347,20 @@ export default function PIDetailPage() {
     <AppLayout>
       <div className="space-y-5">
         {/* Page header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={() => router.push('/pis')}
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 shadow-apple transition-colors hover:bg-gray-50 hover:text-gray-900"
+              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 shadow-apple transition-colors hover:bg-gray-50 hover:text-gray-900"
               title="返回列表"
             >
               <HiOutlineArrowLeft className="h-4 w-4" />
             </button>
-            <div>
-              <h1 className="text-[22px] font-semibold tracking-tight text-gray-900">
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-[22px] font-semibold tracking-tight text-gray-900 truncate">
                 {isNew ? '新建 PI' : formData.piNo}
               </h1>
-              <div className="mt-0.5 flex items-center gap-2 text-[12px] text-gray-500">
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-gray-500">
                 {!isNew && <Badge className={statusCfg.color}>{statusCfg.label}</Badge>}
                 {formData.bankAccount?.alias && (
                   <span className="inline-flex items-center gap-1">
@@ -378,7 +378,7 @@ export default function PIDetailPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleSave}
               disabled={saving}
@@ -422,7 +422,7 @@ export default function PIDetailPage() {
           <div className="col-span-12 space-y-4 lg:col-span-8">
             {/* Template + Bank (quick pickers) */}
             <Section title="模板与银行账户" icon={<HiOutlineDocumentDuplicate className="h-4 w-4" />}>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="PI 模板">
                   <select
                     value={formData.templateId || ''}
@@ -473,7 +473,7 @@ export default function PIDetailPage() {
 
             {/* Basic info */}
             <Section title="基本信息" icon={<HiOutlineBuildingOffice2 className="h-4 w-4" />}>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="客户" required>
                   <select
                     value={formData.customerId || ''}
@@ -546,7 +546,7 @@ export default function PIDetailPage() {
                 )
               }
             >
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
                   label="卖方名称"
                   hint={companyInfo?.companyName ? '默认从「系统设置 · 公司信息」拉取，可手动修改' : undefined}
@@ -587,7 +587,7 @@ export default function PIDetailPage() {
 
             {/* Trade terms */}
             <Section title="贸易条款">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="贸易术语 (Incoterms)">
                   <select
                     value={formData.tradeTerm || ''}
@@ -799,7 +799,7 @@ export default function PIDetailPage() {
 
             {/* Charges & notes */}
             <Section title="费用与备注">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="运费">
                   <input
                     type="number"

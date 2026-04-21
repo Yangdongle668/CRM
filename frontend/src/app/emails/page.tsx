@@ -135,6 +135,13 @@ export default function EmailsPage() {
   // Tree-view expansion state — which account branches are open in the
   // sidebar. Defaults to "all expanded" once accounts load.
   const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set());
+  // 手机端折叠侧栏的开关：>=md 恒显；<md 需要用户主动拉出抽屉。
+  const [foldersOpen, setFoldersOpen] = useState(false);
+  // 选中账户 / 切换文件夹后自动把抽屉收回去，不然会一直压在列表上方。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setFoldersOpen(false);
+  }, [activeFolder, selectedAccountId]);
 
   // Detail panel (split-pane, not modal)
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
@@ -1712,7 +1719,7 @@ export default function EmailsPage() {
       dismissible={false}
     >
       <form onSubmit={handleSaveAccount} className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               邮箱地址 <span className="text-red-500">*</span>
@@ -1751,7 +1758,7 @@ export default function EmailsPage() {
 
         <div className="border-t pt-4">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">SMTP 发件服务器</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 服务器地址 <span className="text-red-500">*</span>
@@ -1814,7 +1821,7 @@ export default function EmailsPage() {
 
         <div className="border-t pt-4">
           <h3 className="text-sm font-semibold text-gray-800 mb-3">IMAP 收件服务器</h3>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 服务器地址 <span className="text-red-500">*</span>
@@ -1911,11 +1918,11 @@ export default function EmailsPage() {
       </Suspense>
       <div className="flex flex-col h-[calc(100vh-64px)]">
         {/* Header */}
-        <div className="flex items-center justify-between px-0 py-4 flex-shrink-0">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">邮件中心</h1>
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-0 py-3 sm:py-4 flex-shrink-0">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">邮件中心</h1>
             {selectedAccountId && (
-              <span className="text-sm text-gray-500">
+              <span className="hidden md:inline text-sm text-gray-500 truncate">
                 当前账户：
                 <span className="text-gray-900 font-medium">
                   {accounts.find((a: any) => a.id === selectedAccountId)?.emailAddr || ''}
@@ -1923,10 +1930,20 @@ export default function EmailsPage() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setFoldersOpen(true)}
+              className="md:hidden flex items-center gap-1.5 px-3 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              aria-label="邮箱 / 文件夹"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+              </svg>
+              邮箱
+            </button>
             <button
               onClick={handleFetchImap}
-              className="px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
             >
               收取邮件
             </button>
@@ -1937,7 +1954,7 @@ export default function EmailsPage() {
                 setComposeForm({ ...emptyComposeForm });
                 setComposeOpen(true);
               }}
-              className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
+              className="px-3 sm:px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
             >
               写邮件
             </button>
@@ -1945,9 +1962,36 @@ export default function EmailsPage() {
         </div>
 
         {/* Main 3-column layout: sidebar | email list | detail */}
-        <div className="flex flex-1 bg-white rounded-lg shadow overflow-hidden border">
-          {/* Folder sidebar — tree: accounts → folders */}
-          <aside className="w-[220px] bg-gray-50 border-r flex-shrink-0 flex flex-col">
+        <div className="relative flex flex-1 bg-white rounded-lg shadow overflow-hidden border">
+          {/* 移动端抽屉遮罩 */}
+          <div
+            onClick={() => setFoldersOpen(false)}
+            className={`md:hidden fixed inset-0 z-30 bg-black/30 transition-opacity ${
+              foldersOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+          />
+          {/* Folder sidebar —— 桌面常驻，<md 做成可滑入抽屉 */}
+          <aside
+            className={`
+              absolute md:static inset-y-0 left-0 z-40
+              w-[260px] md:w-[220px] bg-gray-50 border-r flex-shrink-0 flex flex-col
+              transition-transform duration-300
+              ${foldersOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
+            `}
+          >
+            {/* 仅 <md 显示的抽屉关闭按钮 */}
+            <div className="flex items-center justify-between px-4 pt-3 pb-1 md:hidden">
+              <span className="text-[13px] font-semibold text-gray-700">邮箱 / 文件夹</span>
+              <button
+                onClick={() => setFoldersOpen(false)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-200 hover:text-gray-700"
+                aria-label="关闭"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
             <nav className="py-3 flex-1 overflow-y-auto">
               {/* ── 邮箱 section header ─────────────────────────── */}
               <div className="flex items-center justify-between px-4 pb-2">

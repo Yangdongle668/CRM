@@ -209,9 +209,9 @@ export default function PIsPage() {
 
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-[22px] font-semibold tracking-tight text-gray-900">
               形式发票 (PI)
@@ -230,7 +230,7 @@ export default function PIsPage() {
         </div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-4">
           <StatCard
             icon={<HiOutlineDocumentText className="h-4 w-4" />}
             label="当前列表"
@@ -278,15 +278,15 @@ export default function PIsPage() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2 pb-2">
-            <div className="relative">
+          <div className="flex w-full items-center gap-2 pb-2 sm:w-auto">
+            <div className="relative flex-1 sm:flex-none">
               <HiOutlineMagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="搜索PI号或收货人..."
                 value={searchKeyword}
                 onChange={(e) => setSearchKeyword(e.target.value)}
-                className="w-64 rounded-xl border border-gray-200 bg-white/70 pl-9 pr-3 py-2 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+                className="w-full sm:w-64 rounded-xl border border-gray-200 bg-white/70 pl-9 pr-3 py-2 text-[13px] text-gray-800 placeholder:text-gray-400 focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
               />
             </div>
             {activeTab !== 'pending' && (
@@ -305,8 +305,9 @@ export default function PIsPage() {
           </div>
         </div>
 
-        {/* Table */}
+        {/* Table —— <md 可横向滚；≥md 正常展示 */}
         <div className="overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-apple">
+          <div className="overflow-x-auto">
           <table className="min-w-full">
             <thead>
               <tr className="border-b border-gray-200/80 bg-gray-50/50 text-[12px] uppercase tracking-wider text-gray-500">
@@ -425,6 +426,7 @@ export default function PIsPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Pagination */}

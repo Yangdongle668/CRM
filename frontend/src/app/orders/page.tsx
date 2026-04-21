@@ -360,14 +360,14 @@ export default function OrdersPage() {
   // ---------- render ----------
   return (
     <AppLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6">
         {/* Header */}
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">订单管理</h1>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">订单管理</h1>
           {!isFinance && (
             <button
               onClick={openCreate}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               新建订单
             </button>
@@ -375,14 +375,14 @@ export default function OrdersPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
           <select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 sm:flex-none min-w-[9rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
             <option value="">全部订单状态</option>
             {Object.entries(ORDER_STATUS_MAP).map(([key, val]) => (
@@ -397,7 +397,7 @@ export default function OrdersPage() {
               setPaymentFilter(e.target.value);
               setPage(1);
             }}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="flex-1 sm:flex-none min-w-[9rem] rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           >
             <option value="">全部付款状态</option>
             {Object.entries(PAYMENT_STATUS_MAP).map(([key, val]) => (
@@ -414,13 +414,85 @@ export default function OrdersPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+            className="w-full sm:w-64 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
           />
         </div>
 
-        {/* Table */}
+        {/* List */}
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
+          {/* 移动端卡片 */}
+          <div className="md:hidden divide-y divide-gray-100">
+            {loading ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">加载中...</div>
+            ) : orders.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-500">暂无数据</div>
+            ) : (
+              orders.map((o) => {
+                const os = ORDER_STATUS_MAP[o.status];
+                const ps = PAYMENT_STATUS_MAP[o.paymentStatus];
+                return (
+                  <div key={o.id} className="px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-gray-900 truncate">
+                          {o.orderNo}
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-600 truncate">{o.title}</div>
+                        <div className="mt-0.5 text-xs text-gray-500 truncate">
+                          {o.customer?.companyName ?? '-'}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          <Badge className={os?.color}>{os?.label}</Badge>
+                          <Badge className={ps?.color}>{ps?.label}</Badge>
+                        </div>
+                      </div>
+                      <div className="flex flex-shrink-0 flex-col items-end gap-2">
+                        <div className="text-sm font-semibold text-gray-900 whitespace-nowrap">
+                          {o.currency} {(o.totalAmount ?? 0).toLocaleString()}
+                        </div>
+                        <div className="flex gap-2.5 text-xs">
+                          <button
+                            onClick={() => openDetail(o)}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            查看
+                          </button>
+                          {!isFinance && (
+                            <>
+                              <button
+                                onClick={() => openEdit(o)}
+                                className="text-indigo-600 hover:text-indigo-800"
+                              >
+                                编辑
+                              </button>
+                              <button
+                                onClick={() => handleDelete(o.id)}
+                                className="text-red-600 hover:text-red-800"
+                              >
+                                删除
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-1 text-[11px] text-gray-500">
+                      <div>
+                        <span className="text-gray-400">发货：</span>
+                        {o.shippingDate ? o.shippingDate.slice(0, 10) : '-'}
+                      </div>
+                      <div>
+                        <span className="text-gray-400">创建：</span>
+                        {o.createdAt?.slice(0, 10)}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {/* 桌面端表格 */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -534,7 +606,7 @@ export default function OrdersPage() {
       >
         <div className="space-y-6">
           {/* Basic fields */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-gray-700">客户 *</label>
               <select
@@ -797,7 +869,7 @@ export default function OrdersPage() {
         {detailOrder && (
           <div className="space-y-6">
             {/* Basic info */}
-            <div className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+            <div className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2">
               <div>
                 <span className="font-medium text-gray-500">订单编号：</span>
                 <span className="text-gray-900">{detailOrder.orderNo}</span>

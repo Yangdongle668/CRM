@@ -397,14 +397,14 @@ export default function LeadsPage() {
 
   return (
     <AppLayout>
-      <div className="p-6">
+      <div>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4 sm:mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">线索列表</h1>
-            <p className="text-sm text-gray-500 mt-1">共 {total} 条线索 — 可搜索、筛选、批量操作</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">线索列表</h1>
+            <p className="text-xs sm:text-sm text-gray-500 mt-0.5 sm:mt-1">共 {total} 条线索 — 可搜索、筛选、批量操作</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
                 setImportFile(null);
@@ -423,7 +423,7 @@ export default function LeadsPage() {
             </button>
             <button
               onClick={openCreateModal}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
+              className="ml-auto sm:ml-0 inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm"
             >
               <span>+</span> 新建线索
             </button>
@@ -431,8 +431,8 @@ export default function LeadsPage() {
         </div>
 
         {/* Search & Filters */}
-        <div className="bg-white rounded-lg p-4 mb-6 border border-gray-200">
-          <div className="flex flex-wrap gap-3 items-center mb-4">
+        <div className="bg-white rounded-lg p-3 sm:p-4 mb-4 sm:mb-6 border border-gray-200">
+          <div className="flex flex-wrap gap-3 items-center mb-3 sm:mb-4">
             <input
               type="text"
               value={search}
@@ -518,7 +518,7 @@ export default function LeadsPage() {
 
         {/* Bulk action bar */}
         {selectedIds.size > 0 && (
-          <div className="flex items-center gap-3 mb-3 px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3 px-3 sm:px-4 py-2.5 bg-blue-50 border border-blue-200 rounded-lg">
             <span className="text-sm font-medium text-blue-700">
               已选 {selectedIds.size} 条
             </span>
@@ -539,14 +539,132 @@ export default function LeadsPage() {
           </div>
         )}
 
-        {/* Table */}
+        {/* List */}
         <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
           {loading ? (
             <div className="p-8 text-center text-gray-500">加载中...</div>
           ) : leads.length === 0 ? (
             <div className="p-8 text-center text-gray-500">暂无线索</div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* 移动端卡片 */}
+            <div className="md:hidden divide-y divide-gray-100">
+              {leads.map((lead) => {
+                const selected = selectedIds.has(lead.id);
+                return (
+                  <div key={lead.id} className={`px-3 py-3 ${selected ? 'bg-blue-50' : ''}`}>
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleSelect(lead.id)}
+                        className="mt-1 h-4 w-4 flex-shrink-0 rounded border-gray-300 text-blue-600"
+                      />
+                      <div className="h-9 w-9 flex-shrink-0 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">
+                        {getInitials(lead.companyName || lead.title)}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-semibold text-gray-900 truncate">{lead.title}</span>
+                          <Badge className={LEAD_STAGE_MAP[lead.stage]?.color || ''}>
+                            {LEAD_STAGE_MAP[lead.stage]?.label || lead.stage}
+                          </Badge>
+                          {isAdminOwned(lead) && (
+                            <HiOutlineLockClosed className="h-3 w-3 text-amber-500" />
+                          )}
+                        </div>
+                        <div className="text-xs text-gray-500 truncate">
+                          {lead.companyName || '-'}
+                          {lead.country && <span className="ml-1.5 text-gray-400">· {lead.country}</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-0.5">
+                        <button
+                          onClick={() => openEditModal(lead)}
+                          className="p-1.5 text-gray-500 hover:text-blue-600"
+                          title="查看详情"
+                        >
+                          <HiOutlineEye className="h-4 w-4" />
+                        </button>
+                        {(lead.isPublicPool || !lead.ownerId) && lead.ownerId !== user?.id && (
+                          <button
+                            onClick={() => handleClaim(lead.id)}
+                            className="p-1.5 text-gray-500 hover:text-emerald-600"
+                            title="认领线索"
+                          >
+                            <HiOutlineHandRaised className="h-4 w-4" />
+                          </button>
+                        )}
+                        {user?.role === 'ADMIN' && (
+                          <button
+                            onClick={() => openAssignModal(lead.id)}
+                            className="p-1.5 text-gray-500 hover:text-green-600"
+                            title="分配给业务员"
+                          >
+                            <HiOutlineUserPlus className="h-4 w-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleDelete(lead.id)}
+                          className="p-1.5 text-gray-500 hover:text-red-600"
+                          title="删除"
+                        >
+                          <HiOutlineTrash className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-2 ml-[3.75rem] space-y-1 text-xs">
+                      {lead.email && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-10 flex-shrink-0 text-gray-400">邮箱</span>
+                          <EmailLink email={lead.email} className="text-blue-600 hover:underline truncate" />
+                        </div>
+                      )}
+                      {lead.phone && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-10 flex-shrink-0 text-gray-400">电话</span>
+                          <span className="text-gray-600">{lead.phone}</span>
+                        </div>
+                      )}
+                      {lead.website && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-10 flex-shrink-0 text-gray-400">网站</span>
+                          <a
+                            href={normalizeWebsiteUrl(lead.website)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:underline truncate"
+                          >
+                            {lead.website.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                          </a>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 text-gray-500">
+                        <span className="w-10 flex-shrink-0 text-gray-400">负责</span>
+                        <span className="truncate">
+                          {lead.owner ? (
+                            <>
+                              {lead.owner.name}
+                              {lead.owner.role === 'ADMIN' && (
+                                <HiOutlineLockClosed className="h-3 w-3 text-amber-500 inline-block ml-0.5" />
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-400">公海</span>
+                          )}
+                        </span>
+                        <span className="ml-auto flex-shrink-0 text-gray-400">
+                          {formatDate(lead.updatedAt)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 桌面端表格 */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full min-w-[1200px]">
               <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
                 <tr>
@@ -688,12 +806,13 @@ export default function LeadsPage() {
               </tbody>
             </table>
             </div>
+            </>
           )}
 
           {/* Pagination + page-size selector */}
           {leads.length > 0 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between px-3 sm:px-4 py-3 border-t border-gray-200">
+              <div className="flex items-center gap-2 text-xs sm:text-sm text-gray-600">
                 <span>每页显示</span>
                 {[25, 50, 100].map((n) => (
                   <button
@@ -742,7 +861,7 @@ export default function LeadsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">公司名称</label>
                 <input
@@ -765,7 +884,7 @@ export default function LeadsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">网站</label>
                 <input
@@ -788,7 +907,7 @@ export default function LeadsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">邮箱</label>
                 <input
@@ -817,7 +936,7 @@ export default function LeadsPage() {
             </div>
 
             {/* 对接人（个人）信息 */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">对接人姓名</label>
                 <input
@@ -851,7 +970,7 @@ export default function LeadsPage() {
             </div>
 
             {/* 地址 */}
-            <div className="grid grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">国家</label>
                 <CountrySelect
@@ -902,7 +1021,7 @@ export default function LeadsPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">阶段</label>
                 <select
