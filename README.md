@@ -896,3 +896,274 @@ PATCH  /emails/campaigns/:id          # 更新活动
 GET    /emails/track/:emailId/pixel.png          # 追踪像素（返回 1x1 GIF）
 GET    /emails/track/:emailId/click/:linkId      # 点击追踪（302 重定向到原链接）
 ```
+
+---
+
+### 7. 报价单管理
+
+**核心特性**
+- 多行产品明细（productName / 描述 / 单位 / 数量 / 单价 / 小计），`sortOrder` 支持拖拽排序
+- 报价单状态流：DRAFT → SENT → VIEWED → ACCEPTED / REJECTED / EXPIRED
+- 一键生成 PDF（服务端 pdfkit 渲染，返回 base64）
+- 发送报价单邮件：`POST /quotations/:id/send`，自动附带 PDF 附件
+- 有效期字段 `validUntil`，过期后状态自动标记 EXPIRED
+- 支持付款条款、备注字段
+
+**API**
+```
+GET    /quotations                    # 列表
+GET    /quotations/:id                # 详情（含明细行）
+POST   /quotations                    # 新建（body 含 items 数组）
+PATCH  /quotations/:id                # 更新
+DELETE /quotations/:id                # 删除
+POST   /quotations/:id/pdf            # 生成 PDF（返回 base64）
+POST   /quotations/:id/send           # 发送报价邮件
+```
+
+**权限码**：`quotation:read` `quotation:create` `quotation:update` `quotation:delete` `quotation:send`
+
+---
+
+### 8. 形式发票（PI）
+
+**核心特性**
+- 完整的外贸单据字段：卖方/买方信息、PO 号、贸易条款（EXW/FOB/CIF 等 9 种）、付款条款（T_30/T_50/T_70/T_100）、装运港/目的港、原产地、交货条款
+- 多行产品明细，含 HSN 海关编码字段
+- 费用分项：小计 + 运费 + 其他费用 = 总金额
+- **银行账户多选**：关联 BankAccount 表，PI PDF 自动填入银行信息
+- **PI 模板**：预设常用字段（贸易条款、付款方式、港口信息等），创建 PI 时一键套用
+- **审批流程**：DRAFT → PENDING_APPROVAL → APPROVED / REJECTED，记录审批人、审批时间、拒绝原因
+- 一键生成并下载 PDF
+
+**API**
+```
+GET    /pis                           # 列表
+GET    /pis/:id                       # 详情（含明细行）
+POST   /pis                           # 新建（body 含 items 数组）
+PATCH  /pis/:id                       # 更新
+DELETE /pis/:id                       # 删除
+POST   /pis/:id/submit-approval       # 提交审批（DRAFT → PENDING_APPROVAL）
+POST   /pis/:id/approve               # 审批通过（→ APPROVED，记录 approverId）
+POST   /pis/:id/reject                # 拒绝（→ REJECTED，body: {reason}）
+POST   /pis/:id/pdf                   # 生成 PDF
+GET    /pis/:id/download              # 下载 PDF 文件流
+
+# 银行账户（设置子模块）
+GET    /settings/bank-accounts        # 列表（按 sortOrder 排序）
+POST   /settings/bank-accounts        # 新建银行账户
+PATCH  /settings/bank-accounts/:id    # 更新
+DELETE /settings/bank-accounts/:id    # 删除
+
+# PI 模板（设置子模块）
+GET    /settings/pi-templates         # 列表
+POST   /settings/pi-templates         # 新建模板
+PATCH  /settings/pi-templates/:id     # 更新
+DELETE /settings/pi-templates/:id     # 删除
+```
+
+**权限码**：`pi:read` `pi:create` `pi:update` `pi:delete` `pi:approve`
+
+---
+
+### 9. 订单管理
+
+**核心特性**
+- 订单明细（productName / 单位 / 数量 / 单价 / 小计），支持多行
+- **双状态独立管理**：OrderStatus（生产/物流进度）与 PaymentStatus（付款进度）分开更新
+- **费用类型多选**（`costTypes` 数组）：MOLD（模具费）/ CERTIFICATION（认证费）/ FREIGHT（货运费）/ EQUIPMENT（设备费）/ NRE（NRE 费用）
+- **公司底价**（`floorPrice`）：内部参考字段，不对客户展示
+- 物流信息：发货地址、货运单号、发货日期、交付日期
+- **数据隔离**：业务员只能看自己的订单，FINANCE / ADMIN 可见全部
+- **写操作权限**：订单创建/更新/删除仅限 ADMIN 和 SALESPERSON；FINANCE 只读
+- **价格审计**：修改 totalAmount / floorPrice 时，AuditLog 记录变更前后值
+
+**API**
+```
+GET    /orders                        # 列表（角色自动过滤）
+GET    /orders/:id                    # 订单详情（含明细行）
+POST   /orders                        # 新建（body 含 items 数组）
+PATCH  /orders/:id                    # 更新订单信息
+PATCH  /orders/:id/status             # 更新订单状态（OrderStatus）
+PATCH  /orders/:id/payment            # 更新付款状态（PaymentStatus）
+DELETE /orders/:id                    # 删除订单
+```
+
+**权限码**：`order:read` `order:create` `order:update` `order:delete` `order:status` `order:payment`
+
+---
+
+### 10. 任务管理
+
+- 优先级四级：LOW / MEDIUM / HIGH / URGENT
+- 状态流：PENDING → IN_PROGRESS → COMPLETED / CANCELLED
+- **管理员可将任务指派给指定业务员**（`assigneeId` 字段）
+- 支持关联任意对象（`relatedType` + `relatedId`，如关联客户或订单）
+- 截止时间提醒
+
+**API**
+```
+GET    /tasks                         # 列表
+GET    /tasks/:id                     # 详情
+POST   /tasks                         # 新建
+PATCH  /tasks/:id                     # 更新
+DELETE /tasks/:id                     # 删除
+```
+
+**权限码**：`task:read` `task:create` `task:update` `task:delete`
+
+---
+
+### 11. 团队消息
+
+基于 Socket.IO 的实时一对一即时通讯。
+
+**实现机制**
+- WebSocket 网关挂载在 `/ws/messages`，连接时验证 JWT Token
+- 实时推送事件：`message:new`（新消息）、`conversation:update`（会话更新）、`typing`（打字状态）
+- 消息列表 HTTP 接口兼容轮询（无 WebSocket 时降级）
+- 未读角标：侧边栏实时显示未读消息总数
+- **用户资料卡**：点击头像弹出对方完整资料（姓名 / 角色 / 个性签名 / 邮箱 / 电话）
+
+**API**
+```
+GET    /messages                      # 会话列表（含最后一条消息 + 未读数）
+GET    /messages/with/:userId         # 与某用户的历史消息（分页，自动标记已读）
+POST   /messages                      # 发送消息（body: {toId, content}）
+GET    /messages/:id                  # 单条消息
+PATCH  /messages/:id                  # 标记已读
+```
+
+---
+
+### 12. 文件管理
+
+- 文件上传最大 50MB，服务端以 UUID 重命名后存储至 `uploads/` 目录
+- 支持按客户、关联对象类型（`relatedType`）、分类（`category`）筛选
+- 文件下载（流式响应）、删除
+
+**API**
+```
+POST   /documents/upload              # 上传文件（multipart/form-data）
+GET    /documents                     # 列表（?customerId=&category=&relatedType=&relatedId=）
+GET    /documents/:id/download        # 下载文件（流）
+DELETE /documents/:id                 # 删除
+```
+
+---
+
+### 13. 备忘录
+
+个人便签，支持颜色标记与日期筛选。
+
+```
+GET    /memos                         # 列表（?date=&month=）
+GET    /memos/range                   # 按日期范围查询（?start=&end=）
+POST   /memos                         # 新建（title / content / color / date）
+PATCH  /memos/:id                     # 更新
+DELETE /memos/:id                     # 删除
+```
+
+---
+
+### 14. 实时汇率
+
+顶栏常驻显示，所有页面均可见。
+
+**实现机制**
+- 后端定时任务（`@nestjs/schedule`）轮询中国银行现汇买入价
+- 成功：内存缓存 15 分钟后重新拉取；失败：指数退避（30s → 60s → 2m → 4m → 最大 5m）
+- 前端每 15 分钟自动刷新一次，鼠标悬停显示最近更新时间
+
+```
+GET /rates   # 返回 { base, source, updatedAt, rates: { USD_CNY, EUR_CNY, EUR_USD } }
+```
+
+---
+
+### 15. 客户活动时间线
+
+记录客户维度的所有交互历史，支持 13 种活动类型。
+
+| 类型 | 说明 |
+|------|------|
+| `NOTE` | 文字备注 |
+| `CALL` | 电话沟通 |
+| `MEETING` | 会议/拜访 |
+| `EMAIL` | 邮件往来（自动关联） |
+| `TASK` | 任务记录 |
+| `STATUS_CHANGE` | 客户状态变更 |
+| `PRICE_DISCUSSION` | 价格讨论 |
+| `ORDER_INTENT` | 购买意向 |
+| `SAMPLE` | 样品寄送 |
+| `MOLD_FEE` | 模具费沟通 |
+| `PAYMENT` | 付款记录 |
+| `SHIPPING` | 发货/物流 |
+| `COMPLAINT` | 投诉处理 |
+| `VISIT` | 客户拜访 |
+
+```
+POST /activities                      # 新建活动记录
+GET  /activities                      # 当前用户的活动列表
+GET  /activities/customer/:customerId # 某客户的时间线（分页）
+```
+
+---
+
+### 16. 管理后台
+
+**RBAC 权限管理**（`/admin/rbac`，仅 ADMIN）
+- 内置角色：ADMIN（拥有 `*` 通配符权限）、SALESPERSON、FINANCE（各有默认权限集）
+- 支持新建自定义角色，自由分配 60+ 细粒度权限码
+- 权限码按模块分组：`customer:*` / `order:*` / `pi:*` / `email:*` / `rbac:*` / `audit:read` 等
+
+```
+GET    /permissions                          # 所有权限码列表
+GET    /permissions/roles                    # 所有角色列表
+GET    /permissions/roles/:code/permissions  # 某角色的权限列表
+POST   /permissions/roles                    # 新建自定义角色
+PATCH  /permissions/roles/:code              # 更新角色信息
+DELETE /permissions/roles/:code              # 删除自定义角色（内置角色不可删）
+POST   /permissions/roles/:code/permissions  # 批量分配权限
+DELETE /permissions/roles/:code/permissions/:permCode  # 移除单个权限
+```
+
+**审计日志**（`/admin/audit-logs`，仅 ADMIN）
+- 记录字段：操作者（id/email/name/role）、操作类型、目标对象、HTTP 方法/路径、IP、UserAgent、结果（SUCCESS/FAILURE）、扩展元数据（含价格变更前后值）
+- 支持多维度查询：按用户、操作类型、目标对象、时间范围、关键词搜索
+
+```
+GET /audit-logs   # 查询审计日志（?userId=&action=&targetType=&status=&from=&to=&search=&page=）
+```
+
+**数据备份与恢复**
+- **导出**：ZIP 包含业务数据 CSV（客户/联系人/线索/报价/订单/任务/活动/用户），不含邮件和审计日志
+- **异步导出**：大数据量时入队后台处理，返回 `jobId` 供前端查询进度
+- **恢复（破坏性）**：上传 ZIP 包后清空并重建业务表数据，最大支持 200MB
+
+```
+GET    /backup/export             # 同步导出 ZIP（流式响应）
+POST   /backup/export/async       # 异步导出（返回 jobId）
+POST   /backup/import             # 导入恢复（multipart/form-data，max 200MB）
+```
+
+**权限码**：`backup:export` `backup:import`
+
+**系统设置**
+- 公司信息：名称、地址、电话、网站
+- Logo 上传（自动同步为浏览器标签图标，`favicon`）
+- 全量系统参数 KV 读写
+
+```
+GET    /settings                  # 获取所有系统参数
+PUT    /settings                  # 批量更新（key-value 数组）
+GET    /settings/logo             # 获取 Logo（公开路由）
+POST   /settings/logo             # 上传 Logo（max 5MB）
+GET    /settings/company-info     # 获取公司信息
+PUT    /settings/company-info     # 更新公司信息
+```
+
+**翻译与天气**
+```
+POST   /translate                 # 文本翻译（body: {segments:[{index,text}], target:"zh-CN"}）
+GET    /weather                   # 天气查询（?city=北京）
+```
