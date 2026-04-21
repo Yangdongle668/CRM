@@ -1344,6 +1344,33 @@ cd frontend && npm run build && npm start
 
 ## 环境变量
 
+### 时区 / 服务器时钟
+
+系统在多处记录时间戳（邮件 `sentAt`、活动时间线、审计日志等），依赖容器和宿主机的
+系统时间准确且一致。`docker-compose.yml` 已经为所有服务设置 `TZ=Asia/Shanghai` 并
+将宿主机的 `/etc/localtime` 只读挂载进容器；但 **真正的时间源仍然是宿主机**，如果
+宿主机时钟漂移（例如看到"发件时间比实际时间晚 N 分钟"），必须先在宿主机开启 NTP
+同步：
+
+```bash
+# Ubuntu / Debian
+timedatectl set-ntp true
+timedatectl status         # 确认 NTP service: active / System clock synchronized: yes
+
+# CentOS / RHEL
+sudo systemctl enable --now chronyd
+chronyc tracking           # 查看当前偏差
+```
+
+也可以直接调用后端诊断接口核对服务端时间：
+
+```
+GET /api/dashboard/time    # 返回 { serverTime, epochMs, tz, tzOffsetMinutes }
+```
+
+需要切换时区（例如部署到海外团队）时，在根目录 `.env` 设置 `TZ=...`（IANA 区名，
+如 `Europe/Berlin`）然后重启服务即可。
+
 ### `backend/.env`
 
 | 变量 | 说明 | 示例 |

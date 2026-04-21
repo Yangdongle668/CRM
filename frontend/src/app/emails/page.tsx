@@ -1590,6 +1590,7 @@ export default function EmailsPage() {
       onClose={() => setTemplateModalOpen(false)}
       title="新建邮件模板"
       size="3xl"
+      dismissible={false}
     >
       <form onSubmit={handleCreateTemplate} className="space-y-4">
         <div>
@@ -1671,6 +1672,7 @@ export default function EmailsPage() {
       }}
       title={editingAccountId ? '编辑邮箱账户' : '添加邮箱账户'}
       size="3xl"
+      dismissible={false}
     >
       <form onSubmit={handleSaveAccount} className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
@@ -2346,6 +2348,7 @@ export default function EmailsPage() {
           onClose={() => setSignatureForAccount(null)}
           title="邮件签名设置"
           maxWidth="4xl"
+          dismissible={false}
         >
           {signatureForAccount && (
             <SignatureEditor

@@ -8,10 +8,13 @@ services:
       POSTGRES_DB: trade_crm
       POSTGRES_USER: crm_user
       POSTGRES_PASSWORD: ${DB_PASSWORD:-crm_password}
+      TZ: ${TZ:-Asia/Shanghai}
+      PGTZ: ${TZ:-Asia/Shanghai}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U crm_user -d trade_crm"]
       interval: 10s
@@ -23,10 +26,13 @@ services:
     image: redis:7-alpine
     container_name: crm-redis
     restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+      - /etc/localtime:/etc/localtime:ro
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -58,8 +64,14 @@ services:
       # HMAC secret for tracking click tokens (falls back to JWT_SECRET
       # if unset, but you should use a distinct value in production).
       EMAIL_TRACKING_SECRET: ${EMAIL_TRACKING_SECRET:-${JWT_SECRET:-change-this-tracking-secret}}
+      # 显式设定容器时区，否则 node:alpine 默认 UTC，
+      # 会导致日志、邮件 sentAt 字段、活动时间戳与业务实际时间不一致。
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - uploads_data:/app/uploads
+      # 把宿主机时间源挂进来，容器时钟与宿主保持一致；
+      # 前提是宿主机已经开启 NTP 同步（chrony / systemd-timesyncd）。
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -79,6 +91,9 @@ services:
       - "3000:3000"
     environment:
       NEXT_PUBLIC_API_URL: http://backend:3001
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
       - backend
 
@@ -87,6 +102,8 @@ services:
     image: nginx:alpine
     container_name: crm-nginx
     restart: always
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "80:80"
       - "443:443"
@@ -94,6 +111,7 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       # SSL 证书 —— 直接挂载 1Panel 维护的目录，证书续期自动生效
       - /opt/1panel/www/sites/crm.07691688.xyz/ssl:/etc/nginx/ssl:ro
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
       - frontend
       - backend
