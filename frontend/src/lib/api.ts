@@ -204,6 +204,12 @@ export const emailsApi = {
   // 收件人地址自动补全（已发 / 已收 / 联系人合并，按时间倒序）
   suggestAddresses: (q: string, limit = 20) =>
     api.get('/emails/address-suggestions', { params: { q, limit } }),
+
+  // "收件人已读"铃铛：当前用户发出、被读过、晚于 since 的邮件
+  openNotifications: (since?: string | null, limit = 10) =>
+    api.get('/emails/open-notifications', {
+      params: { since: since || undefined, limit },
+    }),
 };
 
 // ==================== Quotations API ====================

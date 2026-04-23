@@ -243,6 +243,23 @@ export class EmailsController {
     return this.emailsService.suggestAddresses(q || '', limit ? parseInt(limit, 10) : 20);
   }
 
+  /**
+   * "收件人已读"铃铛通知：列出当前用户发出、已被阅读、且时间晚于 since
+   * 的邮件。前端把上次确认过的时间传进来即可（存 localStorage）。
+   */
+  @Get('open-notifications')
+  async openNotifications(
+    @CurrentUser() user: any,
+    @Query('since') since?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.emailsService.listOpenNotifications(
+      user.id,
+      since ? new Date(since) : null,
+      limit ? parseInt(limit, 10) : 10,
+    );
+  }
+
   // ==================== Email Operations ====================
 
   @Post('send')
