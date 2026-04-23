@@ -7,6 +7,8 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const MailComposer = require('nodemailer/lib/mail-composer');
 import * as Imap from 'imap';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -505,6 +507,11 @@ export class EmailsService {
       appUrl,
     );
 
+    // 预先定死 Message-Id：SMTP 发出去的和 IMAP APPEND 回服务器的要一致，
+    // 这样其它客户端收到的 sent 副本才和收件箱里的往来能匹配起来。
+    const domain = (config.emailAddr.split('@')[1] || 'localhost').trim();
+    const presetMessageId = `<${uuidv4()}@${domain}>`;
+
     const mailOptions: any = {
       from: fromAddress,
       to: emailRecord.toAddr,
@@ -512,6 +519,7 @@ export class EmailsService {
       bcc: emailRecord.bcc || undefined,
       subject: emailRecord.subject,
       html: htmlWithTracking,
+      messageId: presetMessageId,
     };
 
     if (opts.inReplyToMessageId) {
@@ -585,6 +593,16 @@ export class EmailsService {
         customerId: email.customerId,
         senderId: email.senderId,
       });
+
+      // 把发出去的邮件 APPEND 到 IMAP Sent 文件夹，保证其它邮箱客户端
+      // （手机 / 网页 / Outlook 等）也能看到本系统发出的邮件。
+      // 纯 best-effort：失败只记日志，不影响主流程（SMTP 已送达）。
+      this.appendToImapSent(config, mailOptions).catch((err) =>
+        this.logger.warn(
+          `IMAP APPEND to Sent folder failed for ${emailId}: ${err?.message || err}`,
+        ),
+      );
+
       return email;
     } catch (error: any) {
       this.logger.error(
@@ -1759,6 +1777,81 @@ export class EmailsService {
           });
         });
       });
+    });
+  }
+
+  /**
+   * 把 SMTP 已发送的邮件以 RFC822 原文追加到服务器的 Sent 文件夹。
+   * 用 nodemailer 的 MailComposer 复用完全相同的 mailOptions，保证原文
+   * 与 SMTP 发出去的那封一致（含同一个 Message-Id / 附件 / 签名）。
+   */
+  private async appendToImapSent(
+    config: {
+      imapHost: string;
+      imapPort: number;
+      imapSecure: boolean;
+      imapUser: string;
+      imapPass: string;
+    },
+    mailOptions: any,
+  ): Promise<void> {
+    if (!config.imapHost || !config.imapUser || !config.imapPass) {
+      return;
+    }
+
+    const rawBuffer: Buffer = await new Promise((resolve, reject) => {
+      new MailComposer(mailOptions).compile().build((err: any, msg: Buffer) => {
+        if (err) reject(err);
+        else resolve(msg);
+      });
+    });
+
+    const imap = new Imap({
+      user: config.imapUser,
+      password: config.imapPass,
+      host: config.imapHost,
+      port: config.imapPort,
+      tls: config.imapSecure,
+      tlsOptions: { rejectUnauthorized: false },
+      authTimeout: 30000,
+      connTimeout: 30000,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const done = (err?: Error) => {
+        if (settled) return;
+        settled = true;
+        try {
+          imap.end();
+        } catch {
+          /* noop */
+        }
+        err ? reject(err) : resolve();
+      };
+
+      imap.once('ready', async () => {
+        try {
+          const sentFolder = await this.findSentFolder(imap);
+          if (!sentFolder) {
+            this.logger.warn(
+              'No Sent folder on IMAP server; skipping APPEND of outgoing message',
+            );
+            return done();
+          }
+          // node-imap append: 已发出的邮件按约定标记为 \Seen。
+          imap.append(
+            rawBuffer,
+            { mailbox: sentFolder, flags: ['\\Seen'], date: new Date() },
+            (err: Error | null) => (err ? done(err) : done()),
+          );
+        } catch (err: any) {
+          done(err);
+        }
+      });
+
+      imap.once('error', (err: Error) => done(err));
+      imap.connect();
     });
   }
 
