@@ -234,6 +234,15 @@ export class EmailsController {
     return this.emailsService.getRecipientDetail(id);
   }
 
+  /**
+   * 收件人地址自动补全。合并：已发过的 EmailRecipient、收到过的 INBOUND
+   * 邮件发件人、CRM 联系人。按最近活跃时间排序。
+   */
+  @Get('address-suggestions')
+  async suggestAddresses(@Query('q') q?: string, @Query('limit') limit?: string) {
+    return this.emailsService.suggestAddresses(q || '', limit ? parseInt(limit, 10) : 20);
+  }
+
   // ==================== Email Operations ====================
 
   @Post('send')
