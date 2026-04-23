@@ -200,6 +200,10 @@ export const emailsApi = {
   listRecipients: (params?: { search?: string; page?: number; pageSize?: number }) =>
     api.get('/emails/recipients', { params }),
   getRecipient: (id: string) => api.get(`/emails/recipients/${id}`),
+
+  // 收件人地址自动补全（已发 / 已收 / 联系人合并，按时间倒序）
+  suggestAddresses: (q: string, limit = 20) =>
+    api.get('/emails/address-suggestions', { params: { q, limit } }),
 };
 
 // ==================== Quotations API ====================

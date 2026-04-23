@@ -1362,6 +1362,98 @@ export class EmailsService {
     return { items, total, page, pageSize };
   }
 
+  /**
+   * 收件人地址自动补全。并集来自：
+   *   1) EmailRecipient（我们发过的所有地址，带累计统计）
+   *   2) Email.fromAddr INBOUND（收到过的发件人，包含未建档的客户）
+   *   3) Contact.email（CRM 联系人）
+   * 按 lastActivity 倒序；上限默认 20 条。
+   */
+  async suggestAddresses(query: string, limit = 20) {
+    const q = (query || '').trim();
+    if (!q) return [];
+    const take = Math.min(50, Math.max(1, limit));
+    const like = { contains: q, mode: 'insensitive' as const };
+
+    const [recipients, inboundEmails, contacts] = await Promise.all([
+      this.prisma.emailRecipient.findMany({
+        where: { OR: [{ emailAddr: like }, { name: like }] },
+        orderBy: { lastSentAt: { sort: 'desc', nulls: 'last' } },
+        take,
+        select: { emailAddr: true, name: true, lastSentAt: true },
+      }),
+      this.prisma.email.findMany({
+        where: {
+          direction: 'INBOUND',
+          OR: [{ fromAddr: like }, { fromName: like }],
+        },
+        orderBy: { receivedAt: 'desc' },
+        take: take * 3, // 多取一些，distinct 在应用层做
+        select: { fromAddr: true, fromName: true, receivedAt: true },
+      }),
+      this.prisma.contact.findMany({
+        where: {
+          email: { not: null },
+          OR: [{ email: like }, { name: like }],
+        },
+        take,
+        select: { email: true, name: true },
+      }),
+    ]);
+
+    // "Name <addr>" 拆分。兼容裸邮箱 / 带引号名 / 多种分隔。
+    const parseAddr = (raw: string): { name: string | null; email: string | null } => {
+      if (!raw) return { name: null, email: null };
+      const m = raw.match(/^\s*(.*?)<([^>]+)>\s*$/);
+      if (m) {
+        const name = m[1].trim().replace(/^["']|["']$/g, '').trim() || null;
+        return { name, email: m[2].trim().toLowerCase() };
+      }
+      return { name: null, email: raw.trim().toLowerCase() };
+    };
+
+    type Entry = { email: string; name: string | null; lastActivity: Date | null };
+    const map = new Map<string, Entry>();
+    const merge = (email: string | null, name: string | null, when: Date | null) => {
+      if (!email || !email.includes('@')) return;
+      const key = email.toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, { email: key, name, lastActivity: when });
+        return;
+      }
+      // 保留更近的时间；姓名取现有优先，没有才填
+      if (when && (!existing.lastActivity || when > existing.lastActivity)) {
+        existing.lastActivity = when;
+      }
+      if (!existing.name && name) existing.name = name;
+    };
+
+    for (const r of recipients) {
+      merge(r.emailAddr, r.name || null, r.lastSentAt);
+    }
+    for (const e of inboundEmails) {
+      const parsed = parseAddr(e.fromAddr);
+      merge(parsed.email, e.fromName || parsed.name, e.receivedAt);
+    }
+    for (const c of contacts) {
+      merge(c.email || null, c.name || null, null);
+    }
+
+    return Array.from(map.values())
+      .sort((a, b) => {
+        const aT = a.lastActivity?.getTime() ?? 0;
+        const bT = b.lastActivity?.getTime() ?? 0;
+        return bT - aT;
+      })
+      .slice(0, take)
+      .map((x) => ({
+        email: x.email,
+        name: x.name || null,
+        lastActivity: x.lastActivity,
+      }));
+  }
+
   async getRecipientDetail(id: string) {
     const recipient = await this.prisma.emailRecipient.findUnique({
       where: { id },

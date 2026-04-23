@@ -15,6 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AddressAutocomplete from './AddressAutocomplete';
 import {
   HiOutlineXMark,
   HiOutlineMinus,
@@ -478,12 +479,11 @@ export default function ComposeWindow({
             {/* 收件人 */}
             <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2">
               <span className="w-14 flex-shrink-0 text-sm text-gray-500">收件人</span>
-              <input
-                type="text"
+              <AddressAutocomplete
                 value={value.toAddr}
-                onChange={(e) => onChange({ ...value, toAddr: e.target.value })}
+                onChange={(v) => onChange({ ...value, toAddr: v })}
                 placeholder="对方邮箱地址，多个用逗号分隔"
-                className="flex-1 border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                inputClassName="w-full border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
               />
               {!showCcBcc && (
                 <button
@@ -501,22 +501,20 @@ export default function ComposeWindow({
               <>
                 <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2">
                   <span className="w-14 flex-shrink-0 text-sm text-gray-500">抄送</span>
-                  <input
-                    type="text"
+                  <AddressAutocomplete
                     value={value.cc}
-                    onChange={(e) => onChange({ ...value, cc: e.target.value })}
+                    onChange={(v) => onChange({ ...value, cc: v })}
                     placeholder="抄送邮箱"
-                    className="flex-1 border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                    inputClassName="w-full border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
                   />
                 </div>
                 <div className="flex items-center gap-2 border-b border-gray-100 px-4 py-2">
                   <span className="w-14 flex-shrink-0 text-sm text-gray-500">密送</span>
-                  <input
-                    type="text"
+                  <AddressAutocomplete
                     value={value.bcc}
-                    onChange={(e) => onChange({ ...value, bcc: e.target.value })}
+                    onChange={(v) => onChange({ ...value, bcc: v })}
                     placeholder="密送邮箱"
-                    className="flex-1 border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
+                    inputClassName="w-full border-none bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
                   />
                 </div>
               </>
