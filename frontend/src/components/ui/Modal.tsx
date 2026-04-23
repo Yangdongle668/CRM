@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { HiOutlineXMark } from 'react-icons/hi2';
 
 interface ModalProps {
@@ -29,8 +30,13 @@ const maxWidthClasses: Record<string, string> = {
 
 export function Modal({ open, isOpen, onClose, title, children, maxWidth, size, dismissible = true }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
   const visible = open ?? isOpen ?? false;
   const width = maxWidth ?? size ?? 'lg';
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -51,18 +57,20 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size, 
     };
   }, [visible, dismissible, onClose]);
 
-  if (!visible) return null;
+  if (!visible || !mounted) return null;
 
   const handleOverlayClick = (e: React.MouseEvent) => {
     if (!dismissible) return;
     if (e.target === overlayRef.current) onClose();
   };
 
-  return (
+  // 用 Portal 挂到 body：彻底避开页面内 fixed 层造成的 stacking context 遮挡。
+  // z-[120] 高于顶栏 z-[100] 与邮件详情 slide-in z-[110]。
+  return createPortal(
     <div
       ref={overlayRef}
       onClick={handleOverlayClick}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-2 sm:p-4 animate-fade-in"
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/30 backdrop-blur-sm p-2 sm:p-4 animate-fade-in"
     >
       <div
         className={`w-full ${maxWidthClasses[width]} rounded-xl sm:rounded-2xl bg-white/95 backdrop-blur-xl shadow-apple-xl animate-scale-in`}
@@ -86,7 +94,8 @@ export function Modal({ open, isOpen, onClose, title, children, maxWidth, size, 
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
