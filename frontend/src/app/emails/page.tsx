@@ -8,6 +8,7 @@ import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
 import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
+import OpenNotificationBell from '@/components/emails/OpenNotificationBell';
 import { emailsApi, customersApi, translateApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailAttachment, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -1941,6 +1942,14 @@ export default function EmailsPage() {
               </svg>
               邮箱
             </button>
+            <OpenNotificationBell
+              onOpenEmail={async (emailId) => {
+                // 点通知条目直接拉起那封邮件的详情面板。复用 handleViewEmail：
+                // 它已经处理了 thread 加载 / 选中同步等细节。用最小 stub 喂进去
+                // 即可，真正的邮件对象在里边 await getById 会被填充。
+                await handleViewEmail({ id: emailId } as Email);
+              }}
+            />
             <button
               onClick={handleFetchImap}
               className="px-3 sm:px-4 py-2 text-sm text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"

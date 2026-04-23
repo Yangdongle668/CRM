@@ -1454,6 +1454,96 @@ export class EmailsService {
       }));
   }
 
+  /**
+   * 铃铛通知数据源：当前用户发出、被收件人真人打开、且打开时间晚于
+   * `since` 的邮件。打开时间优先用 firstHumanOpenAt（已过反代预取 / 代理
+   * 去噪），没有时退化到 viewedAt。
+   *
+   * 返回：
+   *   items   – 最多 limit 条，按首次真人打开时间倒序
+   *   total   – 未确认的总数（用于铃铛红点上的数字；>99 前端自己截）
+   *   latestAt – 当前最新一次被打开的时间；前端"全部确认"时把它写回
+   *              localStorage 作为新的 since
+   */
+  async listOpenNotifications(
+    userId: string,
+    since: Date | null,
+    limit = 10,
+  ): Promise<{
+    items: Array<{
+      id: string;
+      subject: string;
+      toAddr: string;
+      firstOpenAt: Date | null;
+      lastOpenedAt: Date | null;
+      viewCount: number;
+    }>;
+    total: number;
+    latestAt: Date | null;
+  }> {
+    const take = Math.min(50, Math.max(1, limit));
+    // 用 (firstHumanOpenAt ?? viewedAt) 统一作为"打开时间"。Prisma 的
+    // where 不支持 coalesce，所以拆成两个 OR 分支。
+    const openTimeOr = (threshold: Date | null) => {
+      const conds: any[] = [];
+      if (threshold) {
+        conds.push({ firstHumanOpenAt: { gt: threshold } });
+        // firstHumanOpenAt 为空的行，用 viewedAt 兜底
+        conds.push({ AND: [{ firstHumanOpenAt: null }, { viewedAt: { gt: threshold } }] });
+      } else {
+        conds.push({ firstHumanOpenAt: { not: null } });
+        conds.push({ AND: [{ firstHumanOpenAt: null }, { viewedAt: { not: null } }] });
+      }
+      return conds;
+    };
+
+    const baseWhere = {
+      senderId: userId,
+      direction: 'OUTBOUND' as const,
+      status: 'VIEWED' as const,
+      OR: openTimeOr(since),
+    };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.email.findMany({
+        where: baseWhere,
+        orderBy: [
+          { firstHumanOpenAt: { sort: 'desc', nulls: 'last' } },
+          { viewedAt: { sort: 'desc', nulls: 'last' } },
+        ],
+        take,
+        select: {
+          id: true,
+          subject: true,
+          toAddr: true,
+          firstHumanOpenAt: true,
+          viewedAt: true,
+          lastOpenedAt: true,
+          viewCount: true,
+        },
+      }),
+      this.prisma.email.count({ where: baseWhere }),
+    ]);
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      subject: r.subject,
+      toAddr: r.toAddr,
+      firstOpenAt: r.firstHumanOpenAt || r.viewedAt || null,
+      lastOpenedAt: r.lastOpenedAt || r.viewedAt || null,
+      viewCount: r.viewCount,
+    }));
+
+    const latestAt = items.reduce<Date | null>((acc, it) => {
+      const t = it.firstOpenAt || it.lastOpenedAt;
+      if (!t) return acc;
+      if (!acc || t > acc) return t;
+      return acc;
+    }, null);
+
+    return { items, total, latestAt };
+  }
+
   async getRecipientDetail(id: string) {
     const recipient = await this.prisma.emailRecipient.findUnique({
       where: { id },
