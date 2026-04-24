@@ -553,6 +553,8 @@ export default function EmailsPage() {
       inReplyTo: selectedEmail.id,
       attachments: [],
     });
+    // ComposeWindow 会借 useEffect 监听 cc / bcc 自动展开抄送区
+    // （见 ComposeWindow.tsx），这里只需把 cc 预填上即可。
     setComposeOpen(true);
   };
 
