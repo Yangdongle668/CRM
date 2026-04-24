@@ -101,9 +101,13 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
 
   // 用 execCommand 前先确保 styleWithCSS —— 这样产生的是 <span style>
   // 而不是 <font> 标签，HTML 更干净也更容易被邮件客户端兼容。
+  // 同时把默认段落分隔改为 <p>：Chrome 默认会插 <div>，和收件客户端
+  // 按 <p> 渲染的预期不一致，"编辑里紧、收件端松"的视觉差主要就是
+  // 这个原因。
   useEffect(() => {
     try {
       document.execCommand('styleWithCSS', false, 'true');
+      document.execCommand('defaultParagraphSeparator', false, 'p');
     } catch {
       /* 某些浏览器（Firefox）可能报错，忽略 */
     }
@@ -341,7 +345,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
             className="inline-flex h-8 items-center gap-1 rounded px-2 text-sm text-gray-700 hover:bg-gray-100"
             title="字号"
           >
-            <span>14px</span>
+            <span>15px</span>
             <HiChevronDown className="h-3 w-3" />
           </button>
           {openDropdown === 'size' && (
@@ -680,7 +684,12 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         </ToolbarBtn>
       </div>
 
-      {/* ============== 编辑区 ============== */}
+      {/* ============== 编辑区 ==============
+          字号 / 行距 / 段落间距 / 内边距都按"收件人邮箱客户端默认渲染"
+          对齐：Gmail、Outlook、Apple Mail 对 <p> 都是 margin: 1em 0，
+          正文字号约 14~15px、行高约 1.6、四周留白 20~24px。
+          之前 text-sm + leading-relaxed + p{margin:0.25em} 是"编辑里挤、
+          发出去松"的主要原因，现在直接用真实渲染的节奏。 */}
       <div
         ref={editorRef}
         contentEditable
@@ -690,12 +699,13 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         onMouseUp={saveSelection}
         onBlur={saveSelection}
         data-placeholder={placeholder}
-        className={`rich-text-content flex-1 overflow-auto px-4 py-3 text-sm leading-relaxed text-gray-900 outline-none ${
+        className={`rich-text-content flex-1 overflow-auto px-5 py-4 text-[15px] text-gray-900 outline-none ${
           flex ? 'min-h-0' : ''
         }`}
         style={{
           minHeight: flex ? undefined : typeof minHeight === 'number' ? `${minHeight}px` : minHeight,
           fontFamily: '"Microsoft YaHei", "微软雅黑", Arial, sans-serif',
+          lineHeight: 1.6,
         }}
       />
 
@@ -708,22 +718,33 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         .rich-text-content {
           word-break: break-word;
         }
+        /* 段落：匹配收件端默认 <p> 外边距，编辑所见=收件所得 */
+        .rich-text-content p {
+          margin: 0 0 1em 0;
+        }
+        .rich-text-content p:last-child { margin-bottom: 0; }
+        /* Shift+Enter 产生的 <div> 只占一行，不再额外加外边距 */
+        .rich-text-content div { margin: 0; }
         .rich-text-content ul,
         .rich-text-content ol {
-          padding-left: 1.5em;
-          margin: 0.5em 0;
+          padding-left: 1.8em;
+          margin: 0 0 1em 0;
         }
         .rich-text-content ul { list-style: disc; }
         .rich-text-content ol { list-style: decimal; }
+        .rich-text-content li { margin: 0.25em 0; }
         .rich-text-content blockquote {
           border-left: 3px solid #cbd5e1;
           padding-left: 12px;
           color: #475569;
-          margin: 0.5em 0;
+          margin: 0 0 1em 0;
         }
         .rich-text-content a { color: #2563eb; text-decoration: underline; }
         .rich-text-content img { max-width: 100%; height: auto; }
-        .rich-text-content p { margin: 0.25em 0; }
+        .rich-text-content h1,
+        .rich-text-content h2,
+        .rich-text-content h3,
+        .rich-text-content h4 { margin: 1em 0 0.5em; font-weight: 600; }
       `}</style>
     </div>
   );
