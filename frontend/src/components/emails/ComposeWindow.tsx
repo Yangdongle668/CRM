@@ -111,6 +111,11 @@ export default function ComposeWindow({
 
   const [mode, setMode] = useState<WindowMode>(initialMaximized ? 'maximized' : 'normal');
   const [showCcBcc, setShowCcBcc] = useState<boolean>(Boolean(value.cc || value.bcc));
+  // 外部把 cc / bcc 预填进来（例如"回复所有"带出所有抄送人）时，要把抄送
+  // 区自动展开。只单向打开，不自动收起，避免用户手动清空后又被弹出来。
+  useEffect(() => {
+    if (value.cc || value.bcc) setShowCcBcc(true);
+  }, [value.cc, value.bcc]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showInsert, setShowInsert] = useState(false);
 
@@ -388,7 +393,7 @@ export default function ComposeWindow({
   return (
     <div
       ref={windowRef}
-      className="fixed z-[60] flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl"
+      className="fixed z-[115] flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl"
       style={windowStyle}
     >
       {/* ============== 标题栏 ============== */}
