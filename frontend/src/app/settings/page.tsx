@@ -14,7 +14,7 @@ import BankAccountsPanel from '@/components/settings/BankAccountsPanel';
 import PITemplatesPanel from '@/components/settings/PITemplatesPanel';
 import { useAuth } from '@/contexts/auth-context';
 import { useLogo } from '@/contexts/logo-context';
-import { usersApi, settingsApi, authApi, backupApi } from '@/lib/api';
+import { usersApi, settingsApi, authApi, backupApi, rbacApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
 import type { User, Role } from '@/types';
 
@@ -92,6 +92,10 @@ export default function SettingsPage() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [userForm, setUserForm] = useState(defaultUserForm);
   const [userSubmitting, setUserSubmitting] = useState(false);
+  // 角色下拉的实时数据源：内置角色 + 在 /admin/rbac 里新增的自定义角色，
+  // 都会在这里出现。关掉/打开"新建用户"弹窗时重新拉一次，保证刚创建的
+  // 角色立刻出现在下拉里。
+  const [roleOptions, setRoleOptions] = useState<Array<{ code: string; name: string }>>([]);
 
   // ==================== Company Info ====================
   const [companyInfo, setCompanyInfo] = useState({
@@ -218,9 +222,22 @@ export default function SettingsPage() {
     if (isAdmin && activeTab === 'users') fetchUsers();
   }, [isAdmin, activeTab, fetchUsers]);
 
+  // 拉一次完整角色清单——打开新建/编辑用户弹窗时重新拉，保证刚在
+  // /admin/rbac 创建的自定义角色立刻能出现在下拉里。
+  const fetchRoleOptions = useCallback(async () => {
+    try {
+      const res: any = await rbacApi.listRoleOptions();
+      const list = Array.isArray(res?.data?.roles) ? res.data.roles : [];
+      setRoleOptions(list);
+    } catch {
+      // 静默：拉不到就保持空，渲染下拉时用 ROLE_MAP 兜底。
+    }
+  }, []);
+
   const openCreateUser = () => {
     setEditingUser(null);
     setUserForm(defaultUserForm);
+    fetchRoleOptions();
     setUserModalOpen(true);
   };
 
@@ -233,6 +250,7 @@ export default function SettingsPage() {
       role: u.role,
       phone: u.phone || '',
     });
+    fetchRoleOptions();
     setUserModalOpen(true);
   };
 
@@ -1100,8 +1118,11 @@ export default function SettingsPage() {
               onChange={(e) => setUserForm({ ...userForm, role: e.target.value as Role })}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
-              {Object.entries(ROLE_MAP).map(([key, label]) => (
-                <option key={key} value={key}>{label}</option>
+              {(roleOptions.length > 0
+                ? roleOptions.map((r) => ({ key: r.code, label: r.name }))
+                : Object.entries(ROLE_MAP).map(([key, label]) => ({ key, label }))
+              ).map((opt) => (
+                <option key={opt.key} value={opt.key}>{opt.label}</option>
               ))}
             </select>
           </div>

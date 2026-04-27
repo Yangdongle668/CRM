@@ -25,9 +25,10 @@ import {
  *   The cache is invalidated via `invalidateRole(role)` whenever an
  *   administrator changes the mapping.
  *
- * Admin special case: `ADMIN` role always resolves to `['*']` without a
- * DB lookup, so a fresh install or a misconfigured table can never lock
- * admins out.
+ * 超级管理员（User.isSuperAdmin=true）永远拥有 `*`，不依赖任何
+ * RolePermission 行——确保配置错乱时也不会被自己锁在外面。
+ * ADMIN role 已经不再"特殊照顾"，它的默认权限通过 seedIfEmpty 写入
+ * RolePermission 行，可由超级管理员在 /admin/rbac 里调整。
  */
 @Injectable()
 export class PermissionsService implements OnModuleInit {
@@ -77,7 +78,10 @@ export class PermissionsService implements OnModuleInit {
         });
       }
 
-      // 3) Default role -> permission mappings only if that role has no rows.
+      // 3) 默认 role -> permission 映射，只在该角色 rolePermission 表里
+      //    一行都没有时才写入。这一步对老库尤其关键：之前 ADMIN 走的是
+      //    代码层通配符特例、表里根本没数据，直接重启会让 ADMIN 变成
+      //    "什么都不能做"。这里检测到 ADMIN 行数 0 就用默认配置补齐。
       for (const [role, codes] of Object.entries(DEFAULT_ROLE_PERMISSIONS)) {
         const count = await this.prisma.rolePermission.count({
           where: { role },
@@ -129,7 +133,7 @@ export class PermissionsService implements OnModuleInit {
       name: r.name,
       description: r.description,
       isBuiltin: r.isBuiltin,
-      permissionCount: r.code === 'ADMIN' ? -1 : countMap.get(r.code) || 0,
+      permissionCount: countMap.get(r.code) || 0,
       userCount: userMap.get(r.code) || 0,
       createdAt: r.createdAt,
       updatedAt: r.updatedAt,
@@ -204,11 +208,11 @@ export class PermissionsService implements OnModuleInit {
 
   /**
    * Resolve the complete set of permission codes for a role, cached.
-   * ADMIN always returns `{ '*' }`.
+   * "全部权限"（`*`）已经不再绑定到 ADMIN role，而是绑定到
+   * `User.isSuperAdmin = true`，由调用方通过 getPermissionsForUser 处理。
    */
   async getPermissionsForRole(role: string): Promise<Set<string>> {
     if (!role) return new Set();
-    if (role === 'ADMIN') return new Set([WILDCARD]);
 
     const cached = this.cache.get(role);
     if (cached) return cached;
@@ -235,6 +239,28 @@ export class PermissionsService implements OnModuleInit {
   /** Returns the user's permission codes as a plain array (for API responses). */
   async listForRole(role: string): Promise<string[]> {
     const set = await this.getPermissionsForRole(role);
+    return Array.from(set).sort();
+  }
+
+  /**
+   * 用户层面的"实际授权集"。
+   *   - 超级管理员（isSuperAdmin=true）：永远返回 `*`
+   *   - 其他用户：按其 role 走 RolePermission 配置
+   * Guards 和 /auth/me/permissions 都应走这个入口，而不是直接 byRole。
+   */
+  async getPermissionsForUser(user: {
+    role: string;
+    isSuperAdmin?: boolean;
+  }): Promise<Set<string>> {
+    if (user?.isSuperAdmin) return new Set([WILDCARD]);
+    return this.getPermissionsForRole(user.role);
+  }
+
+  async listForUser(user: {
+    role: string;
+    isSuperAdmin?: boolean;
+  }): Promise<string[]> {
+    const set = await this.getPermissionsForUser(user);
     return Array.from(set).sort();
   }
 

@@ -427,6 +427,8 @@ export const rbacApi = {
   myPermissions: () => api.get('/auth/me/permissions'),
   catalog: () => api.get('/rbac/catalog'),
   listRoles: () => api.get('/rbac/roles'),
+  // 给用户表单下拉用，不需要 rbac:read 权限
+  listRoleOptions: () => api.get('/rbac/role-options'),
   createRole: (data: { code: string; name: string; description?: string }) =>
     api.post('/rbac/roles', data),
   updateRole: (code: string, data: { name?: string; description?: string | null }) =>

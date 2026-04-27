@@ -34,6 +34,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         phone: true,
         avatar: true,
         isActive: true,
+        isSuperAdmin: true,
       },
     });
 

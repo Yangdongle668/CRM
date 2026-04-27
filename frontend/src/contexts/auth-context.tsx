@@ -45,10 +45,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const applyProfile = useCallback((profile: any) => {
     if (!profile) return;
     setUser(profile);
-    // Prefer server-provided permissions; fall back to role-based shortcut.
+    // 优先用服务器返回的 permissions 数组；缺失时只给"超级管理员"通配符
+    // 兜底——普通管理员的权限受 RolePermission 控制，不能再按 role 一刀切。
     const perms: string[] = Array.isArray(profile.permissions)
       ? profile.permissions
-      : profile.role === 'ADMIN'
+      : profile.isSuperAdmin
         ? ['*']
         : [];
     setPermissions(perms);

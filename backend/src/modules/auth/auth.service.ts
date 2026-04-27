@@ -64,7 +64,9 @@ export class AuthService {
       role: user.role,
     };
 
-    const permissions = await this.permissionsService.listForRole(user.role);
+    // 用 listForUser 而非 listForRole：超级管理员通过 isSuperAdmin 拿到 `*`，
+    // 不再依赖 role==='ADMIN' 的特例。
+    const permissions = await this.permissionsService.listForUser(user);
     return {
       token: this.jwtService.sign(payload),
       user: { ...user, permissions },
@@ -96,7 +98,7 @@ export class AuthService {
       role: user.role,
     };
 
-    const permissions = await this.permissionsService.listForRole(user.role);
+    const permissions = await this.permissionsService.listForUser(user);
     return {
       token: this.jwtService.sign(payload),
       user: {
@@ -106,6 +108,8 @@ export class AuthService {
         role: user.role,
         phone: user.phone,
         avatar: user.avatar,
+        // 前端要根据这个开关在 UI 上强制显示"超级管理员"徽章 / 权限保护
+        isSuperAdmin: user.isSuperAdmin,
         permissions,
       },
     };

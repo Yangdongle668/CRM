@@ -120,9 +120,11 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current user profile' })
   async getProfile(@CurrentUser() user: any) {
     const profile = await this.usersService.findOne(user.id);
-    const permissions = await this.permissionsService.listForRole(
-      (profile as any)?.role ?? user.role,
-    );
+    // listForUser：超级管理员永远拿 `*`，普通用户走 RolePermission 配置。
+    const permissions = await this.permissionsService.listForUser({
+      role: (profile as any)?.role ?? user.role,
+      isSuperAdmin: !!(profile as any)?.isSuperAdmin,
+    });
     return { ...profile, permissions };
   }
 

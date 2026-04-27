@@ -127,14 +127,14 @@ export default function RbacPage() {
   }, [selectedPerms, originalPerms]);
 
   const handleTogglePerm = (code: string) => {
-    if (!canWrite || selectedRole?.code === 'ADMIN') return;
+    if (!canWrite) return;
     setSelectedPerms((prev) =>
       prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
     );
   };
 
   const handleToggleCategory = (category: string, checked: boolean) => {
-    if (!canWrite || selectedRole?.code === 'ADMIN') return;
+    if (!canWrite) return;
     const codes = (permsByCategory.find(([c]) => c === category)?.[1] || []).map(
       (p) => p.code,
     );
@@ -247,8 +247,9 @@ export default function RbacPage() {
     );
   }
 
-  const isAdminRole = selectedRole?.code === 'ADMIN';
-  const readOnly = !canWrite || isAdminRole;
+  // ADMIN 现在是普通可配置角色（"无所不能"绑定到 isSuperAdmin），
+  // 这里只看是否有 rbac:update 权限即可。
+  const readOnly = !canWrite;
 
   return (
     <AppLayout>
@@ -300,7 +301,7 @@ export default function RbacPage() {
                       </div>
                       <div className="text-right flex-shrink-0">
                         <div className="text-xs text-gray-500">
-                          {r.permissionCount === -1 ? '全部权限' : `${r.permissionCount} 项权限`}
+                          {`${r.permissionCount} 项权限`}
                         </div>
                         <div className="text-[11px] text-gray-400 mt-0.5">
                           {r.userCount} 用户
@@ -346,11 +347,6 @@ export default function RbacPage() {
                       {selectedRole.description}
                     </p>
                   )}
-                  {isAdminRole && (
-                    <p className="text-xs text-amber-600 mt-2">
-                      管理员角色默认拥有全部权限（通配符 <code>*</code>），不可在此配置。
-                    </p>
-                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {canWrite && (
@@ -387,14 +383,14 @@ export default function RbacPage() {
                         <div className="text-sm font-semibold text-gray-800">
                           {catLabel}
                           <span className="ml-2 text-xs text-gray-400 font-normal">
-                            {isAdminRole ? '全部' : `${enabledInCat} / ${perms.length}`}
+                            {`${enabledInCat} / ${perms.length}`}
                           </span>
                         </div>
                         <label className="flex items-center gap-2 text-xs text-gray-500">
                           <input
                             type="checkbox"
                             disabled={readOnly}
-                            checked={isAdminRole ? true : allChecked}
+                            checked={allChecked}
                             ref={(el) => {
                               if (el) el.indeterminate = someChecked;
                             }}
@@ -405,7 +401,7 @@ export default function RbacPage() {
                       </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-1 px-4 py-3">
                         {perms.map((p) => {
-                          const checked = isAdminRole || selectedPerms.includes(p.code);
+                          const checked = selectedPerms.includes(p.code);
                           return (
                             <label
                               key={p.code}
