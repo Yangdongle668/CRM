@@ -2140,8 +2140,13 @@ export class EmailsService {
   }
 
   private async autoMatchCustomer(emailAddress: string) {
+    // 邮箱大小写在 RFC 5321 中地址本地部分理论上区分，但事实标准 / 几乎
+    // 所有提供商都做大小写不敏感处理。Prisma 默认 `email: x` 是精确匹配，
+    // 这里用 mode: 'insensitive' 避免 IMAP 取回的 to-addr 大小写和我们存
+    // 的联系人邮箱不一致时漏匹配（最直接症状：客户详情邮件 tab 看不到自己
+    // 发出去的邮件）。
     const contact = await this.prisma.contact.findFirst({
-      where: { email: emailAddress },
+      where: { email: { equals: emailAddress, mode: 'insensitive' } },
       include: { customer: true },
     });
 

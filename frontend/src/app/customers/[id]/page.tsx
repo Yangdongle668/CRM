@@ -171,6 +171,11 @@ export default function CustomerDetailPage() {
 
   const fetchEmails = useCallback(async () => {
     try {
+      // 先按域名 / 联系人邮箱把 customerId IS NULL 的旧邮件回挂到当前客户。
+      // 时间线 tab 已经做过这一步，邮件 tab 之前漏了——结果用户先点邮件 tab
+      // 时只看得到 OUTBOUND 在 IMAP 导入那一刻就匹配上的那部分，发件经常
+      // "缺失"。补上这次同步后，发件、收件都会按时显示。
+      await customersApi.syncEmails(customerId).catch(() => {});
       const res: any = await emailsApi.list({ customerId });
       setEmails(res.data?.items || res.data || []);
     } catch {
