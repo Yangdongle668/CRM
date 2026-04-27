@@ -25,7 +25,12 @@ export class ActivitiesController {
 
   @Get()
   findAll(@CurrentUser() user: any, @Query() query: any) {
-    return this.activitiesService.findAll(user.id, user.role, query);
+    return this.activitiesService.findAll(
+      user.id,
+      user.role,
+      query,
+      !!user.isSuperAdmin,
+    );
   }
 
   @Get('customer/:customerId')
@@ -41,6 +46,7 @@ export class ActivitiesController {
       user.role,
       page ? parseInt(page, 10) : 1,
       pageSize ? parseInt(pageSize, 10) : 20,
+      !!user.isSuperAdmin,
     );
   }
 }

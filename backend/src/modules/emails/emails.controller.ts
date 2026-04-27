@@ -299,18 +299,23 @@ export class EmailsController {
     @Query('flagged') flagged?: string,
     @Query('search') search?: string,
   ) {
-    return this.emailsService.findAll(user.id, user.role, {
-      customerId,
-      direction,
-      status,
-      page,
-      pageSize,
-      grouped,
-      emailConfigId,
-      category,
-      flagged,
-      search,
-    });
+    return this.emailsService.findAll(
+      user.id,
+      user.role,
+      {
+        customerId,
+        direction,
+        status,
+        page,
+        pageSize,
+        grouped,
+        emailConfigId,
+        category,
+        flagged,
+        search,
+      },
+      !!user.isSuperAdmin,
+    );
   }
 
   // ==================== Flag/Category ====================

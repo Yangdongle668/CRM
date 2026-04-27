@@ -1,10 +1,50 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateActivityDto } from './dto/create-activity.dto';
+import {
+  customerVisibility,
+  hideEmailsInText,
+  CustomerVisibility,
+} from '../../common/privacy/customer-visibility';
 
 @Injectable()
 export class ActivitiesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * 按可见性档位决定怎么处理一行 activity。
+   * - full   → 原样返回
+   * - masked → content 里的邮箱地址直接隐藏成"(邮箱已隐藏)"
+   * - denied → 被上层拦截，不会走到这里
+   */
+  private redactByVisibility<T extends { content?: string | null }>(
+    rows: T[],
+    visibility: CustomerVisibility,
+  ): T[] {
+    if (visibility === 'full') return rows;
+    return rows.map((r) => ({ ...r, content: hideEmailsInText(r.content) }));
+  }
+
+  private async resolveCustomerVisibility(
+    customerId: string,
+    userId: string,
+    role: string,
+    isSuperAdmin: boolean | undefined,
+  ): Promise<{ visibility: CustomerVisibility; ownerId: string | null }> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { ownerId: true },
+    });
+    if (!customer) {
+      throw new ForbiddenException('Customer not found');
+    }
+    const visibility = customerVisibility(customer.ownerId, {
+      userId,
+      role,
+      isSuperAdmin,
+    });
+    return { visibility, ownerId: customer.ownerId };
+  }
 
   async create(userId: string, dto: CreateActivityDto) {
     // If customerId is provided, verify ownership for SALESPERSON
@@ -39,26 +79,29 @@ export class ActivitiesService {
     userId: string,
     role: string,
     query: { customerId?: string; page?: string; pageSize?: string },
+    isSuperAdmin?: boolean,
   ) {
     const page = query.page ? parseInt(query.page, 10) : 1;
     const pageSize = query.pageSize ? parseInt(query.pageSize, 10) : 20;
     const skip = (page - 1) * pageSize;
 
     const where: any = {};
+    let visibility: CustomerVisibility = 'full';
 
     if (query.customerId) {
-      // Verify customer access for SALESPERSON
-      if (role !== 'ADMIN') {
-        const customer = await this.prisma.customer.findUnique({
-          where: { id: query.customerId },
-          select: { ownerId: true },
-        });
-        if (!customer || customer.ownerId !== userId) {
-          throw new ForbiddenException('You do not have access to this customer');
-        }
+      // 客户上下文：用三档可见性判定
+      const r = await this.resolveCustomerVisibility(
+        query.customerId,
+        userId,
+        role,
+        isSuperAdmin,
+      );
+      if (r.visibility === 'denied') {
+        throw new ForbiddenException('You do not have access to this customer');
       }
+      visibility = r.visibility;
       where.customerId = query.customerId;
-    } else if (role !== 'ADMIN') {
+    } else if (role !== 'ADMIN' && !isSuperAdmin) {
       where.ownerId = userId;
     }
 
@@ -77,11 +120,12 @@ export class ActivitiesService {
     ]);
 
     return {
-      items,
+      items: this.redactByVisibility(items, visibility),
       total,
       page,
       pageSize,
       totalPages: Math.ceil(total / pageSize),
+      visibility,
     };
   }
 
@@ -91,19 +135,18 @@ export class ActivitiesService {
     role: string,
     page: number = 1,
     pageSize: number = 20,
+    isSuperAdmin?: boolean,
   ) {
     const skip = (page - 1) * pageSize;
 
-    // Verify customer access for SALESPERSON
-    if (role !== 'ADMIN') {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { ownerId: true },
-      });
-
-      if (!customer || customer.ownerId !== userId) {
-        throw new ForbiddenException('You do not have access to this customer');
-      }
+    const { visibility } = await this.resolveCustomerVisibility(
+      customerId,
+      userId,
+      role,
+      isSuperAdmin,
+    );
+    if (visibility === 'denied') {
+      throw new ForbiddenException('You do not have access to this customer');
     }
 
     const where = { customerId };
@@ -123,11 +166,12 @@ export class ActivitiesService {
     ]);
 
     return {
-      items,
+      items: this.redactByVisibility(items, visibility),
       total,
       page,
       pageSize,
       totalPages: Math.ceil(total / pageSize),
+      visibility,
     };
   }
 }

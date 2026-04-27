@@ -40,6 +40,23 @@ const TABS = [
 
 type TabKey = (typeof TABS)[number]['key'];
 
+/**
+ * 客户敏感数据可见性，与后端 customer-visibility.ts 对齐：
+ *   - 时间线：本人 / 超级管理员 → 明文；管理员 → 可见，邮箱地址被后端隐藏；其他 → 拒绝
+ *   - 邮件 tab：仅本人 / 超级管理员可见
+ */
+function computeTabAccess(opts: {
+  isOwner: boolean;
+  isSuperAdmin: boolean;
+  isAdminRole: boolean;
+}) {
+  const { isOwner, isSuperAdmin, isAdminRole } = opts;
+  return {
+    canSeeActivities: isOwner || isSuperAdmin || isAdminRole,
+    canSeeEmails: isOwner || isSuperAdmin,
+  };
+}
+
 const initialContactForm = {
   name: '',
   title: '',
@@ -54,12 +71,27 @@ const initialContactForm = {
 export default function CustomerDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const customerId = params.id as string;
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('info');
+
+  // 对该客户的敏感数据可见性。需要等 customer 加载完才能算（要 ownerId）。
+  const isOwner = !!(user?.id && customer?.ownerId && user.id === customer.ownerId);
+  const isSuperAdmin = !!user?.isSuperAdmin;
+  const isAdminRole = user?.role === 'ADMIN';
+  const { canSeeActivities, canSeeEmails } = computeTabAccess({
+    isOwner,
+    isSuperAdmin,
+    isAdminRole,
+  });
+  const visibleTabs = TABS.filter((t) => {
+    if (t.key === 'activities') return canSeeActivities;
+    if (t.key === 'emails') return canSeeEmails;
+    return true;
+  });
 
   // Edit customer modal
   const [editOpen, setEditOpen] = useState(false);
@@ -169,6 +201,13 @@ export default function CustomerDetailPage() {
     if (activeTab === 'emails') fetchEmails();
     if (activeTab === 'orders') fetchOrders();
   }, [activeTab, fetchContacts, fetchActivities, fetchDocuments, fetchEmails, fetchOrders]);
+
+  // customer 加载后，若当前 tab 已被权限隐掉（例如非 owner 进了 emails），
+  // 自动切回基本信息。避免渲染一个看不见的 tab 内容。
+  useEffect(() => {
+    if (activeTab === 'activities' && !canSeeActivities) setActiveTab('info');
+    if (activeTab === 'emails' && !canSeeEmails) setActiveTab('info');
+  }, [activeTab, canSeeActivities, canSeeEmails]);
 
   // Edit customer
   const openEditModal = () => {
@@ -381,7 +420,7 @@ export default function CustomerDetailPage() {
         {/* Tabs —— 窄屏下可横向滚动 */}
         <div className="border-b border-gray-200 -mx-3 sm:mx-0 overflow-x-auto">
           <nav className="flex space-x-6 sm:space-x-8 px-3 sm:px-0 whitespace-nowrap">
-            {TABS.map((tab) => (
+            {visibleTabs.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
