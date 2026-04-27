@@ -11,9 +11,10 @@
  *  - 不抛异常：除非 PDF 完全无法解析。
  */
 
-// pdf-parse 没有 types，运行时 CommonJS 引入即可。
+// pdf-parse v2 是 class API：`new PDFParse({ data }).getText()`，
+// 不再是默认导出函数。运行时用 require 拿到 named export。
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 
 export interface ParsedPiItem {
   productName: string;
@@ -247,8 +248,20 @@ function extractItems(rawText: string, currency: string | null): ParsedPiItem[] 
 }
 
 export async function parsePiPdf(buffer: Buffer): Promise<ParsedPi> {
-  const result = await pdfParse(buffer);
-  const rawText: string = String(result?.text || '');
+  // pdf-parse v2 内部把 Buffer 自动转 Uint8Array。getText() 返回
+  // { text: string, pages: [...] }；用完别忘了 destroy 释放底层 worker。
+  const parser = new PDFParse({ data: buffer });
+  let rawText = '';
+  try {
+    const textResult = await parser.getText();
+    rawText = String(textResult?.text || '');
+  } finally {
+    try {
+      await parser.destroy();
+    } catch {
+      /* destroy 失败不影响已抽到的文本 */
+    }
+  }
   const lines = rawText
     .split('\n')
     .map((l) => l.replace(/ /g, ' ').trim())
