@@ -5,6 +5,7 @@ import AppLayout from '@/components/layout/AppLayout';
 import Modal from '@/components/ui/Modal';
 import Badge from '@/components/ui/Badge';
 import Pagination from '@/components/ui/Pagination';
+import PiImportModal from '@/components/orders/PiImportModal';
 import { ordersApi, customersApi, documentsApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { celebrate } from '@/lib/celebrate';
@@ -64,6 +65,7 @@ export default function OrdersPage() {
 
   // ---------- create/edit modal ----------
   const [modalOpen, setModalOpen] = useState(false);
+  const [piImportOpen, setPiImportOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [items, setItems] = useState<OrderItem[]>([{ ...emptyItem }]);
@@ -365,12 +367,21 @@ export default function OrdersPage() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">订单管理</h1>
           {!isFinance && (
-            <button
-              onClick={openCreate}
-              className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              新建订单
-            </button>
+            <div className="flex w-full gap-2 sm:w-auto">
+              <button
+                onClick={() => setPiImportOpen(true)}
+                className="flex-1 sm:flex-none rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+                title="上传 PI PDF 自动抽取字段，老订单批量导入用得上"
+              >
+                扫描 PI 导入
+              </button>
+              <button
+                onClick={openCreate}
+                className="flex-1 sm:flex-none rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                新建订单
+              </button>
+            </div>
           )}
         </div>
 
@@ -1113,6 +1124,13 @@ export default function OrdersPage() {
           </div>
         )}
       </Modal>
+
+      {/* PI PDF 导入向导 */}
+      <PiImportModal
+        open={piImportOpen}
+        onClose={() => setPiImportOpen(false)}
+        onCreated={fetchOrders}
+      />
     </AppLayout>
   );
 }

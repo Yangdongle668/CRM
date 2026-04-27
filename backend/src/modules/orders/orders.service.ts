@@ -3,11 +3,13 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { QueryOrderDto } from './dto/query-order.dto';
+import { parsePiPdf, ParsedPi } from './pi-pdf-parser';
 
 @Injectable()
 export class OrdersService {
@@ -220,6 +222,67 @@ export class OrdersService {
         items: { orderBy: { sortOrder: 'asc' } },
       },
     });
+  }
+
+  /**
+   * 解析上传的 PI PDF，并尝试匹配本系统已有的客户。
+   * 仅返回预览数据 + 候选客户，不直接落库——前端确认无误后再走 create()。
+   */
+  async parsePiPreview(buffer: Buffer): Promise<{
+    parsed: ParsedPi;
+    customerSuggestions: Array<{ id: string; companyName: string; score: number }>;
+  }> {
+    if (!buffer || buffer.length === 0) {
+      throw new BadRequestException('请上传有效的 PI PDF 文件');
+    }
+    let parsed: ParsedPi;
+    try {
+      parsed = await parsePiPdf(buffer);
+    } catch (err: any) {
+      throw new BadRequestException(`PDF 解析失败：${err?.message || err}`);
+    }
+
+    const customerSuggestions = await this.suggestCustomersFor(parsed.consigneeName);
+    return { parsed, customerSuggestions };
+  }
+
+  /**
+   * 由 consignee 名字模糊匹配 Customer.companyName。把名字 / contains 命中
+   * 的客户按相似度返回最多 5 条；前端在导入向导里让用户选一条或新建客户。
+   */
+  private async suggestCustomersFor(
+    consigneeName: string | null,
+  ): Promise<Array<{ id: string; companyName: string; score: number }>> {
+    if (!consigneeName) return [];
+    const cleaned = consigneeName.replace(/\s+/g, ' ').trim();
+    if (!cleaned) return [];
+
+    // 抽两类查询：完整名 contains，以及首词 contains。
+    const firstWord = cleaned.split(/[\s,;]+/)[0] || cleaned;
+    const candidates = await this.prisma.customer.findMany({
+      where: {
+        OR: [
+          { companyName: { contains: cleaned, mode: 'insensitive' } },
+          { companyName: { contains: firstWord, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, companyName: true },
+      take: 20,
+    });
+
+    const lowerTarget = cleaned.toLowerCase();
+    const scored = candidates.map((c) => {
+      const lower = c.companyName.toLowerCase();
+      let score = 0;
+      if (lower === lowerTarget) score = 100;
+      else if (lower.includes(lowerTarget)) score = 80;
+      else if (lowerTarget.includes(lower)) score = 70;
+      else if (lower.startsWith(firstWord.toLowerCase())) score = 50;
+      else score = 30;
+      return { id: c.id, companyName: c.companyName, score };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, 5);
   }
 
   private async generateOrderNo(): Promise<string> {
