@@ -234,6 +234,14 @@ export const ordersApi = {
   updatePayment: (id: string, paymentStatus: string) =>
     api.patch(`/orders/${id}/payment`, { paymentStatus }),
   delete: (id: string) => api.delete(`/orders/${id}`),
+  // 上传 PI PDF，仅返回解析预览（不会落库）。前端拿到后渲染表单让用户确认。
+  parsePi: (file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return api.post('/orders/parse-pi', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 };
 
 // ==================== Tasks API ====================

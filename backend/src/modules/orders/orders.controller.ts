@@ -9,7 +9,14 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { Request } from 'express';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -39,6 +46,38 @@ export class OrdersController {
     @Body() dto: CreateOrderDto,
   ) {
     return this.ordersService.create(user.id, dto);
+  }
+
+  /**
+   * 上传 PI PDF，仅返回解析后的预览数据 + 候选客户。前端在向导里
+   * 让用户改字段、选客户，再调 POST /orders 真正落库。
+   * 不在这里直接 create() 是为了让用户始终能 review 解析结果——
+   * PDF 解析是 best-effort，不能默默写错数据。
+   */
+  @Post('parse-pi')
+  @RequirePermissions('order:create')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 /* 10 MB */ },
+    }),
+  )
+  async parsePi(
+    @UploadedFile(
+      new ParseFilePipe({
+        fileIsRequired: true,
+        validators: [new MaxFileSizeValidator({ maxSize: 10 * 1024 * 1024 })],
+      }),
+    )
+    file: Express.Multer.File,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException('请选择要导入的 PI PDF 文件');
+    }
+    if (!/\.pdf$/i.test(file.originalname)) {
+      throw new BadRequestException('仅支持 PDF 文件');
+    }
+    return this.ordersService.parsePiPreview(file.buffer);
   }
 
   @Get()
