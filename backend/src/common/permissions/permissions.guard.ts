@@ -11,10 +11,10 @@ import { PERMISSIONS_KEY } from './require-permissions.decorator';
 /**
  * Guard that enforces `@RequirePermissions(...)` metadata.
  *
- * Runs AFTER JwtAuthGuard (expects `request.user.role`). Admin users
- * always pass (the service short-circuits to `*`). If no permissions
- * were declared on the route, the guard allows through — so existing
- * endpoints without a decorator keep working unchanged.
+ * Runs AFTER JwtAuthGuard (expects `request.user.role` 和 `isSuperAdmin`)。
+ * 超级管理员永远放行（getPermissionsForUser 会返回 `*`）。普通用户按
+ * RolePermission 表里配置的项校验。如果路由上没有声明权限就直接放行，
+ * 已有未加装饰器的接口不受影响。
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -36,9 +36,7 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException('用户身份缺失');
     }
 
-    const granted = await this.permissionsService.getPermissionsForRole(
-      user.role,
-    );
+    const granted = await this.permissionsService.getPermissionsForUser(user);
     for (const code of required) {
       if (!PermissionsService.hasPermission(granted, code)) {
         throw new ForbiddenException(`缺少权限: ${code}`);

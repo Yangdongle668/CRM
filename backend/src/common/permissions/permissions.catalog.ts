@@ -117,13 +117,16 @@ export interface BuiltinRoleDef {
 
 /**
  * Built-in roles — seeded on first boot and not deletable.
- * ADMIN is additionally special: always granted the `*` wildcard.
+ *
+ * 注意：ADMIN 不再被代码层"特殊照顾"成 `*`。"全部权限"现在只授予
+ * `User.isSuperAdmin = true` 的账号；ADMIN 是个普通可配置的内置角色，
+ * 默认权限见 DEFAULT_ROLE_PERMISSIONS.ADMIN。
  */
 export const BUILTIN_ROLES: BuiltinRoleDef[] = [
   {
     code: 'ADMIN',
-    name: '系统管理员',
-    description: '内置角色，拥有全部权限（通配符 *）',
+    name: '管理员',
+    description: '内置角色：除"角色权限"和"审计日志"外的全部权限（可由超级管理员调整）',
   },
   {
     code: 'SALESPERSON',
@@ -141,9 +144,22 @@ export const BUILTIN_ROLE_CODES = BUILTIN_ROLES.map((r) => r.code);
 
 /**
  * Default role-permission mapping. Seeded on app boot if tables are empty.
- * ADMIN gets the `*` wildcard via special-case logic — no rows needed.
+ *
+ * 注意：ADMIN 不再走"通配符"特例 —— 它现在是一个普通可配置的内置角色，
+ * 默认拥有除 RBAC / 审计之外的所有权限。系统的"无所不能"特权交给
+ * `User.isSuperAdmin = true` 这一标志，与 role 字符串解耦。
+ *
+ * 这样：
+ *   - 普通管理员（role='ADMIN', isSuperAdmin=false）的权限可以在
+ *     /admin/rbac 里被超级管理员调整
+ *   - 超级管理员永远拥有 `*`，不依赖任何 RolePermission 行
  */
+const ADMIN_DEFAULT_PERMISSIONS: string[] = PERMISSION_CATALOG.filter(
+  (p) => !p.code.startsWith('rbac:') && !p.code.startsWith('audit:'),
+).map((p) => p.code);
+
 export const DEFAULT_ROLE_PERMISSIONS: Record<string, string[]> = {
+  ADMIN: ADMIN_DEFAULT_PERMISSIONS,
   SALESPERSON: [
     'user:read',
     'customer:read', 'customer:create', 'customer:update',
