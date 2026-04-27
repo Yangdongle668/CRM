@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Optional,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -634,6 +635,7 @@ export class EmailsService {
       flagged?: string;
       search?: string;
     },
+    isSuperAdmin?: boolean,
   ) {
     const page = query.page || 1;
     const pageSize = query.pageSize || 20;
@@ -641,18 +643,32 @@ export class EmailsService {
 
     const where: any = {};
 
-    // Every user — including admins — only sees emails from their own
-    // configured accounts. Customer-context views still filter by
-    // customerId but are intersected with the user's config ids so no
-    // one can peek at another user's mail.
-    const myConfigs = await this.prisma.emailConfig.findMany({
-      where: { userId },
-      select: { id: true },
-    });
-    where.emailConfigId = { in: myConfigs.map((c) => c.id) };
-
     if (query.customerId) {
+      // 客户上下文：只有"客户 owner"或超级管理员能看邮件 tab。
+      // 普通管理员、其他销售、其他角色都拒绝——邮件涉及对方真实邮箱，
+      // 视作敏感数据交给 owner 一手管理。
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: query.customerId },
+        select: { ownerId: true },
+      });
+      if (!customer) {
+        throw new ForbiddenException('Customer not found');
+      }
+      const isOwner = customer.ownerId === userId;
+      if (!isOwner && !isSuperAdmin) {
+        throw new ForbiddenException(
+          '只有客户负责人或超级管理员可以查看该客户的邮件',
+        );
+      }
       where.customerId = query.customerId;
+    } else {
+      // 非客户上下文（邮件中心 / 收件箱）：维持原行为，
+      // 只看自己配置的邮箱账户里的邮件。
+      const myConfigs = await this.prisma.emailConfig.findMany({
+        where: { userId },
+        select: { id: true },
+      });
+      where.emailConfigId = { in: myConfigs.map((c) => c.id) };
     }
 
     if (query.direction) {
