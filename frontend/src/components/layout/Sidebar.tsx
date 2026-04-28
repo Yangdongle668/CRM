@@ -110,8 +110,17 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     return pathname.startsWith(href);
   };
 
-  const LogoIcon = () => logoUrl ? (
-    <img src={logoUrl} alt="Logo" className="h-8 w-8 rounded-xl object-cover" />
+  // 用 object-contain 而不是 object-cover——上传宽 logo（横向徽标）时不会
+  // 被强行裁成正方形丢两边。
+  // - compact=true：折叠侧栏 / 移动端窄空间，固定 32×32 方框，宽 logo 会缩成
+  //   小图但不变形。
+  // - compact=false：展开模式可以横向铺到 max-w-[140px]，宽 logo 完整展示。
+  const LogoIcon = ({ compact = false }: { compact?: boolean }) => logoUrl ? (
+    <img
+      src={logoUrl}
+      alt="Logo"
+      className={`h-8 rounded-xl object-contain ${compact ? 'w-8' : 'w-auto max-w-[140px]'}`}
+    />
   ) : (
     <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary-500 text-sm font-bold text-white shadow-apple">
       CRM
@@ -153,10 +162,10 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               维界系统
             </span>
           </Link>
-          {/* 仅 logo —— 桌面端折叠时才出现 */}
+          {/* 仅 logo —— 桌面端折叠时才出现，窄空间用 compact 方框 */}
           {collapsed && (
             <Link href="/dashboard" className="mx-auto hidden lg:block">
-              <LogoIcon />
+              <LogoIcon compact />
             </Link>
           )}
           {/* 移动端关闭按钮 */}

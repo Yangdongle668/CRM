@@ -24,33 +24,60 @@ export class PIsService {
   ) {}
 
   /**
-   * 找一个能渲染中文的 TTF/TTC 字体路径。返回 { src, family } 给
-   * pdfkit 的 registerFont 用。找不到时返回 null，调用方退化到
-   * Helvetica + 全/半角标点替换。
+   * 找一个能渲染中文的 TTF/TTC 字体并解析出可用的 PostScript 名。
+   *
+   * 关键点：pdfkit/fontkit 处理 .ttc 字体集合时，第二个参数必须是
+   * **PostScript name**（如 `WenQuanYiZenHei` 无空格），用 family
+   * name (`WenQuanYi Zen Hei`) 会直接抛 "Not a supported font format"。
+   * 所以这里用 fontkit 实际打开一遍，挑一个含 CJK 字符的字体子集，
+   * 把它的 PostScript 名读出来给 pdfkit 用。
    *
    * 路径覆盖：
    *   - Alpine（生产容器，apk add font-wqy-zenhei）
-   *   - Debian/Ubuntu（dev 机常见）
-   *   - macOS / 系统级常见 CJK 字体（dev 兜底）
+   *   - Debian/Ubuntu（dev 机）
+   *   - macOS dev 兜底
    */
-  private static cjkFontCache: { src: string; family: string } | null | undefined;
-  private findCJKFont(): { src: string; family: string } | null {
+  private static cjkFontCache:
+    | { src: string; postscriptName?: string }
+    | null
+    | undefined;
+  private findCJKFont(): { src: string; postscriptName?: string } | null {
     if (PIsService.cjkFontCache !== undefined) return PIsService.cjkFontCache;
-    const candidates: Array<{ src: string; family: string }> = [
-      { src: '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc', family: 'WenQuanYi Zen Hei' }, // Alpine
-      { src: '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc', family: 'WenQuanYi Zen Hei' },          // Debian/Ubuntu
-      { src: '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc', family: 'WenQuanYi Micro Hei' },
-      { src: '/System/Library/Fonts/PingFang.ttc', family: 'PingFangSC-Regular' },                   // macOS
-      { src: '/System/Library/Fonts/STHeiti Medium.ttc', family: 'STHeitiSC-Medium' },               // macOS 兜底
+    const candidates = [
+      '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
+      '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+      '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+      '/System/Library/Fonts/PingFang.ttc',
+      '/System/Library/Fonts/STHeiti Medium.ttc',
+      '/System/Library/Fonts/Hiragino Sans GB.ttc',
     ];
-    for (const c of candidates) {
+
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fontkit = require('fontkit');
+    const ZH_CHAR = 0x4e2d; // "中"，做 CJK 可用性检测的探测字符
+
+    for (const src of candidates) {
       try {
-        if (fs.existsSync(c.src)) {
-          PIsService.cjkFontCache = c;
-          return c;
+        if (!fs.existsSync(src)) continue;
+        const f = fontkit.openSync(src);
+        // TTF：直接是 Font 对象；TTC：有 .fonts 数组
+        if (Array.isArray((f as any).fonts)) {
+          const cjk =
+            (f as any).fonts.find(
+              (x: any) =>
+                x?.hasGlyphForCodePoint && x.hasGlyphForCodePoint(ZH_CHAR),
+            ) || (f as any).fonts[0];
+          if (cjk) {
+            PIsService.cjkFontCache = { src, postscriptName: cjk.postscriptName };
+            return PIsService.cjkFontCache;
+          }
+        } else {
+          // TTF：不需要 family 参数
+          PIsService.cjkFontCache = { src };
+          return PIsService.cjkFontCache;
         }
-      } catch {
-        /* 忽略单个候选 */
+      } catch (err: any) {
+        this.logger.warn(`Failed to inspect CJK font ${src}: ${err?.message || err}`);
       }
     }
     PIsService.cjkFontCache = null;
@@ -433,19 +460,23 @@ export class PIsService {
         // 注册一份能渲染中文 + 拉丁字符的 CJK 字体（WenQuanYi Zen Hei 等）。
         // 注册成功后所有文本都走这套字体；找不到就退化到 Helvetica，并
         // 用 norm() 把全角中文标点替换成 ASCII，避免出现"y" 替代符。
+        //
+        // 注册之后立刻 `doc.font('CJK')` 试一下：pdfkit 的 registerFont 只
+        // 是登记一个映射，真正的字体加载发生在第一次 doc.font(name)。
+        // 用 try/catch 包住这次试探；若加载失败说明 PostScript 名不对、
+        // 文件损坏或权限问题，把 cjkOk 设回 false 走 Helvetica 兜底，
+        // 避免后续每次画字都抛错。
         const cjk = this.findCJKFont();
         let cjkOk = false;
         if (cjk) {
           try {
-            doc.registerFont('CJK', cjk.src, cjk.family);
-            // WQY Zen Hei 同时含 Latin 字符，只用一套字体即可；"加粗"
-            // 用 fillAndStroke 方式很重，简单方案：bold 也用同字体，靠
-            // 字号 / 颜色拉重要级；标题级的"标签"文字仍维持原视觉层级。
-            doc.registerFont('CJK-Bold', cjk.src, cjk.family);
+            doc.registerFont('CJK', cjk.src, cjk.postscriptName);
+            doc.registerFont('CJK-Bold', cjk.src, cjk.postscriptName);
+            doc.font('CJK'); // 触发实际加载
             cjkOk = true;
           } catch (err: any) {
             this.logger.warn(
-              `Failed to register CJK font from ${cjk.src} (${cjk.family}): ${err?.message || err}`,
+              `Failed to load CJK font from ${cjk.src} (${cjk.postscriptName ?? '<no-ps>'}): ${err?.message || err}`,
             );
           }
         }
@@ -564,15 +595,19 @@ export class PIsService {
         let cy = T;
 
         // ══════════════════════════════════════════════════════
-        // 1. TITLE + LOGO ROW (no borders, just positioning)
-        //    Logo 比之前放大一档（150×46 → 220×66），头部更醒目；
-        //    titleH 同步抬到 78 给图片留够垂直空间。
+        // 1. TITLE + LOGO ROW
+        //    Logo 高度按标题栏行高顶满（titleH - 8 留 4px 边距），宽度
+        //    按图片实际宽高比等比缩放——所以横幅 logo 拉得宽，方形 logo
+        //    自然窄一些，都不会被裁切也不会变形。
+        //    用 fit: [maxW, targetH] + align:'right' valign:'center'，
+        //    pdfkit 在右端给 logo 一个最多 maxW × targetH 的边框，图片
+        //    在边框里按 contain 缩放并右对齐居中。
         // ══════════════════════════════════════════════════════
-        const titleH = 78;
-        const logoMaxW = 220;
-        const logoMaxH = 66;
-        setFont(true, 24);
-        doc.fillColor(DARK).text('Proforma Invoice', L, cy + 28, {
+        const titleH = 84;
+        const logoTargetH = titleH - 8;       // 约 76，几乎顶满
+        const logoMaxW = Math.floor(CW / 2);  // 留半页给标题
+        setFont(true, 26);
+        doc.fillColor(DARK).text('Proforma Invoice', L, cy + (titleH - 26) / 2, {
           width: CW,
           align: 'center',
           lineBreak: false,
@@ -582,8 +617,10 @@ export class PIsService {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              doc.image(absPath, PW - L - logoMaxW, cy + 6, {
-                fit: [logoMaxW, logoMaxH],
+              doc.image(absPath, PW - L - logoMaxW, cy + 4, {
+                fit: [logoMaxW, logoTargetH],
+                align: 'right',
+                valign: 'center',
               });
             } catch {
               /* skip bad image */
