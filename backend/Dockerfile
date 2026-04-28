@@ -26,6 +26,9 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/prisma ./prisma
+# 项目自带的中文字体（assets/fonts/wqy-microhei.ttc），用于 PI / 报价
+# PDF 渲染中文。哪怕 base 镜像没装系统字体，这里也能用。
+COPY --from=builder /app/assets ./assets
 
 RUN mkdir -p /app/uploads
 

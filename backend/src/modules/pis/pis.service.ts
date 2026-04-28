@@ -44,8 +44,13 @@ export class PIsService {
     | undefined;
   private findCJKFont(): { src: string; postscriptName?: string } | null {
     if (PIsService.cjkFontCache !== undefined) return PIsService.cjkFontCache;
+    // 项目内自带的 CJK 字体（5MB WQY MicroHei TTC，含所有中日韩简繁字形）。
+    // 不论部署环境有没有装系统字体，PDF 生成都能直接用。优先级仅次于
+    // PI_CJK_FONT 显式指定，确保按需的话还能换更"好看"的字体。
+    const bundled = path.join(process.cwd(), 'assets/fonts/wqy-microhei.ttc');
     const candidates = [
       process.env.PI_CJK_FONT,
+      bundled,
       '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
       '/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc',
       '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
