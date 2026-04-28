@@ -976,7 +976,7 @@ export class PIsService {
             TH,
             { align: 'center', baseSize: 9, hasLabel: false },
           );
-          // Amount —— "$3.00" 这种货币 + 数字组合作为单字符串整体右对齐，
+          // Amount —— "$3.00" 这种货币 + 数字组合作为单字符串水平居中，
           // 与底部 SUBTOTAL/TOTAL VALUE 一致；用户输入值 → Helvetica + 蓝色。
           const amtText = `${cSym}${fmtMoney(Number(item.totalPrice))}`;
           let amtFs = 9;
@@ -987,7 +987,7 @@ export class PIsService {
           }
           doc.fillColor(BLUE).text(amtText, TC[5] + 4, ry + (TH - amtFs) / 2, {
             width: TW[5] - 8,
-            align: 'right',
+            align: 'center',
             lineBreak: false,
           });
         }
@@ -1030,9 +1030,9 @@ export class PIsService {
           const isFinal = tr.lbl === 'TOTAL VALUE';
 
           // 标签 cell：模板文字，Helvetica-Bold + 黑、水平/垂直居中
+          // 字号 7.5 与上方货物表表头（hLabels）保持一致；过宽自动缩到 6
           border(totLabelX, cy, totLabelW, TH);
-          // 单列宽度对 "SHIPPING CHARGE" 略紧，启动字号偏小并允许缩到 6
-          let lblFs = isFinal ? 9 : 8;
+          let lblFs = 7.5;
           doc.font('Helvetica-Bold').fontSize(lblFs);
           while (doc.widthOfString(tr.lbl) > totLabelW - PAD * 2 && lblFs > 6) {
             lblFs -= 0.5;
@@ -1049,11 +1049,13 @@ export class PIsService {
             },
           );
 
-          // 金额 cell：用户输入值 → Helvetica 常规 + 蓝色，整体右对齐
+          // 金额 cell：用户输入值 → Helvetica 常规 + 蓝色，水平居中对齐。
+          // 字号与货物行金额一致（9），TOTAL VALUE 不再特别放大，整张
+          // 表上下字号统一。
           border(totAmtX, cy, totAmtW, TH);
           if (tr.val !== null) {
             const display = `${cSym}${tr.val}`; // 例如 "$240.00" / "€240.00"
-            let fs = isFinal ? 10 : 9;
+            let fs = 9;
             doc.font('Helvetica').fontSize(fs);
             while (doc.widthOfString(display) > totAmtW - PAD * 2 && fs > 6) {
               fs -= 1;
@@ -1065,12 +1067,14 @@ export class PIsService {
               cy + (TH - fs) / 2,
               {
                 width: totAmtW - PAD * 2,
-                align: 'right',
+                align: 'center',
                 lineBreak: false,
               },
             );
           }
           cy += TH;
+          // isFinal 不再用，保留变量名提醒后续若想给 TOTAL VALUE 单独样式
+          void isFinal;
         });
 
         cy += 10;
