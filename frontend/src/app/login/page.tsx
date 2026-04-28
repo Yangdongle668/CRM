@@ -130,7 +130,7 @@ export default function LoginPage() {
         {/* Logo & Title */}
         <div className="text-center mb-6 sm:mb-8">
           {logoUrl ? (
-            <img src={logoUrl} alt="Logo" className="h-14 w-14 sm:h-16 sm:w-16 rounded-2xl object-cover shadow-apple-md mb-3 sm:mb-4 inline-block" />
+            <img src={logoUrl} alt="Logo" className="h-14 sm:h-16 max-w-[220px] w-auto rounded-2xl object-contain shadow-apple-md mb-3 sm:mb-4 inline-block bg-white" />
           ) : (
             <div className="inline-flex h-14 w-14 sm:h-16 sm:w-16 items-center justify-center rounded-2xl bg-primary-500 text-lg sm:text-xl font-bold text-white shadow-apple-md mb-3 sm:mb-4">
               维界
