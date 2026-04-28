@@ -16,7 +16,9 @@ RUN npm run build
 
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache openssl
+# 中文字体（WenQuanYi Zen Hei，包含 CJK 全字符集），PI / 报价单等 PDF
+# 生成需要它来正确渲染中文，不装会出乱码方块。
+RUN apk add --no-cache openssl font-wqy-zenhei
 
 WORKDIR /app
 
