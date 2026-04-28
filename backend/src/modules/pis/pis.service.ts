@@ -616,57 +616,49 @@ export class PIsService {
 
         // ══════════════════════════════════════════════════════
         // 1. TITLE + LOGO ROW
-        //    标题 "Proforma Invoice" + logo 作为一个整体在页宽内居中：
-        //    - 量出标题文字宽度 titleW
-        //    - 用 doc.openImage 拿到 logo 原始宽高，按 logoH 等比算出 logoW
-        //    - 总宽度 = titleW + gap + logoW，把组合块的左起点放在
-        //      L + (CW - totalW) / 2，逐个绘制即可。
-        //    Logo 高度略大于标题字号（更显眼）。
+        //    - 标题 "Proforma Invoice"：Helvetica-Bold（pdfkit 内置，
+        //      Arial-Bold 等价）20pt 黑色，水平居中在整页宽度内
+        //    - 公司 Logo：高度 11mm（A4 上 ≈ 31pt），宽度按图片实际宽
+        //      高比等比缩放，置于页面右上角
+        //    - 标题与 logo 底部基线对齐 —— 视觉上"左标题居中 + 右
+        //      logo"且两者基准线齐平
         // ══════════════════════════════════════════════════════
-        const titleFontSize = 30;
+        const titleFontSize = 20;
         const titleStr = 'Proforma Invoice';
-        const logoH = 44;
-        const gap = 16;
-        const titleH = Math.max(logoH, titleFontSize) + 24;
+        const MM_TO_PT = 2.83465;
+        const logoH = Math.round(11 * MM_TO_PT); // 11mm → 31pt
+        const titleH = Math.max(logoH, titleFontSize * 1.2) + 22;
 
-        setFont(true, titleFontSize);
-        const titleW = doc.widthOfString(titleStr);
+        // 标题用 Helvetica-Bold（不走 CJK 字体）保证"Arial Bold"的字形
+        // 一致性——这一段全是拉丁字母，无所谓 CJK。
+        doc.font('Helvetica-Bold').fontSize(titleFontSize);
+        const titleTextH = doc.currentLineHeight(true);
+        // 让 title 和 logo 的底部都对齐到 sharedBottomY（视觉基线）。
+        const sharedBottomY = cy + titleH - 12;
+        const titleY = sharedBottomY - titleTextH;
 
-        // 提前读取 logo 实际宽高，算出按 logoH 缩放后的宽度
-        let logoW = 0;
-        let imgRef: any = null;
+        doc.fillColor(DARK).text(titleStr, L, titleY, {
+          width: CW,
+          align: 'center',
+          lineBreak: false,
+        });
+
         if (logoUrl) {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              imgRef = (doc as any).openImage(absPath);
-              if (imgRef && imgRef.width && imgRef.height) {
-                logoW = (logoH / imgRef.height) * imgRef.width;
+              const img: any = (doc as any).openImage(absPath);
+              if (img && img.width && img.height) {
+                const logoW = (logoH / img.height) * img.width;
+                doc.image(img, PW - L - logoW, sharedBottomY - logoH, {
+                  width: logoW,
+                  height: logoH,
+                });
               }
             } catch (err: any) {
-              this.logger.warn(`openImage failed for ${absPath}: ${err?.message || err}`);
-              imgRef = null;
-              logoW = 0;
+              this.logger.warn(`openImage failed: ${err?.message || err}`);
             }
           }
-        }
-
-        const totalW = titleW + (logoW > 0 ? gap + logoW : 0);
-        const startX = L + (CW - totalW) / 2;
-
-        // 标题文字靠左起点，垂直居中
-        doc.fillColor(DARK).text(
-          titleStr,
-          startX,
-          cy + (titleH - titleFontSize) / 2,
-          { width: titleW + 1, align: 'left', lineBreak: false },
-        );
-
-        if (imgRef && logoW > 0) {
-          doc.image(imgRef, startX + titleW + gap, cy + (titleH - logoH) / 2, {
-            width: logoW,
-            height: logoH,
-          });
         }
         cy += titleH;
 
