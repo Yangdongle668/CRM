@@ -676,7 +676,7 @@ export class PIsService {
         const titleFontSize = 20;
         const titleStr = 'Proforma Invoice';
         const MM_TO_PT = 2.83465;
-        const logoH = Math.round(11 * MM_TO_PT); // 11mm → 31pt
+        const logoH = Math.round(8 * MM_TO_PT); // 8mm → 23pt（更克制的比例，和标题行更和谐）
         const titleH = Math.max(logoH, titleFontSize * 1.2) + 22;
 
         // 标题用 Helvetica-Bold（不走 CJK 字体）保证"Arial Bold"的字形
