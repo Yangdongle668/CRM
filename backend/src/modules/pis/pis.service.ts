@@ -33,8 +33,9 @@ export class PIsService {
    * 把它的 PostScript 名读出来给 pdfkit 用。
    *
    * 路径覆盖：
+   *   - 环境变量 PI_CJK_FONT（部署 / dev 都可手动指定，最高优先级）
    *   - Alpine（生产容器，apk add font-wqy-zenhei）
-   *   - Debian/Ubuntu（dev 机）
+   *   - Debian/Ubuntu / 各发行版常见 CJK 字体路径
    *   - macOS dev 兜底
    */
   private static cjkFontCache:
@@ -44,13 +45,19 @@ export class PIsService {
   private findCJKFont(): { src: string; postscriptName?: string } | null {
     if (PIsService.cjkFontCache !== undefined) return PIsService.cjkFontCache;
     const candidates = [
+      process.env.PI_CJK_FONT,
       '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc',
+      '/usr/share/fonts/wenquanyi/wqy-microhei/wqy-microhei.ttc',
       '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
       '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/opentype/noto/NotoSansCJKsc-Regular.otf',
+      '/usr/share/fonts/google-noto-cjk-fonts/NotoSansCJK-Regular.ttc',
+      '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
       '/System/Library/Fonts/PingFang.ttc',
       '/System/Library/Fonts/STHeiti Medium.ttc',
       '/System/Library/Fonts/Hiragino Sans GB.ttc',
-    ];
+    ].filter((p): p is string => !!p);
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fontkit = require('fontkit');
@@ -68,11 +75,14 @@ export class PIsService {
                 x?.hasGlyphForCodePoint && x.hasGlyphForCodePoint(ZH_CHAR),
             ) || (f as any).fonts[0];
           if (cjk) {
+            this.logger.log(
+              `Using CJK font: ${src} (PS=${cjk.postscriptName})`,
+            );
             PIsService.cjkFontCache = { src, postscriptName: cjk.postscriptName };
             return PIsService.cjkFontCache;
           }
         } else {
-          // TTF：不需要 family 参数
+          this.logger.log(`Using CJK font: ${src} (TTF, no family)`);
           PIsService.cjkFontCache = { src };
           return PIsService.cjkFontCache;
         }
@@ -80,6 +90,11 @@ export class PIsService {
         this.logger.warn(`Failed to inspect CJK font ${src}: ${err?.message || err}`);
       }
     }
+    this.logger.warn(
+      'No CJK font found. Chinese text in PDFs will fall back to Helvetica and may render as garbage. ' +
+        'Install one (e.g. `apk add font-wqy-zenhei` / `apt install fonts-wqy-zenhei`) ' +
+        'or set PI_CJK_FONT=/path/to/font.ttf|.ttc.',
+    );
     PIsService.cjkFontCache = null;
     return null;
   }
@@ -596,29 +611,32 @@ export class PIsService {
 
         // ══════════════════════════════════════════════════════
         // 1. TITLE + LOGO ROW
-        //    Logo 高度按标题栏行高顶满（titleH - 8 留 4px 边距），宽度
-        //    按图片实际宽高比等比缩放——所以横幅 logo 拉得宽，方形 logo
-        //    自然窄一些，都不会被裁切也不会变形。
-        //    用 fit: [maxW, targetH] + align:'right' valign:'center'，
-        //    pdfkit 在右端给 logo 一个最多 maxW × targetH 的边框，图片
-        //    在边框里按 contain 缩放并右对齐居中。
+        //    - 标题栏行高 titleH 固定。
+        //    - Logo 高度 = titleH / 2，宽度按图片实际宽高比等比缩放，
+        //      靠右、垂直居中。
+        //    - 标题文字水平区域避开 logo 这一块（不是铺整页 CW，而是
+        //      `CW - logoBoxW - 8`），所以居中标题不会和 logo 重叠。
         // ══════════════════════════════════════════════════════
-        const titleH = 84;
-        const logoTargetH = titleH - 8;       // 约 76，几乎顶满
-        const logoMaxW = Math.floor(CW / 2);  // 留半页给标题
+        const titleH = 80;
+        const logoBoxW = 200; // 右侧给 logo 的最大可用宽度
+        const logoBoxH = Math.floor(titleH / 2); // 半行高度
+        const logoBoxY = cy + (titleH - logoBoxH) / 2; // 在标题栏内垂直居中
+        const titleAreaW = CW - logoBoxW - 8;
+
         setFont(true, 26);
-        doc.fillColor(DARK).text('Proforma Invoice', L, cy + (titleH - 26) / 2, {
-          width: CW,
-          align: 'center',
-          lineBreak: false,
-        });
+        doc.fillColor(DARK).text(
+          'Proforma Invoice',
+          L,
+          cy + (titleH - 26) / 2,
+          { width: titleAreaW, align: 'center', lineBreak: false },
+        );
 
         if (logoUrl) {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              doc.image(absPath, PW - L - logoMaxW, cy + 4, {
-                fit: [logoMaxW, logoTargetH],
+              doc.image(absPath, PW - L - logoBoxW, logoBoxY, {
+                fit: [logoBoxW, logoBoxH],
                 align: 'right',
                 valign: 'center',
               });
