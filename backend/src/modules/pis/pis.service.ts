@@ -611,39 +611,57 @@ export class PIsService {
 
         // ══════════════════════════════════════════════════════
         // 1. TITLE + LOGO ROW
-        //    - 标题栏行高 titleH 固定。
-        //    - Logo 高度 = titleH / 2，宽度按图片实际宽高比等比缩放，
-        //      靠右、垂直居中。
-        //    - 标题文字水平区域避开 logo 这一块（不是铺整页 CW，而是
-        //      `CW - logoBoxW - 8`），所以居中标题不会和 logo 重叠。
+        //    标题 "Proforma Invoice" + logo 作为一个整体在页宽内居中：
+        //    - 量出标题文字宽度 titleW
+        //    - 用 doc.openImage 拿到 logo 原始宽高，按 logoH 等比算出 logoW
+        //    - 总宽度 = titleW + gap + logoW，把组合块的左起点放在
+        //      L + (CW - totalW) / 2，逐个绘制即可。
+        //    Logo 高度略大于标题字号（更显眼）。
         // ══════════════════════════════════════════════════════
-        const titleH = 80;
-        const logoBoxW = 200; // 右侧给 logo 的最大可用宽度
-        const logoBoxH = Math.floor(titleH / 2); // 半行高度
-        const logoBoxY = cy + (titleH - logoBoxH) / 2; // 在标题栏内垂直居中
-        const titleAreaW = CW - logoBoxW - 8;
+        const titleFontSize = 30;
+        const titleStr = 'Proforma Invoice';
+        const logoH = 44;
+        const gap = 16;
+        const titleH = Math.max(logoH, titleFontSize) + 24;
 
-        setFont(true, 26);
-        doc.fillColor(DARK).text(
-          'Proforma Invoice',
-          L,
-          cy + (titleH - 26) / 2,
-          { width: titleAreaW, align: 'center', lineBreak: false },
-        );
+        setFont(true, titleFontSize);
+        const titleW = doc.widthOfString(titleStr);
 
+        // 提前读取 logo 实际宽高，算出按 logoH 缩放后的宽度
+        let logoW = 0;
+        let imgRef: any = null;
         if (logoUrl) {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              doc.image(absPath, PW - L - logoBoxW, logoBoxY, {
-                fit: [logoBoxW, logoBoxH],
-                align: 'right',
-                valign: 'center',
-              });
-            } catch {
-              /* skip bad image */
+              imgRef = (doc as any).openImage(absPath);
+              if (imgRef && imgRef.width && imgRef.height) {
+                logoW = (logoH / imgRef.height) * imgRef.width;
+              }
+            } catch (err: any) {
+              this.logger.warn(`openImage failed for ${absPath}: ${err?.message || err}`);
+              imgRef = null;
+              logoW = 0;
             }
           }
+        }
+
+        const totalW = titleW + (logoW > 0 ? gap + logoW : 0);
+        const startX = L + (CW - totalW) / 2;
+
+        // 标题文字靠左起点，垂直居中
+        doc.fillColor(DARK).text(
+          titleStr,
+          startX,
+          cy + (titleH - titleFontSize) / 2,
+          { width: titleW + 1, align: 'left', lineBreak: false },
+        );
+
+        if (imgRef && logoW > 0) {
+          doc.image(imgRef, startX + titleW + gap, cy + (titleH - logoH) / 2, {
+            width: logoW,
+            height: logoH,
+          });
         }
         cy += titleH;
 
