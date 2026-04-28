@@ -509,6 +509,40 @@ export class PIsService {
           }
         };
 
+        /**
+         * 判断字符串是否只含 Helvetica 能渲染的字符（基本 ASCII +
+         * Latin-1 + 常见全/半角西文标点）。纯英文场景统一走 Arial Bold
+         * + 黑色，确保 PI 在装了 CJK 字体后不会把英文也"用 CJK 字形"
+         * 渲染成异样。
+         */
+        const isHelveticaSafe = (s: string): boolean => {
+          if (!s) return true;
+          for (let i = 0; i < s.length; i++) {
+            const c = s.charCodeAt(i);
+            if (c < 0x100) continue; // ASCII + Latin-1 OK
+            return false;
+          }
+          return true;
+        };
+
+        /**
+         * 按内容自动选字体 / 颜色：
+         *   - 纯英文（含数字、符号）→ Helvetica-Bold + 黑色
+         *   - 含中文 → 走 CJK 字体（regular），颜色按调用方需求
+         */
+        const setSmartFont = (size: number, txt: string, fallbackBold = false) => {
+          if (isHelveticaSafe(txt)) {
+            doc.font('Helvetica-Bold').fontSize(size);
+            return { color: DARK, isLatin: true };
+          }
+          if (cjkOk) {
+            doc.font(fallbackBold ? 'CJK-Bold' : 'CJK').fontSize(size);
+          } else {
+            doc.font(fallbackBold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size);
+          }
+          return { color: BLUE, isLatin: false };
+        };
+
         const border = (x: number, y: number, w: number, h: number) =>
           doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.6).stroke();
 
@@ -557,9 +591,10 @@ export class PIsService {
 
         const LABEL_HEIGHT = 10;
 
-        /** 标签：cell 左上角的小灰字题号 (e.g. "3. INVOICE NO.") */
+        /** 标签：cell 左上角的小灰字题号 (e.g. "3. INVOICE NO.")。
+         *  标签全是英文，按规范统一 Helvetica-Bold（Arial Bold）+ 黑色。 */
         const label = (txt: string, x: number, y: number, w: number) => {
-          setFont(false, 7.5);
+          doc.font('Helvetica-Bold').fontSize(7.5);
           doc.fillColor(DARK).text(txt, x + 4, y + 3, {
             width: w - 8,
             lineBreak: false,
@@ -567,10 +602,10 @@ export class PIsService {
         };
 
         /**
-         * Centered blue value inside a cell. Auto-shrinks the font if it
-         * would overflow, and centers vertically in the area below the
-         * label band. Pass align='right' for the amount column where the
-         * value hugs the right edge.
+         * Cell 内部的居中值。按内容自动选字体 / 颜色：
+         *   - 纯英文 / 数字 / 符号 → Helvetica-Bold + 黑色
+         *   - 含中文 → CJK 字体 + 蓝色（保持原视觉）
+         * 自动缩小字号以避免溢出；align='right' 用于金额列。
          */
         const value = (
           txt: string | null | undefined,
@@ -587,17 +622,29 @@ export class PIsService {
           const safe = norm(txt);
           if (!safe) return;
           const { align = 'center', baseSize = 9.5, hasLabel = true } = opts;
-          const size = fitSize(safe, w - 8, false, baseSize, 6);
+          const meta = setSmartFont(baseSize, safe);
+          // 缩小到 fit；以当前 setSmartFont 选定的字体测量
+          let size = baseSize;
+          while (doc.widthOfString(safe) > w - 8 && size > 6) {
+            size -= 1;
+            if (meta.isLatin) {
+              doc.font('Helvetica-Bold').fontSize(size);
+            } else {
+              doc.font(cjkOk ? 'CJK' : 'Helvetica').fontSize(size);
+            }
+          }
           const reservedTop = hasLabel ? LABEL_HEIGHT : 0;
           const yOff = reservedTop + (h - reservedTop - size) / 2;
-          doc.fillColor(BLUE).text(safe, x + 4, y + yOff, {
+          doc.fillColor(meta.color).text(safe, x + 4, y + yOff, {
             width: w - 8,
             align,
             lineBreak: false,
           });
         };
 
-        /** Multi-line left-aligned blue value (seller/consignee blocks). */
+        /** Multi-line left-aligned value (seller/consignee blocks)：
+         *  地址 / 公司名常常中英混排，用 setSmartFont 按内容自动选。
+         *  纯英文走 Arial Bold + 黑；含中文走 CJK + 蓝。 */
         const valueBlock = (
           txt: string,
           x: number,
@@ -607,8 +654,8 @@ export class PIsService {
         ) => {
           const safe = norm(txt);
           if (!safe) return y;
-          setFont(false, baseSize);
-          doc.fillColor(BLUE).text(safe, x + 4, y, { width: w - 8 });
+          const meta = setSmartFont(baseSize, safe);
+          doc.fillColor(meta.color).text(safe, x + 4, y, { width: w - 8 });
           return doc.y;
         };
 
@@ -798,10 +845,10 @@ export class PIsService {
         cy += consigneeH + 6;
 
         // ══════════════════════════════════════════════════════
-        // 3. TRANSACTION NOTICE
+        // 3. TRANSACTION NOTICE — 英文公告，强制 Helvetica-Bold + 黑色
         // ══════════════════════════════════════════════════════
-        setFont(false, 7);
-        doc.fillColor(GRAY).text(
+        doc.font('Helvetica-Bold').fontSize(7);
+        doc.fillColor(DARK).text(
           'THE FOLLOWING SIGNING PARTIES AGREE TO MAKE THE TRANSACTION ON THE TERMS AND CONDITIONS STATED BELOW:',
           L,
           cy,
@@ -839,8 +886,14 @@ export class PIsService {
           '17. UNIT PRICE',
           '18. AMOUNT',
         ];
+        // 表头全是英文，强制 Helvetica-Bold + 黑色（不走 CJK 字体）
         hLabels.forEach((hl, i) => {
-          const size = fitSize(hl, TW[i] - 4, true, 7.5, 6);
+          let size = 7.5;
+          doc.font('Helvetica-Bold').fontSize(size);
+          while (doc.widthOfString(hl) > TW[i] - 4 && size > 6) {
+            size -= 1;
+            doc.fontSize(size);
+          }
           doc.fillColor(DARK).text(hl, TC[i] + 2, cy + (TH - size) / 2, {
             width: TW[i] - 4,
             align: 'center',
@@ -871,7 +924,7 @@ export class PIsService {
         // MARKS column spans all rows — draw once, then skip its borders
         // in the per-row loop.
         border(TC[0], cy, TW[0], TH * totalRows);
-        setFont(false, 10);
+        doc.font('Helvetica-Bold').fontSize(10);
         doc.fillColor(DARK).text(
           'N/M',
           TC[0] + 2,
@@ -941,6 +994,11 @@ export class PIsService {
         //    $ symbol aligns with the UNIT PRICE column, number aligns
         //    with the AMOUNT column and hugs the right edge.
         // ══════════════════════════════════════════════════════
+        // 底部金额：标准 2 列带边框表格。每行两个相邻单元格，
+        //   - 标签列：水平居中、垂直居中
+        //   - 金额列：货币 + 数字组合后整体右对齐，垂直居中
+        //   - 内边距 PAD=6 让文字不贴边
+        // 整体右对齐到与"AMOUNT"列同一右缘。
         const totRows: { lbl: string; val: string | null }[] = [
           { lbl: 'SUBTOTAL', val: fmtMoney(Number(pi.subtotal)) },
           {
@@ -954,46 +1012,53 @@ export class PIsService {
           { lbl: 'TOTAL VALUE', val: fmtMoney(Number(pi.totalAmount)) },
         ];
 
-        const dolColX = TC[4];
-        const dolColW = TW[4];
-        const amtColX = TC[5];
-        const amtColW = TW[5];
-        // Label right-aligned, spanning the HSN + QTY area right up to
-        // the $ column — gives it plenty of room for "SHIPPING CHARGE".
-        const totLabelX = TC[2];
-        const totLabelW = dolColX - TC[2] - 6;
+        // 标签列宽到能容纳 "SHIPPING CHARGE"；金额列宽参照 AMOUNT 列。
+        const totLabelW = TC[5] - TC[3]; // QTY + UNIT_PRICE 这一段，145
+        const totAmtW = TW[5];           // 与 AMOUNT 列同宽，90
+        const totLabelX = TC[5] - totLabelW;
+        const totAmtX = TC[5];
+        const PAD = 6;
 
         totRows.forEach((tr) => {
           const isFinal = tr.lbl === 'TOTAL VALUE';
 
-          // Label (right-aligned, inside the shared column area)
-          setFont(isFinal, 8.5);
-          doc.fillColor(DARK).text(tr.lbl, totLabelX, cy + (TH - 8.5) / 2, {
-            width: totLabelW,
-            align: 'right',
-            lineBreak: false,
-          });
-
-          // $ cell
-          border(dolColX, cy, dolColW, TH);
-          if (tr.val !== null) {
-            setFont(false, 9);
-            doc.fillColor(BLUE).text(cSym, dolColX + 4, cy + (TH - 9) / 2, {
-              width: dolColW - 8,
-              align: 'left',
+          // 标签 cell：边框 + 居中
+          border(totLabelX, cy, totLabelW, TH);
+          doc.font('Helvetica-Bold').fontSize(isFinal ? 9.5 : 8.5);
+          const lblFs = isFinal ? 9.5 : 8.5;
+          doc.fillColor(DARK).text(
+            tr.lbl,
+            totLabelX + PAD,
+            cy + (TH - lblFs) / 2,
+            {
+              width: totLabelW - PAD * 2,
+              align: 'center',
               lineBreak: false,
-            });
-          }
+            },
+          );
 
-          // Amount cell (right-aligned, no shrink needed since it's roomy)
-          border(amtColX, cy, amtColW, TH);
+          // 金额 cell：边框 + 货币与数字合并，整体右对齐
+          border(totAmtX, cy, totAmtW, TH);
           if (tr.val !== null) {
-            const size = fitSize(tr.val, amtColW - 8, isFinal, 9, 6);
-            doc.fillColor(BLUE).text(tr.val, amtColX + 4, cy + (TH - size) / 2, {
-              width: amtColW - 8,
-              align: 'right',
-              lineBreak: false,
-            });
+            const display = `${cSym}${tr.val}`; // 例如 "$240.00" / "€240.00"
+            // 用最终绘制字体（Helvetica-Bold）自身测量，避免和 CJK 字体
+            // 宽度差导致的 padding 漂移。
+            let fs = isFinal ? 10 : 9;
+            doc.font('Helvetica-Bold').fontSize(fs);
+            while (doc.widthOfString(display) > totAmtW - PAD * 2 && fs > 6) {
+              fs -= 1;
+              doc.fontSize(fs);
+            }
+            doc.fillColor(DARK).text(
+              display,
+              totAmtX + PAD,
+              cy + (TH - fs) / 2,
+              {
+                width: totAmtW - PAD * 2,
+                align: 'right',
+                lineBreak: false,
+              },
+            );
           }
           cy += TH;
         });
@@ -1003,7 +1068,8 @@ export class PIsService {
         // ══════════════════════════════════════════════════════
         // 6. VALIDITY + NOTES
         // ══════════════════════════════════════════════════════
-        setFont(false, 9.5);
+        // Validity / Country of Origin 都是英文，统一 Helvetica-Bold + 黑色
+        doc.font('Helvetica-Bold').fontSize(9.5);
         doc.fillColor(DARK).text(
           `Validity Period: ${pi.validityPeriod} DAYS`,
           L,
@@ -1012,7 +1078,9 @@ export class PIsService {
         cy = doc.y + 4;
 
         if (pi.countryOfOrigin) {
-          setFont(false, 9.5);
+          // "Country of Origin: " 是英文前缀；值若是中文（罕见）会带不同
+          // 字体——这里整体按英文处理，常见值如 "China" / "Vietnam" 都没问题
+          doc.font('Helvetica-Bold').fontSize(9.5);
           doc.fillColor(DARK).text(
             `Country of Origin: ${norm(pi.countryOfOrigin)}`,
             L,
@@ -1022,8 +1090,10 @@ export class PIsService {
         }
 
         if (pi.notes) {
-          setFont(false, 9);
-          doc.fillColor(DARK).text(norm(pi.notes), L, cy, { width: CW });
+          // 备注可能含中文，按内容自动选字体
+          const notesTxt = norm(pi.notes);
+          const meta = setSmartFont(9, notesTxt);
+          doc.fillColor(meta.color).text(notesTxt, L, cy, { width: CW });
           cy = doc.y + 4;
         }
 
@@ -1065,18 +1135,21 @@ export class PIsService {
             if (match && match[2]) {
               const lbl = `${norm(match[1])}:`;
               const val = norm(match[2]);
-              setFont(true, bankBaseSize);
+              // 标签全是英文，强制 Helvetica-Bold + 黑
+              doc.font('Helvetica-Bold').fontSize(bankBaseSize);
               const lblW = doc.widthOfString(lbl + ' ');
               doc.fillColor(DARK).text(lbl, L, cy, { lineBreak: false });
-              setFont(false, bankBaseSize);
+              // 值按内容选字体：英文走 Helvetica-Bold，中文走 CJK
+              setSmartFont(bankBaseSize, val);
               doc.fillColor(DARK).text(val, L + lblW, cy, {
                 width: CW - lblW,
               });
               cy = doc.y + 1;
             } else {
               // No separator or empty value — render as a plain line.
-              setFont(false, bankBaseSize);
-              doc.fillColor(DARK).text(norm(line), L, cy, { width: CW });
+              const plain = norm(line);
+              setSmartFont(bankBaseSize, plain);
+              doc.fillColor(DARK).text(plain, L, cy, { width: CW });
               cy = doc.y + 1;
             }
           }
