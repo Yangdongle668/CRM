@@ -23,6 +23,40 @@ export class PIsService {
     private readonly settingsService: SettingsService,
   ) {}
 
+  /**
+   * 找一个能渲染中文的 TTF/TTC 字体路径。返回 { src, family } 给
+   * pdfkit 的 registerFont 用。找不到时返回 null，调用方退化到
+   * Helvetica + 全/半角标点替换。
+   *
+   * 路径覆盖：
+   *   - Alpine（生产容器，apk add font-wqy-zenhei）
+   *   - Debian/Ubuntu（dev 机常见）
+   *   - macOS / 系统级常见 CJK 字体（dev 兜底）
+   */
+  private static cjkFontCache: { src: string; family: string } | null | undefined;
+  private findCJKFont(): { src: string; family: string } | null {
+    if (PIsService.cjkFontCache !== undefined) return PIsService.cjkFontCache;
+    const candidates: Array<{ src: string; family: string }> = [
+      { src: '/usr/share/fonts/wenquanyi/wqy-zenhei/wqy-zenhei.ttc', family: 'WenQuanYi Zen Hei' }, // Alpine
+      { src: '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc', family: 'WenQuanYi Zen Hei' },          // Debian/Ubuntu
+      { src: '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc', family: 'WenQuanYi Micro Hei' },
+      { src: '/System/Library/Fonts/PingFang.ttc', family: 'PingFangSC-Regular' },                   // macOS
+      { src: '/System/Library/Fonts/STHeiti Medium.ttc', family: 'STHeitiSC-Medium' },               // macOS 兜底
+    ];
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c.src)) {
+          PIsService.cjkFontCache = c;
+          return c;
+        }
+      } catch {
+        /* 忽略单个候选 */
+      }
+    }
+    PIsService.cjkFontCache = null;
+    return null;
+  }
+
   async create(userId: string, role: string, dto: CreatePIDto) {
     const piNo = await this.generatePINo();
 
@@ -395,20 +429,46 @@ export class PIsService {
         const GRAY = '#555555';
         const LINE = '#666666';
 
-        const setFont = (bold: boolean, size: number) =>
-          doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size);
+        // ── 中文字体注册 ───────────────────────────────────────
+        // 注册一份能渲染中文 + 拉丁字符的 CJK 字体（WenQuanYi Zen Hei 等）。
+        // 注册成功后所有文本都走这套字体；找不到就退化到 Helvetica，并
+        // 用 norm() 把全角中文标点替换成 ASCII，避免出现"y" 替代符。
+        const cjk = this.findCJKFont();
+        let cjkOk = false;
+        if (cjk) {
+          try {
+            doc.registerFont('CJK', cjk.src, cjk.family);
+            // WQY Zen Hei 同时含 Latin 字符，只用一套字体即可；"加粗"
+            // 用 fillAndStroke 方式很重，简单方案：bold 也用同字体，靠
+            // 字号 / 颜色拉重要级；标题级的"标签"文字仍维持原视觉层级。
+            doc.registerFont('CJK-Bold', cjk.src, cjk.family);
+            cjkOk = true;
+          } catch (err: any) {
+            this.logger.warn(
+              `Failed to register CJK font from ${cjk.src} (${cjk.family}): ${err?.message || err}`,
+            );
+          }
+        }
+
+        const setFont = (bold: boolean, size: number) => {
+          if (cjkOk) {
+            doc.font(bold ? 'CJK-Bold' : 'CJK').fontSize(size);
+          } else {
+            doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size);
+          }
+        };
 
         const border = (x: number, y: number, w: number, h: number) =>
           doc.rect(x, y, w, h).strokeColor(LINE).lineWidth(0.6).stroke();
 
         /**
-         * Map common full-width CJK punctuation to ASCII. Helvetica has no
-         * glyphs for these codepoints, so leaving them in would produce
-         * garbage ("y" placeholders) in the rendered PDF. We run every
-         * user-supplied string through this before drawing.
+         * 全角中文标点 → ASCII。仅在没有 CJK 字体时启用——Helvetica 没有
+         * 这些字符的 glyph，留着会变成 "y" 占位符。注册到 CJK 字体后这层
+         * 转换不再需要，原样保留中文标点更自然。
          */
         const norm = (s: string | null | undefined): string => {
           if (!s) return '';
+          if (cjkOk) return String(s);
           return String(s)
             .replace(/：/g, ':')
             .replace(/，/g, ',')
@@ -505,10 +565,14 @@ export class PIsService {
 
         // ══════════════════════════════════════════════════════
         // 1. TITLE + LOGO ROW (no borders, just positioning)
+        //    Logo 比之前放大一档（150×46 → 220×66），头部更醒目；
+        //    titleH 同步抬到 78 给图片留够垂直空间。
         // ══════════════════════════════════════════════════════
-        const titleH = 55;
+        const titleH = 78;
+        const logoMaxW = 220;
+        const logoMaxH = 66;
         setFont(true, 24);
-        doc.fillColor(DARK).text('Proforma Invoice', L, cy + 14, {
+        doc.fillColor(DARK).text('Proforma Invoice', L, cy + 28, {
           width: CW,
           align: 'center',
           lineBreak: false,
@@ -518,7 +582,9 @@ export class PIsService {
           const absPath = path.join(process.cwd(), logoUrl.replace(/^\//, ''));
           if (fs.existsSync(absPath)) {
             try {
-              doc.image(absPath, PW - L - 150, cy + 6, { fit: [150, 46] });
+              doc.image(absPath, PW - L - logoMaxW, cy + 6, {
+                fit: [logoMaxW, logoMaxH],
+              });
             } catch {
               /* skip bad image */
             }
