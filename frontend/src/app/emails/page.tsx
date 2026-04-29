@@ -495,22 +495,31 @@ export default function EmailsPage() {
     return (m ? m[1] : raw).trim();
   };
 
-  // 原 To / Cc 里除主要回复人和我自己以外的所有去重收件人；
+  // 原 To / Cc 里除主要回复人和"我自己"以外的所有去重收件人；
   // 用于判断是否要显示"回复所有"按钮，以及点了之后预填 Cc。
+  //
+  // "我自己"包括：
+  //   - 登录账号 user.email
+  //   - 当前用户**所有**配置过的 IMAP/SMTP 账号 emailAddr（公司邮箱、
+  //     个人邮箱、转发别名等都不应该出现在自己发出去的回复抄送里）
   const getReplyAllCc = (): { cc: string; primaryTo: string } | null => {
     if (!selectedEmail) return null;
-    const myEmail = (user?.email || '').toLowerCase();
+    const myAddrs = new Set<string>();
+    if (user?.email) myAddrs.add(user.email.toLowerCase());
+    for (const a of accounts || []) {
+      if (a?.emailAddr) myAddrs.add(String(a.emailAddr).toLowerCase());
+    }
+
     const primaryTo =
       selectedEmail.direction === 'INBOUND'
         ? selectedEmail.fromAddr
         : selectedEmail.toAddr;
     const primaryEmail = extractEmailOnly(primaryTo || '').toLowerCase();
 
-    const excluded = new Set<string>();
-    if (primaryEmail) excluded.add(primaryEmail);
-    if (myEmail) excluded.add(myEmail);
+    const seen = new Set<string>();
+    if (primaryEmail) seen.add(primaryEmail);
+    myAddrs.forEach((a) => seen.add(a));
 
-    const seen = new Set<string>(excluded);
     const keep: string[] = [];
     const pushFrom = (raw?: string | null) => {
       if (!raw) return;
@@ -523,7 +532,7 @@ export default function EmailsPage() {
         keep.push(addr);
       }
     };
-    // INBOUND 时 toAddr 里一般也只有我自己（会被 myEmail 过滤掉）；
+    // INBOUND 时 toAddr 里一般也只有我自己（已被 myAddrs 过滤掉）；
     // OUTBOUND 时 toAddr 是对方，已经进了 primary，继续扫描只留 cc。
     pushFrom(selectedEmail.toAddr);
     pushFrom(selectedEmail.cc);
