@@ -1662,6 +1662,31 @@ export class EmailsService {
       connTimeout: 30000,
     });
 
+    // 取这个账号每个方向最新一封邮件的时间，作为本次拉取的 SINCE 起点。
+    // 减去 2 天 buffer 容忍 IMAP SINCE 的天级精度和 IMAP 服务器/客户端
+    // 时区差。第一次（DB 没有数据）传 null 走全量。
+    const lastInbound = await this.prisma.email.findFirst({
+      where: { emailConfigId: configId, direction: 'INBOUND' },
+      orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
+      select: { receivedAt: true, createdAt: true },
+    });
+    const lastOutbound = await this.prisma.email.findFirst({
+      where: { emailConfigId: configId, direction: 'OUTBOUND' },
+      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
+      select: { sentAt: true, createdAt: true },
+    });
+    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const inboxSince = lastInbound
+      ? new Date(
+          (lastInbound.receivedAt || lastInbound.createdAt).getTime() - TWO_DAYS_MS,
+        )
+      : null;
+    const sentSince = lastOutbound
+      ? new Date(
+          (lastOutbound.sentAt || lastOutbound.createdAt).getTime() - TWO_DAYS_MS,
+        )
+      : null;
+
     return new Promise((resolve, reject) => {
       let totalFetched = 0;
 
@@ -1674,13 +1699,13 @@ export class EmailsService {
             config.emailAddr,
             'INBOX',
             'INBOUND',
+            inboxSince,
           );
           totalFetched += inboxCount;
 
           let sentCount = 0;
           const sentFolder = await this.findSentFolder(imap);
           if (sentFolder) {
-            this.logger.log(`Found sent folder: ${sentFolder}`);
             sentCount = await this.fetchFromFolder(
               imap,
               userId,
@@ -1688,6 +1713,7 @@ export class EmailsService {
               config.emailAddr,
               sentFolder,
               'OUTBOUND',
+              sentSince,
             );
             totalFetched += sentCount;
           } else {
@@ -1764,6 +1790,7 @@ export class EmailsService {
     userEmail: string,
     folderName: string,
     direction: 'INBOUND' | 'OUTBOUND',
+    since: Date | null = null,
   ): Promise<number> {
     return new Promise((resolve, reject) => {
       imap.openBox(folderName, true, (err: any) => {
@@ -1772,7 +1799,12 @@ export class EmailsService {
           return resolve(0);
         }
 
-        imap.search(['ALL'], (searchErr: any, results: number[]) => {
+        // 增量拉取：只搜索 since 日期之后的邮件。IMAP SINCE 精度到天，
+        // 我们已经用 messageId 唯一约束在 DB 层兜底去重，所以重叠几小时
+        // 没关系，但能避免一上线就重新拉几千封历史邮件。
+        const searchCriteria: any[] = since ? [['SINCE', since]] : ['ALL'];
+
+        imap.search(searchCriteria, (searchErr: any, results: number[]) => {
           if (searchErr) {
             this.logger.warn(`Search failed in ${folderName}: ${searchErr.message}`);
             return resolve(0);
@@ -2243,31 +2275,58 @@ export class EmailsService {
    */
   @Cron('*/1 * * * *')
   async backgroundFetchAll(): Promise<void> {
-    if (this.isFetchingAll) return;
+    if (this.isFetchingAll) {
+      this.logger.warn('[Auto] previous fetch still running, skipping tick');
+      return;
+    }
     this.isFetchingAll = true;
+    const startTs = Date.now();
+    let totalNew = 0;
+    let okCount = 0;
+    let failCount = 0;
+
     try {
       const configs = await this.prisma.emailConfig.findMany({
         select: { id: true, userId: true, emailAddr: true },
       });
 
       for (const cfg of configs) {
+        // 单账号 90s 超时熔断：IMAP 偶尔会"连上但卡住不回 BYE"，没有
+        // 这层超时，整个 cron 锁会被一个挂起的账号拖到永远，后面的账号
+        // 也轮不到——表面看就是"定时不动"。
+        const ACCOUNT_TIMEOUT_MS = 90_000;
         try {
-          const result = await this.fetchEmails(cfg.userId, cfg.id);
+          const result = await Promise.race<{ fetched: number }>([
+            this.fetchEmails(cfg.userId, cfg.id),
+            new Promise<{ fetched: number }>((_resolve, reject) =>
+              setTimeout(
+                () => reject(new Error(`timed out after ${ACCOUNT_TIMEOUT_MS}ms`)),
+                ACCOUNT_TIMEOUT_MS,
+              ),
+            ),
+          ]);
+          okCount++;
+          totalNew += result.fetched;
           if (result.fetched > 0) {
             this.logger.log(
               `[Auto] Fetched ${result.fetched} new email(s) for ${cfg.emailAddr}`,
             );
           }
         } catch (err: any) {
+          failCount++;
           this.logger.warn(
-            `[Auto] Failed to fetch ${cfg.emailAddr}: ${err.message}`,
+            `[Auto] Failed to fetch ${cfg.emailAddr}: ${err?.message || err}`,
           );
         }
       }
     } catch (err: any) {
-      this.logger.error(`[Auto] backgroundFetchAll error: ${err.message}`);
+      this.logger.error(`[Auto] backgroundFetchAll error: ${err?.message || err}`);
     } finally {
       this.isFetchingAll = false;
+      const ms = Date.now() - startTs;
+      this.logger.log(
+        `[Auto] tick done: ${okCount} ok, ${failCount} fail, ${totalNew} new (${ms}ms)`,
+      );
     }
   }
 
