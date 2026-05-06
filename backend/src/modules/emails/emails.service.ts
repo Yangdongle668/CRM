@@ -1663,8 +1663,16 @@ export class EmailsService {
     });
 
     // 取这个账号每个方向最新一封邮件的时间，作为本次拉取的 SINCE 起点。
-    // 减去 2 天 buffer 容忍 IMAP SINCE 的天级精度和 IMAP 服务器/客户端
-    // 时区差。第一次（DB 没有数据）传 null 走全量。
+    // 减去 7 天 buffer 容忍：
+    //   - IMAP SINCE 的天级精度（不带时分秒）
+    //   - IMAP 服务器与本机时区差
+    //   - 偶发的"邮件延迟投递"——上游服务器卡几天后才 push，这种邮件
+    //     的 INTERNALDATE 会落在过去，2 天 buffer 容易漏，7 天足够覆盖
+    //     绝大多数现实场景。
+    //   - 后端宕机几天后恢复——SINCE 自动从 DB 最近一封邮件回算，重启
+    //     不会丢邮件（哪怕宕机了一周，最近一封是一周前 → SINCE = 14 天前）。
+    // 第一次（DB 没有数据）传 null 走全量，把历史邮件都补齐。
+    // DB 层 messageId UNIQUE 约束兜底去重，多扫几天没有副作用。
     const lastInbound = await this.prisma.email.findFirst({
       where: { emailConfigId: configId, direction: 'INBOUND' },
       orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
@@ -1675,15 +1683,15 @@ export class EmailsService {
       orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
       select: { sentAt: true, createdAt: true },
     });
-    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+    const SINCE_BUFFER_MS = 7 * 24 * 60 * 60 * 1000;
     const inboxSince = lastInbound
       ? new Date(
-          (lastInbound.receivedAt || lastInbound.createdAt).getTime() - TWO_DAYS_MS,
+          (lastInbound.receivedAt || lastInbound.createdAt).getTime() - SINCE_BUFFER_MS,
         )
       : null;
     const sentSince = lastOutbound
       ? new Date(
-          (lastOutbound.sentAt || lastOutbound.createdAt).getTime() - TWO_DAYS_MS,
+          (lastOutbound.sentAt || lastOutbound.createdAt).getTime() - SINCE_BUFFER_MS,
         )
       : null;
 

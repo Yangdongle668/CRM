@@ -110,6 +110,12 @@ export class AuthService {
         avatar: user.avatar,
         // 前端要根据这个开关在 UI 上强制显示"超级管理员"徽章 / 权限保护
         isSuperAdmin: user.isSuperAdmin,
+        // 个人偏好（dashboard 布局 / 世界时钟时区 / 邮件链接偏好…）
+        // 必须在登录响应里带回来，否则首次登录时前端 user.preferences 是
+        // undefined，再次刷新页面才会通过 /auth/profile 拿到，期间用户看到
+        // 的是"默认空白布局"，以为云端配置没保存。
+        preferences: user.preferences ?? null,
+        birthday: user.birthday,
         permissions,
       },
     };

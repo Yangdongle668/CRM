@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   WidthProvider,
   ResponsiveReactGridLayout,
@@ -143,6 +143,29 @@ export default function GridDashboard({ data, editMode, onExitEdit }: Props) {
     }
     return getDefaultLayout(userRole, isAdmin);
   });
+
+  // 把云端布局**同步进来**：useState 初始化只跑一次，登录响应里若没带
+  // preferences（早期版本），第一次渲染时 user.preferences 还没到，组件
+  // 就以"默认布局"启动；等 /auth/profile 把 preferences 拉回来时 user
+  // 引用变了，这个 effect 才把云端布局喂进 layout state。
+  // 用 hasHydratedFromServer ref 限定只跑一次，避免后续我们自己保存到
+  // 云端的更新被 effect 反向覆盖（authApi.updatePreferences 会刷新 user）。
+  const hasHydratedFromServer = useRef(false);
+  useEffect(() => {
+    if (hasHydratedFromServer.current) return;
+    const saved = (user as any)?.preferences?.dashboardLayout as
+      | SavedLayout
+      | undefined;
+    if (saved && Array.isArray(saved) && saved.length > 0) {
+      setLayout(saved.filter((item) => visibleIds.has(item.i)));
+      hasHydratedFromServer.current = true;
+    }
+    // user 一旦不为 null（登录或 getProfile 完成）就尝试一次。
+    // 后续 user 引用变化（保存偏好后刷新）已被 ref 锁掉。
+    if (user) hasHydratedFromServer.current = true;
+    // visibleIds 是基于 role 计算的稳定集合，effect 依赖 user 即可
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const [showAddPanel, setShowAddPanel] = useState(false);
   const [saving, setSaving] = useState(false);
