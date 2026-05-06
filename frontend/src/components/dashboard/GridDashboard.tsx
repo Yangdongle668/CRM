@@ -17,6 +17,7 @@ import {
   HiOutlinePlus,
   HiOutlineArrowPath,
 } from 'react-icons/hi2';
+import toast from 'react-hot-toast';
 import { authApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import { getDefaultLayout, getVisibleWidgets, WIDGET_REGISTRY } from './registry';
@@ -130,7 +131,7 @@ interface Props {
 }
 
 export default function GridDashboard({ data, editMode, onExitEdit }: Props) {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, refreshUser } = useAuth();
   const userRole = user?.role ?? 'SALESPERSON';
 
   const visibleWidgets = getVisibleWidgets(isAdmin, userRole);
@@ -171,19 +172,39 @@ export default function GridDashboard({ data, editMode, onExitEdit }: Props) {
   const [saving, setSaving] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const scheduleSave = useCallback((newLayout: SavedLayout) => {
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        await authApi.updatePreferences({ dashboardLayout: newLayout });
-      } catch {
-        // silent; the layout still lives in local state
-      } finally {
-        setSaving(false);
-      }
-    }, 1500);
-  }, []);
+  const scheduleSave = useCallback(
+    (newLayout: SavedLayout) => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(async () => {
+        setSaving(true);
+        try {
+          await authApi.updatePreferences({ dashboardLayout: newLayout });
+          // 保存成功后从服务器拉一次最新 user，让 auth-context 里的
+          // user.preferences 与 DB 同步——否则换页 / 重渲染时仍看到老数据。
+          if (typeof refreshUser === 'function') {
+            try {
+              await refreshUser();
+            } catch {
+              /* refreshUser 失败不阻断 */
+            }
+          }
+        } catch (err: any) {
+          // 之前 silent 吞掉，导致用户看不到任何反馈。这里显式 toast
+          // + console.error，方便定位是网络 / 鉴权 / DTO 验证哪一层挂了。
+          // eslint-disable-next-line no-console
+          console.error('[Dashboard] save failed', err);
+          const msg =
+            err?.response?.data?.message ||
+            err?.message ||
+            '保存仪表盘布局失败';
+          toast.error(Array.isArray(msg) ? msg.join('; ') : String(msg));
+        } finally {
+          setSaving(false);
+        }
+      }, 1500);
+    },
+    [refreshUser],
+  );
 
   const handleLayoutChange = useCallback(
     (_current: Layout, allLayouts: ResponsiveLayouts) => {
