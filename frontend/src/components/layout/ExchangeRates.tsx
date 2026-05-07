@@ -24,18 +24,23 @@ const SOURCE_LABEL: Record<string, string> = {
   loading: '加载中',
 };
 
-// 给最多 3 个 pill 分配区分度足够的颜色（沿用原 USD = 蓝、EUR = 靛 的色调，
-// 第三个用紫色，整体仍是冷色系，不打破现有视觉）。按 pill 索引取色，不和币
-// 种绑定，这样用户改了显示哪几个币也不会突兀地变红。
+// 给最多 5 个 pill 分配区分度足够的颜色（沿用原 USD = 蓝、EUR = 靛 的冷色调，
+// 后面几位顺延紫 / 青绿 / 粉，仍偏冷，整体不打破现有视觉）。按 pill 索引取色，
+// 不和币种绑定——用户改了显示哪几个币也不会突兀地变色。
 const PILL_COLORS = [
   'bg-blue-50 text-blue-700',
   'bg-indigo-50 text-indigo-700',
   'bg-violet-50 text-violet-700',
+  'bg-teal-50 text-teal-700',
+  'bg-rose-50 text-rose-700',
 ];
 
 const DEFAULT_CCYS = ['USD', 'EUR'];
 const MIN_CCYS = 2;
-const MAX_CCYS = 3;
+// 桌面端最多 5 个；手机端用 CSS 把第 3 个起隐藏掉，最多看到 2 个，
+// 不挡顶栏的其它按钮。
+const MAX_CCYS = 5;
+const MOBILE_VISIBLE = 2;
 
 export default function ExchangeRates() {
   const { user, refreshUser } = useAuth();
@@ -169,18 +174,23 @@ export default function ExchangeRates() {
   return (
     <div ref={wrapRef} className="relative flex items-center gap-3 text-xs font-medium text-gray-600">
       <div className="flex items-center gap-3" title={`${tipPrefix}更新于 ${timeStr}（每 15 分钟自动刷新）`}>
-        {visiblePills.map((p, i) => (
-          <div
-            key={p.code}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full ${
-              PILL_COLORS[i % PILL_COLORS.length]
-            }`}
-          >
-            <span className="text-[10px] font-bold tracking-wide">{p.code}</span>
-            <span className="text-gray-400">→</span>
-            <span>¥ {Number(p.rate).toFixed(4)}</span>
-          </div>
-        ))}
+        {visiblePills.map((p, i) => {
+          // 手机端只显示前 MOBILE_VISIBLE 个 pill，避免和顶栏其它按钮挤
+          // 在一行；桌面端 (md ↑) 全部显示。
+          const hideOnMobile = i >= MOBILE_VISIBLE;
+          return (
+            <div
+              key={p.code}
+              className={`${hideOnMobile ? 'hidden md:flex' : 'flex'} items-center gap-1.5 px-2.5 py-1 rounded-full ${
+                PILL_COLORS[i % PILL_COLORS.length]
+              }`}
+            >
+              <span className="text-[10px] font-bold tracking-wide">{p.code}</span>
+              <span className="text-gray-400">→</span>
+              <span>¥ {Number(p.rate).toFixed(4)}</span>
+            </div>
+          );
+        })}
       </div>
 
       <button
@@ -194,12 +204,15 @@ export default function ExchangeRates() {
 
       {editorOpen && (
         <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-2xl border border-gray-200 bg-white/95 p-3 shadow-xl backdrop-blur-sm">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-1 flex items-center justify-between">
             <span className="text-[12px] font-semibold text-gray-800">显示哪些汇率</span>
             <span className="text-[11px] text-gray-400">
               {draftSelected.length} / {MAX_CCYS}（最少 {MIN_CCYS}）
             </span>
           </div>
+          <p className="mb-2 text-[11px] text-gray-400">
+            桌面端最多显示 {MAX_CCYS} 个；手机端仅显示前 {MOBILE_VISIBLE} 个。
+          </p>
           <div className="max-h-56 overflow-y-auto pr-1">
             {availableList.map((c) => {
               const checked = draftSelected.includes(c.code);
