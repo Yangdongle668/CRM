@@ -24,8 +24,11 @@ export interface RatesPayload {
 }
 
 // 拉哪些币种。code 用 ISO 4217，boc 是中行牌价表里的中文名（必须一字不差）。
-// 顺序代表"用户编辑器里候选列表的展示顺序"。
+// 顺序代表"用户编辑器里候选列表的展示顺序"——常用 G10 + 主要新兴市场。
+// 中行偶尔会拿不到部分小币种数据，extractBocRow 失败时该币种就跳过，
+// 不影响其它已抓到的。
 const CURRENCIES = [
+  // G10 / 主要发达市场
   { code: 'USD', boc: '美元', nameZh: '美元' },
   { code: 'EUR', boc: '欧元', nameZh: '欧元' },
   { code: 'GBP', boc: '英镑', nameZh: '英镑' },
@@ -33,11 +36,35 @@ const CURRENCIES = [
   { code: 'HKD', boc: '港币', nameZh: '港币' },
   { code: 'AUD', boc: '澳大利亚元', nameZh: '澳元' },
   { code: 'CAD', boc: '加拿大元', nameZh: '加元' },
-  { code: 'SGD', boc: '新加坡元', nameZh: '新加坡元' },
-  { code: 'NZD', boc: '新西兰元', nameZh: '新西兰元' },
-  { code: 'KRW', boc: '韩国元', nameZh: '韩元' },
   { code: 'CHF', boc: '瑞士法郎', nameZh: '瑞郎' },
+  { code: 'NZD', boc: '新西兰元', nameZh: '新西兰元' },
+  { code: 'SGD', boc: '新加坡元', nameZh: '新加坡元' },
+  { code: 'SEK', boc: '瑞典克朗', nameZh: '瑞典克朗' },
+  { code: 'NOK', boc: '挪威克朗', nameZh: '挪威克朗' },
+  { code: 'DKK', boc: '丹麦克朗', nameZh: '丹麦克朗' },
+  // 亚太
+  { code: 'KRW', boc: '韩国元', nameZh: '韩元' },
+  { code: 'TWD', boc: '新台币', nameZh: '新台币' },
+  { code: 'THB', boc: '泰国铢', nameZh: '泰铢' },
+  { code: 'MYR', boc: '林吉特', nameZh: '马来西亚林吉特' },
+  { code: 'PHP', boc: '菲律宾比索', nameZh: '菲律宾比索' },
+  { code: 'IDR', boc: '印尼卢比', nameZh: '印尼卢比' },
+  { code: 'VND', boc: '越南盾', nameZh: '越南盾' },
+  { code: 'INR', boc: '印度卢比', nameZh: '印度卢比' },
+  { code: 'PKR', boc: '巴基斯坦卢比', nameZh: '巴基斯坦卢比' },
+  // 中东 / 非洲
+  { code: 'AED', boc: '阿联酋迪拉姆', nameZh: '阿联酋迪拉姆' },
+  { code: 'SAR', boc: '沙特里亚尔', nameZh: '沙特里亚尔' },
+  { code: 'ZAR', boc: '南非兰特', nameZh: '南非兰特' },
+  { code: 'EGP', boc: '埃及镑', nameZh: '埃及镑' },
+  { code: 'TRY', boc: '土耳其里拉', nameZh: '土耳其里拉' },
+  // 拉美
+  { code: 'BRL', boc: '巴西里亚尔', nameZh: '巴西里亚尔' },
+  { code: 'MXN', boc: '墨西哥比索', nameZh: '墨西哥比索' },
+  // 东欧 / 俄
   { code: 'RUB', boc: '卢布', nameZh: '俄罗斯卢布' },
+  { code: 'PLN', boc: '波兰兹罗提', nameZh: '波兰兹罗提' },
+  { code: 'HUF', boc: '匈牙利福林', nameZh: '匈牙利福林' },
 ];
 
 /**
