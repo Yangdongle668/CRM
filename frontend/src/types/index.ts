@@ -34,6 +34,8 @@ export interface User {
   preferences?: {
     emailLinkPreference?: 'ask' | 'external' | 'internal';
     dashboardLayout?: Array<{ i: string; x: number; y: number; w: number; h: number }>;
+    /** 顶部汇率条要显示的兑人民币货币，2~3 个，例如 ['USD','EUR','GBP']。 */
+    exchangeRateCurrencies?: string[];
     [k: string]: any;
   } | null;
   /** 生日（ISO 日期字符串，只关心月/日，年份在前端展示时忽略）。 */
