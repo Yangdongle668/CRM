@@ -9,8 +9,36 @@ export interface RatesPayload {
   base: string;
   source: string;
   updatedAt: string;
-  rates: { USD_CNY: number; EUR_CNY: number; EUR_USD: number };
+  /**
+   * 所有可用的兑人民币汇率，键名形如 "USD_CNY" / "EUR_CNY" / "JPY_CNY"。
+   * 字段是动态的——前端按用户偏好挑 2~3 个显示。
+   * 旧字段 USD_CNY / EUR_CNY / EUR_USD 永远存在，兼容老前端。
+   */
+  rates: Record<string, number> & {
+    USD_CNY: number;
+    EUR_CNY: number;
+    EUR_USD: number;
+  };
+  /** 可供前端编辑器选择的全部货币代码列表（同时返回简短中文名）。 */
+  available?: Array<{ code: string; nameZh: string }>;
 }
+
+// 拉哪些币种。code 用 ISO 4217，boc 是中行牌价表里的中文名（必须一字不差）。
+// 顺序代表"用户编辑器里候选列表的展示顺序"。
+const CURRENCIES = [
+  { code: 'USD', boc: '美元', nameZh: '美元' },
+  { code: 'EUR', boc: '欧元', nameZh: '欧元' },
+  { code: 'GBP', boc: '英镑', nameZh: '英镑' },
+  { code: 'JPY', boc: '日元', nameZh: '日元' },
+  { code: 'HKD', boc: '港币', nameZh: '港币' },
+  { code: 'AUD', boc: '澳大利亚元', nameZh: '澳元' },
+  { code: 'CAD', boc: '加拿大元', nameZh: '加元' },
+  { code: 'SGD', boc: '新加坡元', nameZh: '新加坡元' },
+  { code: 'NZD', boc: '新西兰元', nameZh: '新西兰元' },
+  { code: 'KRW', boc: '韩国元', nameZh: '韩元' },
+  { code: 'CHF', boc: '瑞士法郎', nameZh: '瑞郎' },
+  { code: 'RUB', boc: '卢布', nameZh: '俄罗斯卢布' },
+];
 
 /**
  * 汇率 —— 只用中国银行外汇牌价 (https://www.boc.cn/sourcedb/whpj/)。
@@ -50,10 +78,11 @@ export class RatesService implements OnModuleInit, OnModuleDestroy {
     if (this.cache) return this.cache;
     // 还没拿到过 → 返回 0 占位；前端看到 USD_CNY=0 会自动隐藏汇率条。
     return {
-      base: 'USD',
+      base: 'CNY',
       source: 'loading',
       updatedAt: new Date().toISOString(),
       rates: { USD_CNY: 0, EUR_CNY: 0, EUR_USD: 0 },
+      available: CURRENCIES.map(({ code, nameZh }) => ({ code, nameZh })),
     };
   }
 
@@ -113,23 +142,28 @@ export class RatesService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const usdPer100 = this.extractBocRow(html, '美元');
-    const eurPer100 = this.extractBocRow(html, '欧元');
-    if (!usdPer100 || !eurPer100) {
+    // 把所有候选币种都拉一遍。USD / EUR 必须成功，其它币种没解析到就跳过，
+    // 不影响整体结果（中行偶尔会少几列数据）。
+    const rates: Record<string, number> = {};
+    for (const { code, boc } of CURRENCIES) {
+      const per100 = this.extractBocRow(html, boc);
+      if (per100 && per100 > 0) {
+        rates[`${code}_CNY`] = Number((per100 / 100).toFixed(4));
+      }
+    }
+
+    if (!rates.USD_CNY || !rates.EUR_CNY) {
       throw new Error('boc parse: USD/EUR row not found');
     }
-    const usdCny = usdPer100 / 100;
-    const eurCny = eurPer100 / 100;
+    // EUR_USD 旧字段：保留兼容；通过 EUR_CNY / USD_CNY 推导
+    rates.EUR_USD = Number((rates.EUR_CNY / rates.USD_CNY).toFixed(4));
 
     return {
-      base: 'USD',
+      base: 'CNY',
       source: 'BOC',
       updatedAt: new Date(now).toISOString(),
-      rates: {
-        USD_CNY: Number(usdCny.toFixed(4)),
-        EUR_CNY: Number(eurCny.toFixed(4)),
-        EUR_USD: Number((eurCny / usdCny).toFixed(4)),
-      },
+      rates: rates as RatesPayload['rates'],
+      available: CURRENCIES.map(({ code, nameZh }) => ({ code, nameZh })),
     };
   }
 
