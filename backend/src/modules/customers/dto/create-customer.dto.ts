@@ -1,4 +1,10 @@
-import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsNotEmpty,
+  IsArray,
+} from 'class-validator';
 
 export enum CustomerStatus {
   POTENTIAL = 'POTENTIAL',
@@ -31,6 +37,11 @@ export class CreateCustomerDto {
   @IsOptional()
   @IsString()
   industry?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  batteryModels?: string[];
 
   @IsOptional()
   @IsString()

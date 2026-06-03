@@ -22,6 +22,7 @@ const initialForm = {
   website: '',
   website2: '',
   industry: '',
+  batteryModels: [] as string[],
   scale: '',
   source: '',
   status: 'POTENTIAL' as CustomerStatus,
@@ -127,12 +128,25 @@ export default function CustomersPage() {
       toast.error('请输入公司名称');
       return;
     }
+    // 把还没按 Enter 提交的电池型号文本也吞进去
+    let payload = form;
+    if (batteryInput.trim()) {
+      const extras = batteryInput
+        .split(/[,，\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const merged = Array.from(new Set([...form.batteryModels, ...extras]));
+      payload = { ...form, batteryModels: merged };
+      setForm(payload);
+      setBatteryInput('');
+    }
     setSubmitting(true);
     try {
-      await customersApi.create(form);
+      await customersApi.create(payload);
       toast.success('客户创建成功');
       setModalOpen(false);
       setForm(initialForm);
+      setBatteryInput('');
       void refresh();
     } catch {
       // error handled by interceptor
@@ -158,6 +172,28 @@ export default function CustomersPage() {
 
   const updateField = (field: string, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  // 电池型号 chip 输入：按 Enter / 逗号 / 中文逗号提交，支持粘贴一段以分隔符分割的清单
+  const [batteryInput, setBatteryInput] = useState('');
+  const commitBatteryInput = (raw: string) => {
+    const parts = raw
+      .split(/[,，\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    setForm((prev) => {
+      const set = new Set(prev.batteryModels);
+      for (const p of parts) set.add(p);
+      return { ...prev, batteryModels: Array.from(set) };
+    });
+    setBatteryInput('');
+  };
+  const removeBatteryModel = (model: string) => {
+    setForm((prev) => ({
+      ...prev,
+      batteryModels: prev.batteryModels.filter((m) => m !== model),
+    }));
   };
 
   return (
@@ -396,6 +432,45 @@ export default function CustomersPage() {
                   <option key={ind} value={ind}>{ind}</option>
                 ))}
               </select>
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                电池型号 <span className="text-xs font-normal text-gray-400">（回车 / 逗号添加，多个）</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-300 px-2 py-1.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+                {form.batteryModels.map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                  >
+                    {m}
+                    <button
+                      type="button"
+                      onClick={() => removeBatteryModel(m)}
+                      className="text-blue-400 hover:text-blue-600"
+                      aria-label={`移除 ${m}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  value={batteryInput}
+                  onChange={(e) => setBatteryInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+                      e.preventDefault();
+                      commitBatteryInput(batteryInput);
+                    } else if (e.key === 'Backspace' && !batteryInput && form.batteryModels.length > 0) {
+                      removeBatteryModel(form.batteryModels[form.batteryModels.length - 1]);
+                    }
+                  }}
+                  onBlur={() => batteryInput && commitBatteryInput(batteryInput)}
+                  placeholder={form.batteryModels.length === 0 ? '例如：18650-2600mAh' : ''}
+                  className="flex-1 min-w-[120px] border-0 bg-transparent px-1 py-1 text-sm focus:outline-none focus:ring-0"
+                />
+              </div>
             </div>
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">地址</label>

@@ -97,6 +97,27 @@ export default function CustomerDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Partial<Customer>>({});
   const [saving, setSaving] = useState(false);
+  // 电池型号 chip 输入暂存（与 page.tsx 行为保持一致）
+  const [editBatteryInput, setEditBatteryInput] = useState('');
+  const commitEditBatteryInput = (raw: string) => {
+    const parts = raw
+      .split(/[,，\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+    setEditForm((prev) => {
+      const set = new Set(prev.batteryModels ?? []);
+      for (const p of parts) set.add(p);
+      return { ...prev, batteryModels: Array.from(set) };
+    });
+    setEditBatteryInput('');
+  };
+  const removeEditBatteryModel = (model: string) => {
+    setEditForm((prev) => ({
+      ...prev,
+      batteryModels: (prev.batteryModels ?? []).filter((m) => m !== model),
+    }));
+  };
 
   // Contacts
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -224,19 +245,35 @@ export default function CustomerDetailPage() {
       website: customer.website || '',
       website2: customer.website2 || '',
       industry: customer.industry || '',
+      batteryModels: customer.batteryModels ?? [],
       scale: customer.scale || '',
       source: customer.source || '',
       status: customer.status,
       remark: customer.remark || '',
     });
+    setEditBatteryInput('');
     setEditOpen(true);
   };
 
   const handleUpdateCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
+    // 把还没按 Enter 提交的电池型号文本吞进去
+    let payload = editForm;
+    if (editBatteryInput.trim()) {
+      const extras = editBatteryInput
+        .split(/[,，\n]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const merged = Array.from(
+        new Set([...(editForm.batteryModels ?? []), ...extras]),
+      );
+      payload = { ...editForm, batteryModels: merged };
+      setEditForm(payload);
+      setEditBatteryInput('');
+    }
     setSaving(true);
     try {
-      await customersApi.update(customerId, editForm);
+      await customersApi.update(customerId, payload);
       toast.success('客户信息已更新');
       setEditOpen(false);
       fetchCustomer();
@@ -465,6 +502,25 @@ export default function CustomerDetailPage() {
               <InfoField label="网站 1" value={customer.website} isLink />
               {customer.website2 && <InfoField label="网站 2" value={customer.website2} isLink />}
               <InfoField label="行业" value={customer.industry} />
+              <div>
+                <dt className="text-sm font-medium text-gray-500">电池型号</dt>
+                <dd className="mt-1">
+                  {customer.batteryModels && customer.batteryModels.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {customer.batteryModels.map((m) => (
+                        <span
+                          key={m}
+                          className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                        >
+                          {m}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-sm text-gray-400">-</span>
+                  )}
+                </dd>
+              </div>
               <InfoField label="规模" value={customer.scale} />
               <InfoField label="来源" value={customer.source} />
               <InfoField
@@ -988,6 +1044,46 @@ export default function CustomerDetailPage() {
                   <option key={ind} value={ind}>{ind}</option>
                 ))}
               </select>
+            </div>
+            <div className="col-span-2">
+              <label className="mb-1 block text-sm font-medium text-gray-700">
+                电池型号 <span className="text-xs font-normal text-gray-400">（回车 / 逗号添加，多个）</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-gray-300 px-2 py-1.5 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500">
+                {(editForm.batteryModels ?? []).map((m) => (
+                  <span
+                    key={m}
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-700"
+                  >
+                    {m}
+                    <button
+                      type="button"
+                      onClick={() => removeEditBatteryModel(m)}
+                      className="text-blue-400 hover:text-blue-600"
+                      aria-label={`移除 ${m}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+                <input
+                  type="text"
+                  value={editBatteryInput}
+                  onChange={(e) => setEditBatteryInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    const list = editForm.batteryModels ?? [];
+                    if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+                      e.preventDefault();
+                      commitEditBatteryInput(editBatteryInput);
+                    } else if (e.key === 'Backspace' && !editBatteryInput && list.length > 0) {
+                      removeEditBatteryModel(list[list.length - 1]);
+                    }
+                  }}
+                  onBlur={() => editBatteryInput && commitEditBatteryInput(editBatteryInput)}
+                  placeholder={(editForm.batteryModels ?? []).length === 0 ? '例如：18650-2600mAh' : ''}
+                  className="flex-1 min-w-[120px] border-0 bg-transparent px-1 py-1 text-sm focus:outline-none focus:ring-0"
+                />
+              </div>
             </div>
             <div className="col-span-2">
               <label className="mb-1 block text-sm font-medium text-gray-700">地址</label>

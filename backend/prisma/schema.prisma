@@ -188,6 +188,10 @@ model Customer {
   website     String?
   website2    String?        @map("website2")
   industry    String?
+  // 客户绑定的电池型号清单。一个客户可绑定多个型号，由销售在客户详情里
+  // 自由维护。用 String[] 而不是单独建关联表：型号只是一段文字标识，
+  // 没有跨客户共享 / 进一步关联的需求；后续若要做"型号库"再升级。
+  batteryModels String[]      @default([]) @map("battery_models")
   scale       String?
   source      String?
   status      CustomerStatus @default(POTENTIAL)
