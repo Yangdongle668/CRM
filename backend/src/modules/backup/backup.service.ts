@@ -146,6 +146,8 @@ export class BackupService {
         website: r.website || '',
         website2: r.website2 || '',
         industry: r.industry || '',
+        // 电池型号是字符串数组，导出时用 | 分隔成一格 CSV；导入端按相同分隔符还原
+        batteryModels: ((r as any).batteryModels || []).join('|'),
         scale: r.scale || '',
         source: r.source || '',
         status: r.status,
@@ -708,6 +710,10 @@ export class BackupService {
               website: c.website || null,
               website2: c.website2 || null,
               industry: c.industry || null,
+              batteryModels: (c.batteryModels || '')
+                .split('|')
+                .map((s: string) => s.trim())
+                .filter(Boolean),
               scale: c.scale || null,
               source: c.source || null,
               status: (c.status || 'POTENTIAL') as any,

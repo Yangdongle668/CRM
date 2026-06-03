@@ -54,6 +54,7 @@ export interface Customer {
   website?: string;
   website2?: string;
   industry?: string;
+  batteryModels?: string[];
   scale?: string;
   source?: string;
   status: CustomerStatus;

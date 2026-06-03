@@ -36,6 +36,22 @@ function industryToLetter(industry?: string | null): string {
   return INDUSTRY_LETTER_MAP[industry] || 'Z';
 }
 
+// 清洗电池型号数组：去首尾空白、丢空串、保留首次出现去重（保留用户录入顺序）。
+function normalizeBatteryModels(input: unknown): string[] | undefined {
+  if (input === undefined) return undefined;
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of input) {
+    if (typeof raw !== 'string') continue;
+    const trimmed = raw.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 @Injectable()
 export class CustomersService implements OnModuleInit {
   private readonly logger = new Logger(CustomersService.name);
@@ -244,12 +260,14 @@ export class CustomersService implements OnModuleInit {
 
   async create(dto: CreateCustomerDto, userId: string) {
     const letter = industryToLetter(dto.industry);
+    const batteryModels = normalizeBatteryModels(dto.batteryModels) ?? [];
 
     const customer = await this.prisma.$transaction(async (tx) => {
       const customerCode = await this.allocateCustomerCode(letter, tx);
       return tx.customer.create({
         data: {
           ...dto,
+          batteryModels,
           ownerId: userId,
           customerCode,
         },
@@ -298,8 +316,13 @@ export class CustomersService implements OnModuleInit {
     const shouldReissueCode =
       newLetter !== null && newLetter !== currentLetter;
 
+    const normalizedBatteryModels = normalizeBatteryModels(dto.batteryModels);
+
     const updated = await this.prisma.$transaction(async (tx) => {
       const updateData: any = { ...dto };
+      if (normalizedBatteryModels !== undefined) {
+        updateData.batteryModels = normalizedBatteryModels;
+      }
       if (shouldReissueCode) {
         updateData.customerCode = await this.allocateCustomerCode(newLetter!, tx);
       } else if (!customer.customerCode) {
