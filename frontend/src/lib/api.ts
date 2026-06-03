@@ -77,6 +77,12 @@ export const customersApi = {
   /** "好久没联系"的客户 —— 给仪表盘温度组件用 */
   dormant: (params?: { days?: number; limit?: number }) =>
     api.get('/customers/dormant', { params }),
+  /** 客户档案表 xlsx 导出。status 留空 = 全部 */
+  exportXlsx: (status?: 'ALL' | 'POTENTIAL' | 'ACTIVE' | 'INACTIVE' | 'BLACKLISTED') =>
+    api.get('/customers/export/xlsx', {
+      params: status ? { status } : undefined,
+      responseType: 'blob',
+    }),
 };
 
 // ==================== Contacts API ====================

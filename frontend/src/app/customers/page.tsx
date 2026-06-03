@@ -77,6 +77,13 @@ export default function CustomersPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
 
+  // 导出"客户档案表" —— 用户先选状态再下载，避免误导出全表
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportStatus, setExportStatus] = useState<
+    'POTENTIAL' | 'ACTIVE' | 'INACTIVE' | 'BLACKLISTED' | 'ALL'
+  >('POTENTIAL');
+  const [exporting, setExporting] = useState(false);
+
   const fetchPage = useCallback(
     async (page: number, pageSize: number) => {
       const params: Record<string, any> = { page, pageSize };
@@ -196,18 +203,61 @@ export default function CustomersPage() {
     }));
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const res: any = await customersApi.exportXlsx(exportStatus);
+      const blob =
+        res instanceof Blob
+          ? res
+          : new Blob([res], {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+      const labelMap: Record<typeof exportStatus, string> = {
+        ALL: '全部客户',
+        POTENTIAL: '潜在客户',
+        ACTIVE: '活跃客户',
+        INACTIVE: '不活跃客户',
+        BLACKLISTED: '黑名单',
+      };
+      const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `客户档案表-${labelMap[exportStatus]}-${ymd}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('客户档案表已导出');
+      setExportOpen(false);
+    } catch {
+      toast.error('导出失败，请重试');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <AppLayout>
       <div className="space-y-4 sm:space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-xl sm:text-2xl font-bold text-gray-900">客户管理</h1>
-          <button
-            onClick={() => setModalOpen(true)}
-            className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          >
-            新建客户
-          </button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <button
+              onClick={() => setExportOpen(true)}
+              className="flex-1 sm:flex-none rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              导出
+            </button>
+            <button
+              onClick={() => setModalOpen(true)}
+              className="flex-1 sm:flex-none rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              新建客户
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -576,6 +626,73 @@ export default function CustomersPage() {
         confirmText="删除"
         loading={deleting}
       />
+
+      {/* Export "客户档案表" */}
+      <Modal
+        open={exportOpen}
+        onClose={() => !exporting && setExportOpen(false)}
+        title="导出客户档案表"
+        maxWidth="md"
+        dismissible={!exporting}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            选择要导出的客户范围，将按"客户档案表"模板（LD-SM-FM-001/A0）生成 .xlsx 文件。
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { v: 'POTENTIAL', label: '潜在客户' },
+              { v: 'ACTIVE', label: '活跃客户' },
+              { v: 'INACTIVE', label: '不活跃客户' },
+              { v: 'BLACKLISTED', label: '黑名单' },
+              { v: 'ALL', label: '全部客户' },
+            ].map((opt) => {
+              const selected = exportStatus === (opt.v as typeof exportStatus);
+              return (
+                <label
+                  key={opt.v}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                    selected
+                      ? 'border-blue-600 bg-blue-50 text-blue-700'
+                      : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="exportStatus"
+                    value={opt.v}
+                    checked={selected}
+                    onChange={() => setExportStatus(opt.v as typeof exportStatus)}
+                    className="h-4 w-4 text-blue-600"
+                  />
+                  {opt.label}
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-xs text-gray-400">
+            财务状况（付款方式 / 信用额度）与其他信息列将留空，由业务员线下填写。
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => setExportOpen(false)}
+              disabled={exporting}
+              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={exporting}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {exporting ? '导出中...' : '导出'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </AppLayout>
   );
 }

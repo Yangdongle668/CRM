@@ -8,10 +8,16 @@ import {
   Param,
   Query,
   Req,
+  Res,
   UseGuards,
+  BadRequestException,
 } from '@nestjs/common';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 import { CustomersService } from './customers.service';
+import {
+  CustomersExportService,
+  CUSTOMER_STATUS_LABELS,
+} from './customers.export.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { QueryCustomerDto } from './dto/query-customer.dto';
@@ -20,12 +26,14 @@ import { PermissionsGuard } from '../../common/permissions/permissions.guard';
 import { RequirePermissions } from '../../common/permissions/require-permissions.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuditService } from '../audit/audit.service';
+import { CustomerStatus, Prisma } from '@prisma/client';
 
 @Controller('customers')
 @UseGuards(JwtAuthGuard)
 export class CustomersController {
   constructor(
     private readonly customersService: CustomersService,
+    private readonly exportService: CustomersExportService,
     private readonly auditService: AuditService,
   ) {}
 
@@ -55,6 +63,45 @@ export class CustomersController {
       Number.isFinite(d) && d > 0 ? d : 30,
       Number.isFinite(l) && l > 0 ? l : 20,
     );
+  }
+
+  /**
+   * 客户档案表 xlsx 导出 —— 严格按线下模板布局 (LD-SM-FM-001/A0)。
+   * `status` 可选 ALL / POTENTIAL / ACTIVE / INACTIVE / BLACKLISTED；
+   * SALESPERSON 始终只能导出自己名下的客户。
+   * 静态路由必须声明在 :id 前面，避免被当成 id 捕获。
+   */
+  @Get('export/xlsx')
+  async exportXlsx(
+    @Query('status') status: string | undefined,
+    @CurrentUser() user: { id: string; role: string },
+    @Res() res: Response,
+    @Req() req: Request,
+  ) {
+    const normalizedStatus = (status || 'ALL').toUpperCase();
+    const validStatuses = ['ALL', 'POTENTIAL', 'ACTIVE', 'INACTIVE', 'BLACKLISTED'];
+    if (!validStatuses.includes(normalizedStatus)) {
+      throw new BadRequestException(`Invalid status: ${status}`);
+    }
+
+    const where: Prisma.CustomerWhereInput = {};
+    if (user.role === 'SALESPERSON') where.ownerId = user.id;
+    if (normalizedStatus !== 'ALL') {
+      where.status = normalizedStatus as CustomerStatus;
+    }
+
+    const statusLabel =
+      CUSTOMER_STATUS_LABELS[normalizedStatus as keyof typeof CUSTOMER_STATUS_LABELS] ||
+      '客户';
+
+    await this.auditService.logFromRequest(req, {
+      action: 'customer.export',
+      targetType: 'customer',
+      targetLabel: statusLabel,
+      metadata: { status: normalizedStatus, format: 'xlsx' },
+    });
+
+    await this.exportService.streamArchiveXlsx(res, where, statusLabel);
   }
 
   @Get(':id')
