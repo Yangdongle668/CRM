@@ -139,6 +139,7 @@ export class BackupService {
         }),
       map: (r) => ({
         id: r.id,
+        customerCode: (r as any).customerCode || '',
         companyName: r.companyName,
         country: r.country || '',
         address: r.address || '',
@@ -700,6 +701,7 @@ export class BackupService {
           await tx.customer.create({
             data: {
               id: c.id,
+              customerCode: c.customerCode || null,
               companyName: c.companyName,
               country: c.country || null,
               address: c.address || null,

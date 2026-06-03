@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   ForbiddenException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
@@ -10,11 +11,106 @@ import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { QueryCustomerDto } from './dto/query-customer.dto';
 import { Prisma } from '@prisma/client';
 
+// 行业 → 客户代码字母 的映射表。新增行业请同步前端 INDUSTRIES。
+// 前端只展示中文标签，字母仅用于后端生成 LD-X-0001 形式的客户代码。
+const INDUSTRY_LETTER_MAP: Record<string, string> = {
+  智能医疗: 'A',
+  智能穿戴: 'B',
+  消费电子: 'C',
+  低空设备: 'D',
+  物联网: 'E',
+  医疗器械: 'F',
+  电子产品: 'G',
+  机械设备: 'H',
+  汽车配件: 'I',
+  纺织服装: 'J',
+  化工材料: 'K',
+  家居用品: 'L',
+  食品饮料: 'M',
+  建筑材料: 'N',
+  其他: 'Z',
+};
+
+function industryToLetter(industry?: string | null): string {
+  if (!industry) return 'Z';
+  return INDUSTRY_LETTER_MAP[industry] || 'Z';
+}
+
 @Injectable()
-export class CustomersService {
+export class CustomersService implements OnModuleInit {
   private readonly logger = new Logger(CustomersService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  async onModuleInit() {
+    // 应用启动时回填历史客户的 customerCode。幂等：只处理 customerCode IS NULL 的行。
+    try {
+      await this.backfillCustomerCodes();
+    } catch (err: any) {
+      this.logger.error(
+        `Failed to backfill customer codes on startup: ${err?.message || err}`,
+      );
+    }
+  }
+
+  /**
+   * 原子地为给定字母分配下一个流水号并返回完整客户代码 LD-{letter}-{0000}。
+   *
+   * 使用 upsert + increment 保证并发安全：
+   * - 计数器行已存在：nextSeq += 1，本次分配 = (新 nextSeq) - 1；
+   * - 行不存在：以 nextSeq=2 创建（因为本次分配会消耗 1），本次分配 = 1。
+   *
+   * 必须在事务中调用，否则计数器递增了但客户创建失败会导致永久跳号。
+   */
+  private async allocateCustomerCode(
+    letter: string,
+    tx: Prisma.TransactionClient,
+  ): Promise<string> {
+    const row = await tx.customerCodeSequence.upsert({
+      where: { letter },
+      update: { nextSeq: { increment: 1 } },
+      create: { letter, nextSeq: 2 },
+    });
+    // upsert 返回操作后的 row。create 分支 nextSeq=2，update 分支 nextSeq 是
+    // 自增后的新值；两种情况下本次客户应使用的流水号都是 nextSeq - 1。
+    const seq = row.nextSeq - 1;
+    return `LD-${letter}-${String(seq).padStart(4, '0')}`;
+  }
+
+  /**
+   * 回填历史客户的 customerCode。按 createdAt 升序分配，保证旧客户拿到
+   * 更小的流水号；同一字母内顺序与建档先后一致。
+   */
+  async backfillCustomerCodes() {
+    const pending = await this.prisma.customer.findMany({
+      where: { customerCode: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, industry: true },
+    });
+
+    if (pending.length === 0) return;
+
+    this.logger.log(`Backfilling customer codes for ${pending.length} customers...`);
+
+    for (const c of pending) {
+      const letter = industryToLetter(c.industry);
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const code = await this.allocateCustomerCode(letter, tx);
+          await tx.customer.update({
+            where: { id: c.id },
+            data: { customerCode: code },
+          });
+        });
+      } catch (err: any) {
+        this.logger.error(
+          `Failed to backfill code for customer ${c.id}: ${err?.message || err}`,
+        );
+      }
+    }
+
+    this.logger.log('Customer code backfill complete.');
+  }
 
   async findAll(query: QueryCustomerDto, userId: string, role: string) {
     const { page = 1, pageSize = 20, search, status, country } = query;
@@ -147,14 +243,20 @@ export class CustomersService {
   }
 
   async create(dto: CreateCustomerDto, userId: string) {
-    const customer = await this.prisma.customer.create({
-      data: {
-        ...dto,
-        ownerId: userId,
-      },
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-      },
+    const letter = industryToLetter(dto.industry);
+
+    const customer = await this.prisma.$transaction(async (tx) => {
+      const customerCode = await this.allocateCustomerCode(letter, tx);
+      return tx.customer.create({
+        data: {
+          ...dto,
+          ownerId: userId,
+          customerCode,
+        },
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+        },
+      });
     });
 
     // Retroactively link existing emails by domain (both websites)
@@ -187,12 +289,33 @@ export class CustomersService {
       );
     }
 
-    const updated = await this.prisma.customer.update({
-      where: { id },
-      data: dto,
-      include: {
-        owner: { select: { id: true, name: true, email: true } },
-      },
+    // 行业变更 → 客户代码的字母段也要更新，但流水号会用新字母的下一个号
+    // （而不是复用旧字母的旧号），以保持每字母段内的单调递增 & 不重复。
+    // 现有代码的字母段不动，只在 letter 真的发生变化时才重新分配。
+    const newLetter =
+      dto.industry !== undefined ? industryToLetter(dto.industry) : null;
+    const currentLetter = customer.customerCode?.split('-')[1] || null;
+    const shouldReissueCode =
+      newLetter !== null && newLetter !== currentLetter;
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updateData: any = { ...dto };
+      if (shouldReissueCode) {
+        updateData.customerCode = await this.allocateCustomerCode(newLetter!, tx);
+      } else if (!customer.customerCode) {
+        // 兜底：历史客户没有代码（backfill 还没跑到）且本次没改行业，借机补一个。
+        const letter = industryToLetter(
+          dto.industry !== undefined ? dto.industry : customer.industry,
+        );
+        updateData.customerCode = await this.allocateCustomerCode(letter, tx);
+      }
+      return tx.customer.update({
+        where: { id },
+        data: updateData,
+        include: {
+          owner: { select: { id: true, name: true, email: true } },
+        },
+      });
     });
 
     // If either website changed, retroactively link emails by the new domain

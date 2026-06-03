@@ -409,7 +409,14 @@ export default function CustomerDetailPage() {
             >
               &larr; 返回
             </button>
-            <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">{customer.companyName}</h1>
+            <div className="min-w-0 flex flex-col sm:flex-row sm:items-center sm:gap-3">
+              <h1 className="text-lg sm:text-2xl font-bold text-gray-900 truncate">{customer.companyName}</h1>
+              {customer.customerCode && (
+                <span className="text-xs sm:text-sm font-mono text-gray-500 truncate">
+                  {customer.customerCode}
+                </span>
+              )}
+            </div>
             <Badge className={statusInfo?.color || ''}>
               {statusInfo?.label || customer.status}
             </Badge>
@@ -446,6 +453,7 @@ export default function CustomerDetailPage() {
           {/* Basic Info Tab */}
           {activeTab === 'info' && (
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+              <InfoField label="客户代码" value={customer.customerCode} />
               <InfoField label="公司名称" value={customer.companyName} />
               <InfoField label="国家" value={customer.country} />
               <div>
