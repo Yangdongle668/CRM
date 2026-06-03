@@ -47,6 +47,7 @@ export type CustomerStatus = 'POTENTIAL' | 'ACTIVE' | 'INACTIVE' | 'BLACKLISTED'
 
 export interface Customer {
   id: string;
+  customerCode?: string;
   companyName: string;
   country?: string;
   address?: string;

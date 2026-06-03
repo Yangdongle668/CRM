@@ -176,6 +176,12 @@ enum CustomerStatus {
 
 model Customer {
   id          String         @id @default(uuid())
+  // 自动生成的客户代码，格式 LD-{字母}-{4位流水号}，例如 LD-A-0001。
+  // 字母代表行业分类（A=智能医疗 / B=智能穿戴 ...），流水号在同一字母下
+  // 单调递增。客户被删除后流水号不重用（由 CustomerCodeSequence 计数器
+  // 保证）。设为可空 + 唯一：可空兼容历史数据 backfill 期间的空值，唯一
+  // 防止并发写入产生重复代码。
+  customerCode String?       @unique @map("customer_code")
   companyName String         @map("company_name")
   country     String?
   address     String?
@@ -202,6 +208,20 @@ model Customer {
   proformaInvoices   ProformaInvoice[]
 
   @@map("customers")
+}
+
+// ==================== 客户代码流水号计数器 ====================
+// 每个行业字母维护一个独立计数器：nextSeq 是"下一个要分配的流水号"。
+// 客户建档时原子地 increment 并取用上一次的值，从而保证：
+//   - 同字母下流水号严格递增、不重复；
+//   - 删除客户后流水号不会被复用（计数器只增不减）；
+//   - 不同字母互不影响（智能医疗有 LD-A-0001，智能穿戴也可有 LD-B-0001）。
+model CustomerCodeSequence {
+  letter    String   @id        // A~Z 单个字母
+  nextSeq   Int      @default(1) @map("next_seq")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("customer_code_sequences")
 }
 
 // ==================== 联系人 ====================
