@@ -424,6 +424,7 @@ export const CUSTOMER_SOURCES = [
 // backend/src/modules/customers/customers.service.ts:INDUSTRY_LETTER_MAP。
 // 这里的标签必须与后端 map 的 key 完全一致，否则会落到 "其他 → Z"。
 // 字母仅用于代码生成，不在前端展示。
+// 客户代码只在 status=ACTIVE 时分配；POTENTIAL/INACTIVE/BLACKLISTED 没有代码。
 export const INDUSTRIES = [
   '智能医疗',
   '智能穿戴',
@@ -439,5 +440,6 @@ export const INDUSTRIES = [
   '家居用品',
   '食品饮料',
   '建筑材料',
+  '枪械运动',
   '其他',
 ];

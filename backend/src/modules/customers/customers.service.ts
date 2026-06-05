@@ -28,6 +28,7 @@ const INDUSTRY_LETTER_MAP: Record<string, string> = {
   家居用品: 'L',
   食品饮料: 'M',
   建筑材料: 'N',
+  枪械运动: 'O',
   其他: 'Z',
 };
 
@@ -94,19 +95,20 @@ export class CustomersService implements OnModuleInit {
   }
 
   /**
-   * 回填历史客户的 customerCode。按 createdAt 升序分配，保证旧客户拿到
-   * 更小的流水号；同一字母内顺序与建档先后一致。
+   * 回填历史客户的 customerCode：只发给 ACTIVE 客户，按 createdAt 升序，
+   * 保证旧客户拿到更小的流水号；同一字母段内顺序与建档先后一致。
+   * 非 ACTIVE 状态不回填，等他们被推进到 ACTIVE 时由 update() 现场发号。
    */
   async backfillCustomerCodes() {
     const pending = await this.prisma.customer.findMany({
-      where: { customerCode: null },
+      where: { customerCode: null, status: 'ACTIVE' },
       orderBy: { createdAt: 'asc' },
       select: { id: true, industry: true },
     });
 
     if (pending.length === 0) return;
 
-    this.logger.log(`Backfilling customer codes for ${pending.length} customers...`);
+    this.logger.log(`Backfilling customer codes for ${pending.length} ACTIVE customers...`);
 
     for (const c of pending) {
       const letter = industryToLetter(c.industry);
@@ -259,11 +261,17 @@ export class CustomersService implements OnModuleInit {
   }
 
   async create(dto: CreateCustomerDto, userId: string) {
-    const letter = industryToLetter(dto.industry);
     const batteryModels = normalizeBatteryModels(dto.batteryModels) ?? [];
+    // 仅当新建即为活跃客户时才分配代码；POTENTIAL/INACTIVE/BLACKLISTED 不分配。
+    // 之后客户被推进到 ACTIVE 时由 update() 补发。
+    const willBeActive = (dto.status ?? 'POTENTIAL') === 'ACTIVE';
 
     const customer = await this.prisma.$transaction(async (tx) => {
-      const customerCode = await this.allocateCustomerCode(letter, tx);
+      let customerCode: string | undefined;
+      if (willBeActive) {
+        const letter = industryToLetter(dto.industry);
+        customerCode = await this.allocateCustomerCode(letter, tx);
+      }
       return tx.customer.create({
         data: {
           ...dto,
@@ -307,14 +315,19 @@ export class CustomersService implements OnModuleInit {
       );
     }
 
-    // 行业变更 → 客户代码的字母段也要更新，但流水号会用新字母的下一个号
-    // （而不是复用旧字母的旧号），以保持每字母段内的单调递增 & 不重复。
-    // 现有代码的字母段不动，只在 letter 真的发生变化时才重新分配。
-    const newLetter =
-      dto.industry !== undefined ? industryToLetter(dto.industry) : null;
+    // 客户代码只在 ACTIVE 状态下维护：
+    //   - 升级到 ACTIVE 且尚无代码 → 首次分配
+    //   - 已是 ACTIVE 且行业改变（字母不同）→ 重新分配，旧号永久跳过
+    //   - 非 ACTIVE 状态 → 完全不动代码（保留历史记录，"不合作客户代码保留"）
+    // 计算"更新后"的状态 & 字母，决定是否要发号
+    const newStatus = dto.status !== undefined ? dto.status : customer.status;
+    const newIndustry =
+      dto.industry !== undefined ? dto.industry : customer.industry;
+    const newLetter = industryToLetter(newIndustry);
     const currentLetter = customer.customerCode?.split('-')[1] || null;
-    const shouldReissueCode =
-      newLetter !== null && newLetter !== currentLetter;
+    const shouldAllocateCode =
+      newStatus === 'ACTIVE' &&
+      (!customer.customerCode || newLetter !== currentLetter);
 
     const normalizedBatteryModels = normalizeBatteryModels(dto.batteryModels);
 
@@ -323,14 +336,8 @@ export class CustomersService implements OnModuleInit {
       if (normalizedBatteryModels !== undefined) {
         updateData.batteryModels = normalizedBatteryModels;
       }
-      if (shouldReissueCode) {
-        updateData.customerCode = await this.allocateCustomerCode(newLetter!, tx);
-      } else if (!customer.customerCode) {
-        // 兜底：历史客户没有代码（backfill 还没跑到）且本次没改行业，借机补一个。
-        const letter = industryToLetter(
-          dto.industry !== undefined ? dto.industry : customer.industry,
-        );
-        updateData.customerCode = await this.allocateCustomerCode(letter, tx);
+      if (shouldAllocateCode) {
+        updateData.customerCode = await this.allocateCustomerCode(newLetter, tx);
       }
       return tx.customer.update({
         where: { id },
