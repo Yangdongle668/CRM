@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
@@ -130,6 +131,18 @@ export default function MemosPage() {
   useEffect(() => {
     fetchPinned();
   }, [fetchPinned]);
+
+  // 仪表盘"客户跟进" widget 点开某条跟进时，会带 ?followUp=<id> 跳过来 —
+  // 这里读 query 参数自动打开对应时间线弹窗，然后清掉 URL 参数避免回访时再次弹出
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  useEffect(() => {
+    const targetId = searchParams.get('followUp');
+    if (targetId) {
+      setTimelineMemoId(targetId);
+      router.replace('/memos');
+    }
+  }, [searchParams, router]);
 
   // 时间线弹窗：始终读取最新的 pinnedMemos 里那一条，保证添加/删除条目后实时反映
   const timelineMemo = useMemo(

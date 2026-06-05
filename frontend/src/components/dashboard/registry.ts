@@ -2,6 +2,7 @@ import { StatsWidget } from './widgets/StatsWidget';
 import { SalesTrendWidget } from './widgets/SalesTrendWidget';
 import { FunnelWidget } from './widgets/FunnelWidget';
 import { MemosWidget } from './widgets/MemosWidget';
+import { FollowUpMemosWidget } from './widgets/FollowUpMemosWidget';
 import { MyFollowUpsWidget } from './widgets/MyFollowUpsWidget';
 import { TeamFollowUpsWidget } from './widgets/TeamFollowUpsWidget';
 import { RankingsWidget } from './widgets/RankingsWidget';
@@ -50,6 +51,16 @@ export const WIDGET_REGISTRY: WidgetDef[] = [
     defaultH: 3,
     minW: 4,
     minH: 2,
+  },
+  {
+    id: 'followup-memos',
+    title: '客户跟进',
+    component: FollowUpMemosWidget,
+    defaultW: 6,
+    defaultH: 4,
+    minW: 3,
+    minH: 3,
+    financeHidden: true,
   },
   {
     id: 'my-followups',
@@ -161,6 +172,7 @@ export const DEFAULT_LAYOUT_ADMIN: SavedLayout = buildLayout([
   'trend',
   'funnel',
   'memos',
+  'followup-memos',
   'my-followups',
   'team-followups',
   'holiday-countdown',
@@ -176,6 +188,7 @@ export const DEFAULT_LAYOUT_SALESPERSON: SavedLayout = buildLayout([
   'trend',
   'funnel',
   'memos',
+  'followup-memos',
   'my-followups',
   'dormant-customers',
   'holiday-countdown',
