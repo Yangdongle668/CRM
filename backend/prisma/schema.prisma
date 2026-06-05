@@ -909,19 +909,46 @@ model Document {
 }
 
 // ==================== 备忘录 ====================
+// Memo 有两种使用方式：
+//   1) "今日备忘"：pinned=false，按 date 落到日历的某一天，calendar 视图里展示
+//   2) "跟进备忘"：pinned=true，常驻显示在跟进面板，与日历日期无关；
+//      用 MemoTimelineEntry 记录每次联系（"几号联系了，说了什么"），
+//      pinnedStatus 跟踪跟进是否结束（ACTIVE / DONE）
 model Memo {
   id        String   @id @default(uuid())
   title     String
   content   String?
   color     String?  @default("#ffffff")
   date      DateTime @default(now())
+  // 常驻跟进开关：true 时进入"跟进备忘"清单，不再绑定日历某天
+  pinned    Boolean  @default(false)
+  // 仅 pinned=true 有意义。ACTIVE = 还在跟进；DONE = 已结案但保留历史
+  pinnedStatus String? @default("ACTIVE") @map("pinned_status")
   ownerId   String   @map("owner_id")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  owner User @relation(fields: [ownerId], references: [id])
+  owner    User                @relation(fields: [ownerId], references: [id])
+  timeline MemoTimelineEntry[]
 
+  @@index([ownerId, pinned])
   @@map("memos")
+}
+
+// 跟进时间线条目：销售每次联系客户后手动加一行，记录联系日期 + 简短说明。
+// "客户回复了报价单" / "已发样品" / "对方在出差，下周再约" 之类。
+// 删除 Memo 会级联删除全部 timeline，保持数据一致。
+model MemoTimelineEntry {
+  id          String   @id @default(uuid())
+  memoId      String   @map("memo_id")
+  contactedAt DateTime @map("contacted_at")
+  note        String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  memo Memo @relation(fields: [memoId], references: [id], onDelete: Cascade)
+
+  @@index([memoId, contactedAt])
+  @@map("memo_timeline_entries")
 }
 
 // ==================== 站内消息 ====================

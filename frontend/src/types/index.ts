@@ -374,12 +374,23 @@ export interface Document {
 }
 
 // ==================== 备忘录 ====================
+export interface MemoTimelineEntry {
+  id: string;
+  memoId: string;
+  contactedAt: string;
+  note: string;
+  createdAt: string;
+}
+
 export interface Memo {
   id: string;
   title: string;
   content?: string;
   color?: string;
   date: string;
+  pinned?: boolean;
+  pinnedStatus?: 'ACTIVE' | 'DONE' | null;
+  timeline?: MemoTimelineEntry[];
   ownerId: string;
   createdAt: string;
   updatedAt: string;

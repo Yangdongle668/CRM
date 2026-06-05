@@ -5,7 +5,7 @@ import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
 import { Modal } from '@/components/ui/Modal';
 import { memosApi } from '@/lib/api';
-import type { Memo } from '@/types';
+import type { Memo, MemoTimelineEntry } from '@/types';
 import { solar2lunar, getSolarTerm } from '@/lib/lunar';
 import { getHolidayMap, type ComputedHoliday } from '@/lib/holidays';
 import {
@@ -14,6 +14,9 @@ import {
   HiOutlinePencilSquare,
   HiOutlineChevronLeft,
   HiOutlineChevronRight,
+  HiOutlineBookmark,
+  HiOutlineCheckCircle,
+  HiOutlineClock,
 } from 'react-icons/hi2';
 
 const MEMO_COLORS = [
@@ -68,10 +71,25 @@ export default function MemosPage() {
   const [monthMemos, setMonthMemos] = useState<Memo[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // ===== 跟进备忘 (pinned) =====
+  const [pinnedMemos, setPinnedMemos] = useState<Memo[]>([]);
+  const [pinnedFilter, setPinnedFilter] = useState<'ACTIVE' | 'DONE' | 'ALL'>('ACTIVE');
+  const [pinnedLoading, setPinnedLoading] = useState(false);
+  // 时间线弹窗（点开某个跟进卡片时显示）
+  const [timelineMemoId, setTimelineMemoId] = useState<string | null>(null);
+  const [entryForm, setEntryForm] = useState({ contactedAt: formatDate(today), note: '' });
+  const [entrySubmitting, setEntrySubmitting] = useState(false);
+
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
   const [editingMemo, setEditingMemo] = useState<Memo | null>(null);
-  const [form, setForm] = useState({ title: '', content: '', color: '#ffffff', date: '' });
+  const [form, setForm] = useState({
+    title: '',
+    content: '',
+    color: '#ffffff',
+    date: '',
+    pinned: false,
+  });
   const [submitting, setSubmitting] = useState(false);
 
   const fetchMonthMemos = useCallback(async () => {
@@ -93,6 +111,31 @@ export default function MemosPage() {
   useEffect(() => {
     fetchMonthMemos();
   }, [fetchMonthMemos]);
+
+  const fetchPinned = useCallback(async () => {
+    setPinnedLoading(true);
+    try {
+      const res: any = await memosApi.pinned(
+        pinnedFilter === 'ALL' ? undefined : pinnedFilter,
+      );
+      const data = Array.isArray(res.data) ? res.data : Array.isArray(res) ? res : [];
+      setPinnedMemos(data);
+    } catch {
+      // handled by interceptor
+    } finally {
+      setPinnedLoading(false);
+    }
+  }, [pinnedFilter]);
+
+  useEffect(() => {
+    fetchPinned();
+  }, [fetchPinned]);
+
+  // 时间线弹窗：始终读取最新的 pinnedMemos 里那一条，保证添加/删除条目后实时反映
+  const timelineMemo = useMemo(
+    () => pinnedMemos.find((m) => m.id === timelineMemoId) ?? null,
+    [pinnedMemos, timelineMemoId],
+  );
 
   // Filter memos for selected date
   useEffect(() => {
@@ -141,9 +184,15 @@ export default function MemosPage() {
     setSelectedDate(formatDate(n));
   };
 
-  const openCreate = () => {
+  const openCreate = (defaults?: { pinned?: boolean }) => {
     setEditingMemo(null);
-    setForm({ title: '', content: '', color: '#ffffff', date: selectedDate });
+    setForm({
+      title: '',
+      content: '',
+      color: '#ffffff',
+      date: selectedDate,
+      pinned: defaults?.pinned ?? false,
+    });
     setModalOpen(true);
   };
 
@@ -154,6 +203,7 @@ export default function MemosPage() {
       content: memo.content || '',
       color: memo.color || '#ffffff',
       date: formatDate(new Date(memo.date)),
+      pinned: !!memo.pinned,
     });
     setModalOpen(true);
   };
@@ -171,10 +221,12 @@ export default function MemosPage() {
         toast.success('备忘录已更新');
       } else {
         await memosApi.create(form);
-        toast.success('备忘录已创建');
+        toast.success(form.pinned ? '跟进备忘已创建' : '备忘录已创建');
       }
       setModalOpen(false);
+      // 同时刷新两个 list — 用户可能在编辑时切换了 pinned 状态
       fetchMonthMemos();
+      fetchPinned();
     } catch {
       // handled by interceptor
     } finally {
@@ -188,6 +240,56 @@ export default function MemosPage() {
       await memosApi.delete(id);
       toast.success('已删除');
       fetchMonthMemos();
+      fetchPinned();
+      if (timelineMemoId === id) setTimelineMemoId(null);
+    } catch {
+      // handled by interceptor
+    }
+  };
+
+  // ===== 跟进备忘卡片 / 时间线 =====
+  const openTimeline = (memoId: string) => {
+    setTimelineMemoId(memoId);
+    setEntryForm({ contactedAt: formatDate(new Date()), note: '' });
+  };
+
+  const handleAddEntry = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!timelineMemoId) return;
+    if (!entryForm.note.trim()) {
+      toast.error('请输入跟进内容');
+      return;
+    }
+    setEntrySubmitting(true);
+    try {
+      await memosApi.addTimelineEntry(timelineMemoId, entryForm);
+      toast.success('已记录');
+      setEntryForm({ contactedAt: formatDate(new Date()), note: '' });
+      fetchPinned();
+    } catch {
+      // handled by interceptor
+    } finally {
+      setEntrySubmitting(false);
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    if (!confirm('删除这条跟进记录？')) return;
+    try {
+      await memosApi.deleteTimelineEntry(entryId);
+      toast.success('已删除');
+      fetchPinned();
+    } catch {
+      // handled by interceptor
+    }
+  };
+
+  const togglePinnedStatus = async (memo: Memo) => {
+    const next = memo.pinnedStatus === 'DONE' ? 'ACTIVE' : 'DONE';
+    try {
+      await memosApi.update(memo.id, { pinnedStatus: next });
+      toast.success(next === 'DONE' ? '已标记为完成' : '已恢复跟进');
+      fetchPinned();
     } catch {
       // handled by interceptor
     }
@@ -224,12 +326,168 @@ export default function MemosPage() {
             <p className="text-xs text-gray-500 mt-1">集成农历、节气与国内外节假日</p>
           </div>
           <button
-            onClick={openCreate}
+            onClick={() => openCreate()}
             className="flex items-center gap-2 rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-600 transition-colors"
           >
             <HiOutlinePlus className="h-4 w-4" />
             新建备忘
           </button>
+        </div>
+
+        {/* 跟进备忘 —— 常驻列表，不绑日历日期。
+            点开卡片可查看完整时间线 / 添加"几号联系了"记录 */}
+        <div className="bg-white rounded-2xl shadow-apple p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <HiOutlineBookmark className="h-5 w-5 text-amber-500" />
+              <h2 className="text-lg font-semibold text-gray-900">客户跟进</h2>
+              <span className="text-xs text-gray-400">
+                常驻显示，不会随日期消失
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="inline-flex rounded-lg bg-gray-100 p-0.5 text-xs">
+                {([
+                  { v: 'ACTIVE', label: '进行中' },
+                  { v: 'DONE', label: '已完成' },
+                  { v: 'ALL', label: '全部' },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.v}
+                    onClick={() => setPinnedFilter(opt.v)}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${
+                      pinnedFilter === opt.v
+                        ? 'bg-white shadow-sm text-gray-900 font-medium'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => openCreate({ pinned: true })}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <HiOutlinePlus className="h-3.5 w-3.5" />
+                新建跟进
+              </button>
+            </div>
+          </div>
+
+          {pinnedLoading && pinnedMemos.length === 0 ? (
+            <div className="flex h-24 items-center justify-center text-sm text-gray-400">
+              加载中...
+            </div>
+          ) : pinnedMemos.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-24 text-sm text-gray-400">
+              <p>{pinnedFilter === 'DONE' ? '暂无已完成的跟进' : '暂无客户跟进'}</p>
+              <button
+                onClick={() => openCreate({ pinned: true })}
+                className="mt-1.5 text-primary-500 hover:text-primary-600 text-xs"
+              >
+                添加第一条跟进
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {pinnedMemos.map((memo) => {
+                const lastEntry = memo.timeline?.[0];
+                const lastEntryDate = lastEntry
+                  ? new Date(lastEntry.contactedAt)
+                  : null;
+                const daysSince = lastEntryDate
+                  ? Math.floor(
+                      (Date.now() - lastEntryDate.getTime()) / 86400000,
+                    )
+                  : null;
+                const isDone = memo.pinnedStatus === 'DONE';
+                return (
+                  <button
+                    key={memo.id}
+                    type="button"
+                    onClick={() => openTimeline(memo.id)}
+                    className={`text-left rounded-xl border p-4 transition-all hover:shadow-sm ${
+                      isDone
+                        ? 'border-gray-200 bg-gray-50 opacity-75'
+                        : 'border-gray-200 bg-white hover:border-primary-300'
+                    }`}
+                    style={
+                      !isDone && memo.color && memo.color !== '#ffffff'
+                        ? { backgroundColor: memo.color }
+                        : undefined
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-semibold text-gray-900 truncate">
+                          {memo.title}
+                        </h3>
+                        {memo.content && (
+                          <p className="text-xs text-gray-500 line-clamp-1 mt-0.5">
+                            {memo.content}
+                          </p>
+                        )}
+                      </div>
+                      {isDone ? (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">
+                          <HiOutlineCheckCircle className="h-3 w-3" /> 已完成
+                        </span>
+                      ) : daysSince !== null ? (
+                        <span
+                          className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            daysSince <= 1
+                              ? 'bg-green-50 text-green-700'
+                              : daysSince <= 7
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-red-50 text-red-700'
+                          }`}
+                        >
+                          <HiOutlineClock className="h-3 w-3" />
+                          {daysSince === 0 ? '今天' : `${daysSince}天前`}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-gray-400">
+                          暂未跟进
+                        </span>
+                      )}
+                    </div>
+
+                    {/* 最近 3 条时间线预览 */}
+                    {memo.timeline && memo.timeline.length > 0 ? (
+                      <ul className="space-y-1 mt-2">
+                        {memo.timeline.slice(0, 3).map((e) => (
+                          <li
+                            key={e.id}
+                            className="flex items-start gap-2 text-xs text-gray-600"
+                          >
+                            <span className="font-mono text-gray-400 whitespace-nowrap">
+                              {new Date(e.contactedAt)
+                                .toLocaleDateString('zh-CN', {
+                                  month: '2-digit',
+                                  day: '2-digit',
+                                })
+                                .replace('/', '-')}
+                            </span>
+                            <span className="truncate">{e.note}</span>
+                          </li>
+                        ))}
+                        {memo.timeline.length > 3 && (
+                          <li className="text-[11px] text-gray-400 pl-1">
+                            还有 {memo.timeline.length - 3} 条…
+                          </li>
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 italic mt-2">
+                        点击添加首次跟进记录
+                      </p>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -415,7 +673,7 @@ export default function MemosPage() {
                   )}
                 </div>
                 <button
-                  onClick={openCreate}
+                  onClick={() => openCreate()}
                   className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 transition-colors"
                   aria-label="新建备忘"
                 >
@@ -454,7 +712,7 @@ export default function MemosPage() {
                 <div className="flex flex-col items-center justify-center h-32 text-gray-400 text-sm">
                   <p>暂无备忘录</p>
                   <button
-                    onClick={openCreate}
+                    onClick={() => openCreate()}
                     className="mt-2 text-primary-500 hover:text-primary-600 text-xs"
                   >
                     点击添加
@@ -503,7 +761,15 @@ export default function MemosPage() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={editingMemo ? '编辑备忘录' : '新建备忘录'}
+        title={
+          editingMemo
+            ? form.pinned
+              ? '编辑跟进备忘'
+              : '编辑备忘录'
+            : form.pinned
+            ? '新建跟进备忘'
+            : '新建备忘录'
+        }
         dismissible={false}
       >
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -514,28 +780,32 @@ export default function MemosPage() {
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-              placeholder="请输入标题"
+              placeholder={form.pinned ? '例如：ABC公司跟进' : '请输入标题'}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">内容</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {form.pinned ? '说明（可选）' : '内容'}
+            </label>
             <textarea
               value={form.content}
               onChange={(e) => setForm({ ...form, content: e.target.value })}
               rows={4}
               className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-              placeholder="请输入内容"
+              placeholder={form.pinned ? '一句话说明这个跟进是什么…' : '请输入内容'}
             />
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
-            <input
-              type="date"
-              value={form.date}
-              onChange={(e) => setForm({ ...form, date: e.target.value })}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-            />
-          </div>
+          {!form.pinned && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">日期</label>
+              <input
+                type="date"
+                value={form.date}
+                onChange={(e) => setForm({ ...form, date: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">颜色</label>
             <div className="flex gap-2">
@@ -556,6 +826,21 @@ export default function MemosPage() {
             </div>
           </div>
 
+          <label className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form.pinned}
+              onChange={(e) => setForm({ ...form, pinned: e.target.checked })}
+              className="h-4 w-4 rounded text-primary-500 focus:ring-primary-500"
+            />
+            <div className="text-sm">
+              <span className="font-medium text-gray-800">设为客户跟进</span>
+              <span className="ml-1 text-xs text-gray-500">
+                — 常驻显示，可记录"几号联系了"时间线，不会随日期消失
+              </span>
+            </div>
+          </label>
+
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"
@@ -573,6 +858,142 @@ export default function MemosPage() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* 跟进时间线弹窗 */}
+      <Modal
+        open={!!timelineMemo}
+        onClose={() => setTimelineMemoId(null)}
+        title={timelineMemo?.title || '客户跟进'}
+        maxWidth="2xl"
+      >
+        {timelineMemo && (
+          <div className="space-y-5">
+            {timelineMemo.content && (
+              <p className="text-sm text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3">
+                {timelineMemo.content}
+              </p>
+            )}
+
+            {/* 操作栏 */}
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => togglePinnedStatus(timelineMemo)}
+                className={`inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
+                  timelineMemo.pinnedStatus === 'DONE'
+                    ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                }`}
+              >
+                <HiOutlineCheckCircle className="h-3.5 w-3.5" />
+                {timelineMemo.pinnedStatus === 'DONE' ? '恢复跟进' : '标记完成'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  openEdit(timelineMemo);
+                  setTimelineMemoId(null);
+                }}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <HiOutlinePencilSquare className="h-3.5 w-3.5" />
+                编辑信息
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(timelineMemo.id)}
+                className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 ml-auto"
+              >
+                <HiOutlineTrash className="h-3.5 w-3.5" />
+                删除跟进
+              </button>
+            </div>
+
+            {/* 新增时间线条目 */}
+            <form
+              onSubmit={handleAddEntry}
+              className="rounded-xl border border-primary-100 bg-primary-50/40 p-3 space-y-2"
+            >
+              <div className="flex items-center gap-2 text-xs font-medium text-primary-700">
+                <HiOutlinePlus className="h-3.5 w-3.5" />
+                记录一次跟进
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="date"
+                  value={entryForm.contactedAt}
+                  onChange={(e) =>
+                    setEntryForm({ ...entryForm, contactedAt: e.target.value })
+                  }
+                  className="sm:w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+                <input
+                  type="text"
+                  value={entryForm.note}
+                  onChange={(e) =>
+                    setEntryForm({ ...entryForm, note: e.target.value })
+                  }
+                  placeholder="例如：客户回复了报价单 / 已发样品 / 对方在出差…"
+                  className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                />
+                <button
+                  type="submit"
+                  disabled={entrySubmitting}
+                  className="rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white hover:bg-primary-600 disabled:opacity-50"
+                >
+                  {entrySubmitting ? '...' : '添加'}
+                </button>
+              </div>
+            </form>
+
+            {/* 时间线 */}
+            <div>
+              <div className="text-xs font-medium text-gray-500 mb-2 px-1">
+                跟进时间线 · 共 {timelineMemo.timeline?.length || 0} 条
+              </div>
+              {!timelineMemo.timeline || timelineMemo.timeline.length === 0 ? (
+                <div className="text-center py-8 text-sm text-gray-400">
+                  还没有跟进记录，添加第一条吧
+                </div>
+              ) : (
+                <ol className="relative border-l border-gray-200 pl-5 space-y-3">
+                  {timelineMemo.timeline.map((e: MemoTimelineEntry) => (
+                    <li key={e.id} className="relative">
+                      <span className="absolute -left-[27px] top-1.5 h-3 w-3 rounded-full bg-primary-500 ring-4 ring-white" />
+                      <div className="flex items-start justify-between gap-3 group">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-mono text-gray-500">
+                            {new Date(e.contactedAt).toLocaleDateString(
+                              'zh-CN',
+                              {
+                                year: 'numeric',
+                                month: '2-digit',
+                                day: '2-digit',
+                                weekday: 'short',
+                              },
+                            )}
+                          </div>
+                          <div className="text-sm text-gray-800 mt-0.5 whitespace-pre-wrap break-words">
+                            {e.note}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteEntry(e.id)}
+                          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-opacity p-1"
+                          aria-label="删除"
+                        >
+                          <HiOutlineTrash className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </AppLayout>
   );
