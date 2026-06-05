@@ -320,9 +320,17 @@ export const memosApi = {
   list: (params?: any) => api.get('/memos', { params }),
   getByRange: (startDate: string, endDate: string) =>
     api.get('/memos/range', { params: { startDate, endDate } }),
+  /** 客户跟进面板：所有 pinned=true 的备忘 + 时间线 */
+  pinned: (status?: 'ACTIVE' | 'DONE') =>
+    api.get('/memos/pinned', { params: status ? { status } : undefined }),
   create: (data: any) => api.post('/memos', data),
   update: (id: string, data: any) => api.patch(`/memos/${id}`, data),
   delete: (id: string) => api.delete(`/memos/${id}`),
+  /** 跟进时间线：新增一次"几号联系了"记录 */
+  addTimelineEntry: (memoId: string, data: { contactedAt: string; note: string }) =>
+    api.post(`/memos/${memoId}/timeline`, data),
+  deleteTimelineEntry: (entryId: string) =>
+    api.delete(`/memos/timeline/${entryId}`),
 };
 
 // ==================== Settings API ====================
