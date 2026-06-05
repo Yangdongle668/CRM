@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import AppLayout from '@/components/layout/AppLayout';
@@ -64,6 +64,16 @@ const HOLIDAY_STYLE: Record<string, { text: string; dot: string; bg: string; lab
 };
 
 export default function MemosPage() {
+  // useSearchParams() requires Suspense for Next 14 静态预渲染（CSR bailout）。
+  // 包一层 Suspense 即可，让 /memos 走 dynamic rendering。
+  return (
+    <Suspense fallback={null}>
+      <MemosPageContent />
+    </Suspense>
+  );
+}
+
+function MemosPageContent() {
   const today = new Date();
   const [currentYear, setCurrentYear] = useState(today.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(today.getMonth());
