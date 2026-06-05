@@ -17,6 +17,7 @@ export interface DashboardData {
   rankings: SalesRanking[];
   recentTasks: Task[];
   todayMemos: Memo[];
+  pinnedMemos: Memo[];
   myFollowUps: FollowUp[];
   teamFollowUps: FollowUpAdminOverview | null;
 }

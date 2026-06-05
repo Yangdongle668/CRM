@@ -20,6 +20,7 @@ const EMPTY: DashboardData = {
   rankings: [],
   recentTasks: [],
   todayMemos: [],
+  pinnedMemos: [],
   myFollowUps: [],
   teamFollowUps: null,
 };
@@ -34,19 +35,22 @@ export default function DashboardPage() {
     const fetchData = async () => {
       try {
         const today = new Date().toISOString().slice(0, 10);
-        const [statsRes, trendRes, funnelRes, tasksRes, memosRes] = await Promise.all([
-          dashboardApi.getStats(),
-          dashboardApi.getSalesTrend(),
-          dashboardApi.getFunnel(),
-          tasksApi.list({ pageSize: 5, status: 'PENDING' }),
-          memosApi.list({ date: today }),
-        ]);
+        const [statsRes, trendRes, funnelRes, tasksRes, memosRes, pinnedMemosRes] =
+          await Promise.all([
+            dashboardApi.getStats(),
+            dashboardApi.getSalesTrend(),
+            dashboardApi.getFunnel(),
+            tasksApi.list({ pageSize: 5, status: 'PENDING' }),
+            memosApi.list({ date: today }),
+            memosApi.pinned('ACTIVE'),
+          ]);
 
         const stats = (statsRes as any).data ?? null;
         const salesTrend = (trendRes as any).data;
         const funnelData = (funnelRes as any).data;
         const tasksData = (tasksRes as any).data;
         const memosData = (memosRes as any).data;
+        const pinnedMemosData = (pinnedMemosRes as any).data;
 
         const next: Partial<DashboardData> = {
           stats,
@@ -54,6 +58,7 @@ export default function DashboardPage() {
           funnelData: Array.isArray(funnelData) ? funnelData : [],
           recentTasks: Array.isArray(tasksData?.items) ? tasksData.items : Array.isArray(tasksData) ? tasksData : [],
           todayMemos: Array.isArray(memosData) ? memosData : [],
+          pinnedMemos: Array.isArray(pinnedMemosData) ? pinnedMemosData : [],
         };
 
         if (isAdmin) {
