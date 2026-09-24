@@ -9,6 +9,15 @@ import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
 import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
 import OpenNotificationBell from '@/components/emails/OpenNotificationBell';
+import EmailBodyFrame from '@/components/emails/EmailBodyFrame';
+import { sanitizeEmailHtml, escapeHtml } from '@/lib/sanitize-email';
+import {
+  extractSegments,
+  applyTranslations,
+  isMostlyChinese,
+  htmlToText,
+  langName,
+} from '@/lib/email-translate';
 import { emailsApi, customersApi, translateApi } from '@/lib/api';
 import { useAuth } from '@/contexts/auth-context';
 import type { Email, EmailAttachment, EmailTemplate, EmailThreadItem, Customer } from '@/types';
@@ -159,6 +168,8 @@ export default function EmailsPage() {
   const [translatedEmailId, setTranslatedEmailId] = useState<string | null>(null);
   const [originalHtml, setOriginalHtml] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
+  // 当前译文是否跳过了引用的历史邮件（是的话显示"翻译引用内容"）
+  const [quotedSkipped, setQuotedSkipped] = useState(false);
 
   // Compose window state（新邮件 + 回复 + 转发 都复用同一个窗口）
   const [composeOpen, setComposeOpen] = useState(false);
@@ -338,6 +349,7 @@ export default function EmailsPage() {
   useEffect(() => {
     setTranslatedEmailId(null);
     setOriginalHtml(null);
+    setQuotedSkipped(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEmail?.id]);
 
@@ -464,7 +476,7 @@ export default function EmailsPage() {
   // （用 data-role="quoted" 标记），之后 ComposeWindow 会自动在 quoted
   // 之前插入签名，布局是"回复正文 → 签名 → 引用原文"。
   const buildQuotedBlock = (email: Email) =>
-    `<br/><br/><div data-role="quoted" style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;"><p><strong>${email.fromAddr}</strong> 于 ${formatTime(email.sentAt || email.receivedAt || email.createdAt)} 写道：</p>${email.bodyHtml || `<pre>${email.bodyText || ''}</pre>`}</div>`;
+    `<br/><br/><div data-role="quoted" style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;"><p><strong>${escapeHtml(email.fromAddr)}</strong> 于 ${formatTime(email.sentAt || email.receivedAt || email.createdAt)} 写道：</p>${email.bodyHtml ? sanitizeEmailHtml(email.bodyHtml) : `<pre>${escapeHtml(email.bodyText)}</pre>`}</div>`;
 
   const handleReply = () => {
     if (!selectedEmail) return;
@@ -593,26 +605,15 @@ export default function EmailsPage() {
   };
 
   /**
-   * One-click translate: extract text segments from the currently
-   * visible email's HTML (skipping images / tags), send as JSON to
-   * the backend, then replace the original text nodes in-place.
+   * 一键翻译：从当前邮件 HTML 抽出文本段落（默认跳过引用的历史邮件），
+   * 交给后端逐段翻译，再就地替换，排版不变。鼠标悬停译文可看原文。
    *
-   * Works in BOTH views:
-   *   - Single-email view: modifies `selectedEmail.bodyHtml`.
-   *   - Thread (accordion) view: also updates the matching entry in
-   *     `threadEmails`, since that's what actually renders in the UI.
-   *
-   * The "target" email is picked as:
-   *   1. The expanded thread email (`viewingThreadEmailId`) when in
-   *      thread view.
-   *   2. Otherwise `selectedEmail`.
-   * Click the button again to restore the original HTML.
+   * 作用对象：线程视图里是当前展开的那封，否则是 selectedEmail。
+   * 再点一次恢复原文。后端按邮件缓存译文，第二次打开秒出。
    */
-  const handleTranslate = async () => {
+  const handleTranslate = async (opts: { includeQuoted?: boolean } = {}) => {
     if (!selectedEmail) return;
 
-    // Figure out which email the button should act on. In thread view
-    // it's the one the user currently has expanded.
     const inThreadView = threadEmails.length > 1;
     const targetId = inThreadView && viewingThreadEmailId
       ? viewingThreadEmailId
@@ -621,51 +622,28 @@ export default function EmailsPage() {
       ? threadEmails.find((e) => e.id === targetId) || selectedEmail
       : selectedEmail;
 
-    // Toggle: restore original if this same email is already translated
-    if (translatedEmailId === targetId && originalHtml) {
+    // 再点一次：恢复原文（"翻译引用内容"除外，它要在原文基础上重翻）
+    if (translatedEmailId === targetId && originalHtml !== null && !opts.includeQuoted) {
       applyHtmlToEmail(targetId, originalHtml);
       setTranslatedEmailId(null);
       setOriginalHtml(null);
+      setQuotedSkipped(false);
       return;
     }
 
-    const html = targetEmail.bodyHtml || '';
-    const text = targetEmail.bodyText || '';
-    if (!html && !text) {
+    // 总是基于原文抽取，避免对译文再翻一遍
+    const sourceHtml =
+      translatedEmailId === targetId && originalHtml !== null
+        ? originalHtml
+        : targetEmail.bodyHtml ||
+          (targetEmail.bodyText ? `<pre>${escapeHtml(targetEmail.bodyText)}</pre>` : '');
+    if (!sourceHtml) {
       toast.error('邮件正文为空');
       return;
     }
 
-    // Parse into a temporary DOM, extract text nodes, skip images etc.
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(
-      html || `<pre>${text}</pre>`,
-      'text/html',
-    );
-    const segments: { index: number; text: string; node: Text }[] = [];
-    let idx = 0;
-
-    const walk = (node: Node) => {
-      if (
-        node.nodeType === Node.ELEMENT_NODE &&
-        /^(img|style|script|svg|video|audio|iframe)$/i.test(
-          (node as Element).tagName,
-        )
-      ) {
-        return; // skip non-text elements
-      }
-      if (node.nodeType === Node.TEXT_NODE) {
-        const t = (node.textContent || '').trim();
-        if (t.length > 1) {
-          segments.push({ index: idx++, text: t, node: node as Text });
-        }
-        return;
-      }
-      node.childNodes.forEach(walk);
-    };
-    walk(doc.body);
-
-    if (segments.length === 0) {
+    const extracted = extractSegments(sourceHtml, opts);
+    if (extracted.segments.length === 0) {
       toast.error('没有可翻译的文字内容');
       return;
     }
@@ -673,7 +651,9 @@ export default function EmailsPage() {
     setTranslating(true);
     try {
       const res: any = await translateApi.translate(
-        segments.map((s) => ({ index: s.index, text: s.text })),
+        extracted.segments.map((s) => ({ index: s.index, text: s.text })),
+        'zh-CN',
+        targetId,
       );
       const data = res.data || res;
       const translated: Record<number, string> = {};
@@ -681,21 +661,22 @@ export default function EmailsPage() {
         translated[s.index] = s.translated;
       });
 
-      for (const seg of segments) {
-        if (translated[seg.index]) {
-          seg.node.textContent = translated[seg.index];
-        }
-      }
-
-      setOriginalHtml(targetEmail.bodyHtml || targetEmail.bodyText || '');
-      const newHtml = doc.body.innerHTML;
+      const newHtml = applyTranslations(extracted, translated);
+      setOriginalHtml(sourceHtml);
       applyHtmlToEmail(targetId, newHtml);
       setTranslatedEmailId(targetId);
-      toast.success(
-        `已翻译 ${segments.length} 段文字（${(data.sourceLang || 'auto').toUpperCase()} → 中文）`,
-      );
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || '翻译失败，请稍后重试');
+      setQuotedSkipped(extracted.quotedSkipped);
+
+      const failed: number = Array.isArray(data.failed) ? data.failed.length : 0;
+      const done = extracted.segments.length - failed;
+      const label = `${langName(data.sourceLang)} → 中文${data.cached ? '，已缓存' : ''}`;
+      if (failed > 0) {
+        toast(`已翻译 ${done} 段，${failed} 段未能翻译、保留原文（${label}）`, { icon: '⚠️' });
+      } else {
+        toast.success(`已翻译 ${done} 段文字（${label}）`);
+      }
+    } catch {
+      // 错误提示由 api 拦截器统一弹出
     } finally {
       setTranslating(false);
     }
@@ -1345,7 +1326,7 @@ export default function EmailsPage() {
                   : `Fwd: ${selectedEmail.subject}`;
                 // 用 data-role="quoted" 包起来，ComposeWindow 会把签名
                 // 插到这一段之前。
-                const fwdBody = `<br/><br/><div data-role="quoted">---------- 转发的邮件 ----------<br/>发件人: ${selectedEmail.fromAddr}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${selectedEmail.subject}<br/>收件人: ${selectedEmail.toAddr}<br/><br/>${selectedEmail.bodyHtml || selectedEmail.bodyText || ''}</div>`;
+                const fwdBody = `<br/><br/><div data-role="quoted">---------- 转发的邮件 ----------<br/>发件人: ${escapeHtml(selectedEmail.fromAddr)}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${escapeHtml(selectedEmail.subject)}<br/>收件人: ${escapeHtml(selectedEmail.toAddr)}<br/><br/>${selectedEmail.bodyHtml ? sanitizeEmailHtml(selectedEmail.bodyHtml) : `<pre>${escapeHtml(selectedEmail.bodyText)}</pre>`}</div>`;
                 setComposeForm({
                   ...emptyComposeForm,
                   subject: fwdSubject,
@@ -1370,9 +1351,22 @@ export default function EmailsPage() {
                   ? viewingThreadEmailId
                   : selectedEmail?.id;
               const isActive = translatedEmailId === activeId;
+              const activeEmail =
+                threadEmails.find((e) => e.id === activeId) || selectedEmail;
+              // 原文基本是中文就不显示翻译按钮（已翻译的仍要能恢复原文）
+              if (
+                !isActive &&
+                activeEmail &&
+                isMostlyChinese(
+                  activeEmail.bodyText || htmlToText(activeEmail.bodyHtml || ''),
+                )
+              ) {
+                return null;
+              }
               return (
+                <>
                 <button
-                  onClick={handleTranslate}
+                  onClick={() => handleTranslate()}
                   disabled={translating}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors disabled:opacity-50 ${
                     isActive
@@ -1386,6 +1380,17 @@ export default function EmailsPage() {
                   </svg>
                   {translating ? '翻译中...' : isActive ? '恢复原文' : '翻译'}
                 </button>
+                {isActive && quotedSkipped && (
+                  <button
+                    onClick={() => handleTranslate({ includeQuoted: true })}
+                    disabled={translating}
+                    className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-lg text-purple-700 hover:bg-purple-50 disabled:opacity-50"
+                    title="引用的历史邮件默认不翻译"
+                  >
+                    翻译引用内容
+                  </button>
+                )}
+                </>
               );
             })()}
             <button
@@ -1476,10 +1481,7 @@ export default function EmailsPage() {
                           <div>时间：<span className="text-gray-700">{formatTime(teTime)}</span></div>
                         </div>
                         {te.bodyHtml ? (
-                          <div
-                            dangerouslySetInnerHTML={{ __html: te.bodyHtml }}
-                            className="prose prose-sm max-w-none"
-                          />
+                          <EmailBodyFrame html={te.bodyHtml} />
                         ) : (
                           <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
                             {te.bodyText || '(无内容)'}
@@ -1496,10 +1498,7 @@ export default function EmailsPage() {
             /* ── Single email view ───────────────────────────── */
             <div className="bg-white rounded-lg border p-6 min-h-[300px]">
               {selectedEmail.bodyHtml ? (
-                <div
-                  dangerouslySetInnerHTML={{ __html: selectedEmail.bodyHtml }}
-                  className="prose prose-sm max-w-none"
-                />
+                <EmailBodyFrame html={selectedEmail.bodyHtml} />
               ) : (
                 <pre className="text-sm text-gray-700 whitespace-pre-wrap font-sans">
                   {selectedEmail.bodyText || '(无内容)'}

@@ -149,7 +149,8 @@ export class EmailsController {
    * rewritten link list + confidence score. Gated by the usual auth.
    */
   @Get(':id/tracking')
-  async getTracking(@Param('id') id: string) {
+  async getTracking(@CurrentUser() user: any, @Param('id') id: string) {
+    await this.emailsService.ensureCanRead(id, user);
     return this.tracking.getTrackingDetail(id);
   }
 
@@ -210,19 +211,20 @@ export class EmailsController {
 
   /** Aggregate stats: sent / opened / opened-by-human / clicked / open rate. */
   @Get('campaigns/:id/stats')
-  async campaignStats(@Param('id') id: string) {
-    return this.emailsService.getCampaignStats(id);
+  async campaignStats(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getCampaignStats(id, user);
   }
 
   // ==================== Recipients ====================
 
   @Get('recipients')
   async listRecipients(
+    @CurrentUser() user: any,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.emailsService.listRecipients({
+    return this.emailsService.listRecipients(user, {
       search,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -230,8 +232,8 @@ export class EmailsController {
   }
 
   @Get('recipients/:id')
-  async getRecipient(@Param('id') id: string) {
-    return this.emailsService.getRecipientDetail(id);
+  async getRecipient(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getRecipientDetail(id, user);
   }
 
   /**
@@ -239,8 +241,16 @@ export class EmailsController {
    * 邮件发件人、CRM 联系人。按最近活跃时间排序。
    */
   @Get('address-suggestions')
-  async suggestAddresses(@Query('q') q?: string, @Query('limit') limit?: string) {
-    return this.emailsService.suggestAddresses(q || '', limit ? parseInt(limit, 10) : 20);
+  async suggestAddresses(
+    @CurrentUser() user: any,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.emailsService.suggestAddresses(
+      user,
+      q || '',
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
   /**
@@ -326,7 +336,7 @@ export class EmailsController {
     @Param('id') id: string,
     @Body() body: { flagged: boolean },
   ) {
-    return this.emailsService.toggleFlag(id, user.id, body.flagged);
+    return this.emailsService.toggleFlag(id, user, body.flagged);
   }
 
   @Patch(':id/category')
@@ -335,39 +345,40 @@ export class EmailsController {
     @Param('id') id: string,
     @Body() body: { category: string },
   ) {
-    return this.emailsService.updateCategory(id, user.id, body.category);
+    return this.emailsService.updateCategory(id, user, body.category);
   }
 
   // ==================== Delete / Trash / Spam ====================
 
   @Delete(':id')
-  async deleteEmail(@Param('id') id: string) {
-    return this.emailsService.moveToTrash(id);
+  async deleteEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.moveToTrash(id, user);
   }
 
   @Post('batch-trash')
-  async batchTrash(@Body() body: { ids: string[] }) {
-    return this.emailsService.batchMoveToTrash(body.ids);
+  async batchTrash(@CurrentUser() user: any, @Body() body: { ids: string[] }) {
+    return this.emailsService.batchMoveToTrash(body?.ids, user);
   }
 
   @Post(':id/restore')
-  async restoreEmail(@Param('id') id: string) {
-    return this.emailsService.restoreFromTrash(id);
+  async restoreEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.restoreFromTrash(id, user);
   }
 
   @Delete(':id/permanent')
-  async permanentDeleteEmail(@Param('id') id: string) {
-    return this.emailsService.permanentDelete(id);
+  async permanentDeleteEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.permanentDelete(id, user);
   }
 
+  // 只清空 / 扫描调用者自己邮箱里的邮件
   @Delete('trash/empty')
-  async emptyTrash() {
-    return this.emailsService.emptyTrash();
+  async emptyTrash(@CurrentUser() user: any) {
+    return this.emailsService.emptyTrash(user.id);
   }
 
   @Post('scan-spam')
-  async scanSpam() {
-    return this.emailsService.scanSpam();
+  async scanSpam(@CurrentUser() user: any) {
+    return this.emailsService.scanSpam(user.id);
   }
 
   // ==================== Templates ====================
@@ -378,21 +389,25 @@ export class EmailsController {
   }
 
   @Post('templates')
-  async createTemplate(@Body() dto: CreateTemplateDto) {
-    return this.emailsService.createTemplate(dto);
+  async createTemplate(
+    @CurrentUser() user: any,
+    @Body() dto: CreateTemplateDto,
+  ) {
+    return this.emailsService.createTemplate(dto, user);
   }
 
   @Put('templates/:id')
   async updateTemplate(
+    @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: CreateTemplateDto,
   ) {
-    return this.emailsService.updateTemplate(id, dto);
+    return this.emailsService.updateTemplate(id, dto, user);
   }
 
   @Delete('templates/:id')
-  async deleteTemplate(@Param('id') id: string) {
-    return this.emailsService.deleteTemplate(id);
+  async deleteTemplate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.deleteTemplate(id, user);
   }
 
   // ==================== Thread & Detail ====================
@@ -402,7 +417,7 @@ export class EmailsController {
     @CurrentUser() user: any,
     @Param('threadId') threadId: string,
   ) {
-    return this.emailsService.findThreadEmails(threadId, user.id, user.role);
+    return this.emailsService.findThreadEmails(threadId, user);
   }
 
   // 附件懒下载：收邮件时只落元数据，用户点"下载"才按需从 IMAP 回源
@@ -414,7 +429,7 @@ export class EmailsController {
     @Res() res: Response,
   ) {
     const { filePath, fileName, mimeType } =
-      await this.emailsService.downloadAttachment(attachmentId, user.id, user.role);
+      await this.emailsService.downloadAttachment(attachmentId, user);
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(fileName)}"`,
@@ -425,7 +440,7 @@ export class EmailsController {
 
   @Get(':id')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.emailsService.findOne(id, user.id, user.role);
+    return this.emailsService.findOne(id, user);
   }
 
   @Patch('mark-all-read')
@@ -435,7 +450,7 @@ export class EmailsController {
 
   @Patch(':id/read')
   async markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.emailsService.markAsRead(id, user.id, user.role);
+    return this.emailsService.markAsRead(id, user);
   }
 
   @Post('fetch')

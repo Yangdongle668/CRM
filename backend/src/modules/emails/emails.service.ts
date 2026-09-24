@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { simpleParser } from 'mailparser';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
@@ -26,6 +27,13 @@ import {
 } from '../../queue/queue.constants';
 import { EmailTrackingService } from './email-tracking.service';
 import { FollowUpsService } from '../follow-ups/follow-ups.service';
+
+/** 调用方身份（来自 JwtStrategy.validate 返回的 user）。 */
+export interface EmailActor {
+  id: string;
+  role: string;
+  isSuperAdmin?: boolean;
+}
 
 @Injectable()
 export class EmailsService {
@@ -39,6 +47,67 @@ export class EmailsService {
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
   ) {}
+
+  // ==================== Access control ====================
+  //
+  // 读权限：邮件在自己配置的邮箱账户里；或邮件关联客户的负责人；或超管。
+  // 写权限（星标 / 分类 / 删除 / 已读）：只有邮箱账户的主人（和超管）——
+  // 客户负责人能看同事与该客户的往来，但不能动同事邮箱里的邮件。
+  // emailConfigId 为空的历史邮件按 senderId 归属。
+
+  private mailboxWhere(actor: EmailActor): Prisma.EmailWhereInput {
+    if (actor.isSuperAdmin) return {};
+    return {
+      OR: [
+        { emailConfig: { userId: actor.id } },
+        { emailConfigId: null, senderId: actor.id },
+      ],
+    };
+  }
+
+  private readableWhere(actor: EmailActor): Prisma.EmailWhereInput {
+    if (actor.isSuperAdmin) return {};
+    return {
+      OR: [
+        { emailConfig: { userId: actor.id } },
+        { emailConfigId: null, senderId: actor.id },
+        { customer: { ownerId: actor.id } },
+      ],
+    };
+  }
+
+  /** 读校验：不存在 → 404，无权 → 403。 */
+  private async assertCanRead(id: string, actor: EmailActor) {
+    const email = await this.prisma.email.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    if (!email) throw new NotFoundException('Email not found');
+    const allowed = await this.prisma.email.count({
+      where: { AND: [{ id }, this.readableWhere(actor)] },
+    });
+    if (!allowed) throw new ForbiddenException('无权访问该邮件');
+  }
+
+  /** 写校验：只有邮箱主人 / 超管。返回邮件行。 */
+  private async assertCanModify(id: string, actor: EmailActor) {
+    const email = await this.prisma.email.findFirst({
+      where: { AND: [{ id }, this.mailboxWhere(actor)] },
+    });
+    if (email) return email;
+    const exists = await this.prisma.email.count({ where: { id } });
+    if (!exists) throw new NotFoundException('Email not found');
+    throw new ForbiddenException('无权操作该邮件');
+  }
+
+  /** 给 controller 用：追踪详情等只读接口复用同一套读权限。 */
+  async ensureCanRead(id: string, actor: EmailActor) {
+    await this.assertCanRead(id, actor);
+  }
+
+  private isAdmin(actor: EmailActor) {
+    return actor.isSuperAdmin || actor.role === 'ADMIN';
+  }
 
   private stripTrackingPixel(html: string | null): string | null {
     if (!html) return html;
@@ -73,6 +142,7 @@ export class EmailsService {
    * incoming email. Returns null if no match is found.
    */
   private async findThreadByReplyHeaders(
+    emailConfigId: string,
     inReplyTo?: string | null,
     references?: string | string[] | null,
   ): Promise<string | null> {
@@ -86,8 +156,10 @@ export class EmailsService {
     }
     if (ids.length === 0) return null;
 
+    // 只在同一邮箱账户内找父邮件：同一个 Message-ID 在不同同事的邮箱里
+    // 各有一份，跨账户匹配会把两个人的会话串到同一个线程里。
     const parent = await this.prisma.email.findFirst({
-      where: { messageId: { in: ids } },
+      where: { emailConfigId, messageId: { in: ids } },
       select: { threadId: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -311,8 +383,11 @@ export class EmailsService {
     let threadId: string | undefined;
 
     if (dto.inReplyTo) {
-      const originalEmail = await this.prisma.email.findUnique({
-        where: { id: dto.inReplyTo },
+      // 只能回复自己看得到的邮件，否则不挂线程也不带 In-Reply-To。
+      const originalEmail = await this.prisma.email.findFirst({
+        where: {
+          AND: [{ id: dto.inReplyTo }, this.readableWhere({ id: userId, role: '' })],
+        },
       });
       if (originalEmail) {
         inReplyToMessageId = originalEmail.messageId || undefined;
@@ -668,7 +743,11 @@ export class EmailsService {
         where: { userId },
         select: { id: true },
       });
-      where.emailConfigId = { in: myConfigs.map((c) => c.id) };
+      const myIds = myConfigs.map((c) => c.id);
+      // 传了 emailConfigId 也只能是自己的账户，否则直接返回空列表。
+      where.emailConfigId = query.emailConfigId
+        ? { in: myIds.includes(query.emailConfigId) ? [query.emailConfigId] : [] }
+        : { in: myIds };
     }
 
     if (query.direction) {
@@ -679,7 +758,7 @@ export class EmailsService {
       where.status = query.status;
     }
 
-    if (query.emailConfigId) {
+    if (query.emailConfigId && query.customerId) {
       where.emailConfigId = query.emailConfigId;
     }
 
@@ -740,11 +819,11 @@ export class EmailsService {
 
   // ==================== Email Detail ====================
 
-  async findOne(id: string, _userId: string, _role: string) {
-    const where: any = { id };
+  async findOne(id: string, actor: EmailActor) {
+    await this.assertCanRead(id, actor);
 
     const email = await this.prisma.email.findFirst({
-      where,
+      where: { id },
       include: {
         customer: true,
         sender: { select: { id: true, name: true, email: true } },
@@ -765,6 +844,8 @@ export class EmailsService {
         thread: {
           include: {
             emails: {
+              // 老数据里线程可能跨了多个同事的邮箱，只带出自己看得到的。
+              where: this.readableWhere(actor),
               orderBy: [
                 { receivedAt: { sort: 'asc', nulls: 'last' } },
                 { sentAt: { sort: 'asc', nulls: 'last' } },
@@ -840,9 +921,14 @@ export class EmailsService {
     if (where.emailConfigId) {
       if (typeof where.emailConfigId === 'object' && where.emailConfigId.in) {
         const ids: string[] = where.emailConfigId.in;
-        const placeholders = ids.map(() => `$${paramIdx++}`).join(', ');
-        conditions.push(`e.email_config_id IN (${placeholders})`);
-        params.push(...ids);
+        if (ids.length === 0) {
+          // 没有任何可见账户：IN () 是语法错误，直接恒假。
+          conditions.push('FALSE');
+        } else {
+          const placeholders = ids.map(() => `$${paramIdx++}`).join(', ');
+          conditions.push(`e.email_config_id IN (${placeholders})`);
+          params.push(...ids);
+        }
       } else {
         conditions.push(`e.email_config_id = $${paramIdx++}`);
         params.push(where.emailConfigId);
@@ -898,6 +984,7 @@ export class EmailsService {
     if (where.direction) latestEmailsWhere.direction = where.direction;
     if (where.category) latestEmailsWhere.category = where.category;
     if (where.senderId) latestEmailsWhere.senderId = where.senderId;
+    if (where.customerId) latestEmailsWhere.customerId = where.customerId;
     if (where.emailConfigId) latestEmailsWhere.emailConfigId = where.emailConfigId;
 
     const latestEmails = await this.prisma.email.findMany({
@@ -939,11 +1026,9 @@ export class EmailsService {
     return { items: results, total, page, pageSize };
   }
 
-  async findThreadEmails(threadId: string, _userId: string, _role: string) {
-    const where: any = { threadId };
-
+  async findThreadEmails(threadId: string, actor: EmailActor) {
     const emails = await this.prisma.email.findMany({
-      where,
+      where: { AND: [{ threadId }, this.readableWhere(actor)] },
       include: {
         customer: { select: { id: true, companyName: true } },
         sender: { select: { id: true, name: true, email: true } },
@@ -972,30 +1057,20 @@ export class EmailsService {
 
   // ==================== Flag & Category ====================
 
-  async toggleFlag(id: string, userId: string, flagged: boolean) {
-    const email = await this.prisma.email.findUnique({ where: { id } });
-
-    if (!email) {
-      throw new NotFoundException('Email not found');
-    }
-
+  async toggleFlag(id: string, actor: EmailActor, flagged: boolean) {
+    await this.assertCanModify(id, actor);
     return this.prisma.email.update({
       where: { id },
       data: { flagged },
     });
   }
 
-  async updateCategory(id: string, userId: string, category: string) {
-    const email = await this.prisma.email.findUnique({ where: { id } });
-
-    if (!email) {
-      throw new NotFoundException('Email not found');
-    }
-
+  async updateCategory(id: string, actor: EmailActor, category: string) {
     const validCategories = ['inbox', 'sent', 'customer', 'advertisement', 'drafts', 'starred', 'trash', 'spam'];
     if (!validCategories.includes(category)) {
       throw new BadRequestException('Invalid category');
     }
+    await this.assertCanModify(id, actor);
 
     return this.prisma.email.update({
       where: { id },
@@ -1006,11 +1081,23 @@ export class EmailsService {
   // ==================== Delete / Trash / Spam ====================
 
   /**
+   * 严格"自己的邮箱"范围（超管也不例外）。清空回收站 / 扫描垃圾邮件
+   * 这类批量动作只作用于调用者自己的账户，不能一键波及全公司。
+   */
+  private ownMailboxWhere(userId: string): Prisma.EmailWhereInput {
+    return {
+      OR: [
+        { emailConfig: { userId } },
+        { emailConfigId: null, senderId: userId },
+      ],
+    };
+  }
+
+  /**
    * Soft-delete: move an email to trash. It can be restored later.
    */
-  async moveToTrash(id: string) {
-    const email = await this.prisma.email.findUnique({ where: { id } });
-    if (!email) throw new NotFoundException('Email not found');
+  async moveToTrash(id: string, actor: EmailActor) {
+    await this.assertCanModify(id, actor);
     return this.prisma.email.update({
       where: { id },
       data: { category: 'trash' },
@@ -1018,11 +1105,12 @@ export class EmailsService {
   }
 
   /**
-   * Batch soft-delete: move multiple emails to trash.
+   * Batch soft-delete: move multiple emails to trash. 无权的 id 静默跳过。
    */
-  async batchMoveToTrash(ids: string[]) {
+  async batchMoveToTrash(ids: string[], actor: EmailActor) {
+    if (!Array.isArray(ids) || ids.length === 0) return { moved: 0 };
     const result = await this.prisma.email.updateMany({
-      where: { id: { in: ids } },
+      where: { AND: [{ id: { in: ids } }, this.mailboxWhere(actor)] },
       data: { category: 'trash' },
     });
     return { moved: result.count };
@@ -1031,9 +1119,8 @@ export class EmailsService {
   /**
    * Restore an email from trash back to its original category.
    */
-  async restoreFromTrash(id: string) {
-    const email = await this.prisma.email.findUnique({ where: { id } });
-    if (!email) throw new NotFoundException('Email not found');
+  async restoreFromTrash(id: string, actor: EmailActor) {
+    const email = await this.assertCanModify(id, actor);
     const newCat = email.direction === 'OUTBOUND' ? 'sent' : 'inbox';
     return this.prisma.email.update({
       where: { id },
@@ -1044,19 +1131,18 @@ export class EmailsService {
   /**
    * Permanently delete a single email.
    */
-  async permanentDelete(id: string) {
-    const email = await this.prisma.email.findUnique({ where: { id } });
-    if (!email) throw new NotFoundException('Email not found');
+  async permanentDelete(id: string, actor: EmailActor) {
+    await this.assertCanModify(id, actor);
     await this.prisma.email.delete({ where: { id } });
     return { deleted: 1 };
   }
 
   /**
-   * Permanently delete all emails in the trash folder.
+   * Permanently delete all emails in the caller's own trash folder.
    */
-  async emptyTrash() {
+  async emptyTrash(userId: string) {
     const result = await this.prisma.email.deleteMany({
-      where: { category: 'trash' },
+      where: { AND: [{ category: 'trash' }, this.ownMailboxWhere(userId)] },
     });
     return { deleted: result.count };
   }
@@ -1124,11 +1210,12 @@ export class EmailsService {
    * Scan all existing emails (inbox + customer + advertisement) and move
    * matches to the spam category. Returns the count of newly flagged.
    */
-  async scanSpam(): Promise<{ flagged: number }> {
+  async scanSpam(userId: string): Promise<{ flagged: number }> {
     const candidates = await this.prisma.email.findMany({
       where: {
         category: { in: ['inbox', 'customer', 'advertisement'] },
         direction: 'INBOUND',
+        ...this.ownMailboxWhere(userId),
       },
       select: { id: true, subject: true, fromAddr: true, bodyText: true },
     });
@@ -1185,16 +1272,8 @@ export class EmailsService {
     return { updated: result.count };
   }
 
-  async markAsRead(id: string, userId: string, role: string) {
-    const where: any = { id };
-    if (role !== 'ADMIN') {
-      where.senderId = userId;
-    }
-
-    const email = await this.prisma.email.findFirst({ where });
-    if (!email) {
-      throw new NotFoundException('Email not found');
-    }
+  async markAsRead(id: string, actor: EmailActor) {
+    const email = await this.assertCanModify(id, actor);
 
     if (email.status === 'RECEIVED') {
       return this.prisma.email.update({
@@ -1277,7 +1356,7 @@ export class EmailsService {
     const campaign = await this.prisma.emailCampaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
     if (role !== 'ADMIN' && campaign.createdById !== userId) {
-      throw new BadRequestException('无权修改此活动');
+      throw new ForbiddenException('无权修改此活动');
     }
     const patch: any = {};
     if (dto.name !== undefined) patch.name = dto.name;
@@ -1293,7 +1372,7 @@ export class EmailsService {
     const campaign = await this.prisma.emailCampaign.findUnique({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaign not found');
     if (role !== 'ADMIN' && campaign.createdById !== userId) {
-      throw new BadRequestException('无权删除此活动');
+      throw new ForbiddenException('无权删除此活动');
     }
     // FK on emails is ON DELETE SET NULL — emails are preserved.
     await this.prisma.emailCampaign.delete({ where: { id } });
@@ -1309,11 +1388,14 @@ export class EmailsService {
    * - clicked: at least one click event
    * - avgConfidence: mean of email.openConfidence
    */
-  async getCampaignStats(campaignId: string) {
+  async getCampaignStats(campaignId: string, actor: EmailActor) {
     const campaign = await this.prisma.emailCampaign.findUnique({
       where: { id: campaignId },
     });
     if (!campaign) throw new NotFoundException('Campaign not found');
+    if (!this.isAdmin(actor) && campaign.createdById !== actor.id) {
+      throw new ForbiddenException('无权查看此活动');
+    }
 
     const emails = await this.prisma.email.findMany({
       where: { campaignId },
@@ -1354,12 +1436,19 @@ export class EmailsService {
 
   // ==================== Recipients ====================
 
+  /** 非管理员只能看到自己发过信的收件人。 */
+  private recipientScope(actor: EmailActor): Prisma.EmailRecipientWhereInput {
+    if (this.isAdmin(actor)) return {};
+    return { emails: { some: { senderId: actor.id } } };
+  }
+
   async listRecipients(
+    actor: EmailActor,
     q: { search?: string; page?: number; pageSize?: number } = {},
   ) {
     const page = Math.max(1, q.page || 1);
     const pageSize = Math.min(200, Math.max(1, q.pageSize || 50));
-    const where: any = {};
+    const where: any = { ...this.recipientScope(actor) };
     if (q.search) {
       where.OR = [
         { emailAddr: { contains: q.search, mode: 'insensitive' } },
@@ -1385,23 +1474,34 @@ export class EmailsService {
    *   3) Contact.email（CRM 联系人）
    * 按 lastActivity 倒序；上限默认 20 条。
    */
-  async suggestAddresses(query: string, limit = 20) {
+  async suggestAddresses(actor: EmailActor, query: string, limit = 20) {
     const q = (query || '').trim();
     if (!q) return [];
     const take = Math.min(50, Math.max(1, limit));
     const like = { contains: q, mode: 'insensitive' as const };
 
+    // 地址联想只从"自己能看到的"数据里出：自己发过的收件人、自己邮箱
+    // 收到过的发件人、自己客户的联系人（管理员看全部联系人，和联系人
+    // 模块的规则一致）。
     const [recipients, inboundEmails, contacts] = await Promise.all([
       this.prisma.emailRecipient.findMany({
-        where: { OR: [{ emailAddr: like }, { name: like }] },
+        where: {
+          AND: [
+            this.recipientScope(actor),
+            { OR: [{ emailAddr: like }, { name: like }] },
+          ],
+        },
         orderBy: { lastSentAt: { sort: 'desc', nulls: 'last' } },
         take,
         select: { emailAddr: true, name: true, lastSentAt: true },
       }),
       this.prisma.email.findMany({
         where: {
-          direction: 'INBOUND',
-          OR: [{ fromAddr: like }, { fromName: like }],
+          AND: [
+            { direction: 'INBOUND' },
+            this.ownMailboxWhere(actor.id),
+            { OR: [{ fromAddr: like }, { fromName: like }] },
+          ],
         },
         orderBy: { receivedAt: 'desc' },
         take: take * 3, // 多取一些，distinct 在应用层做
@@ -1411,6 +1511,7 @@ export class EmailsService {
         where: {
           email: { not: null },
           OR: [{ email: like }, { name: like }],
+          ...(this.isAdmin(actor) ? {} : { customer: { ownerId: actor.id } }),
         },
         take,
         select: { email: true, name: true },
@@ -1560,13 +1661,16 @@ export class EmailsService {
     return { items, total, latestAt };
   }
 
-  async getRecipientDetail(id: string) {
-    const recipient = await this.prisma.emailRecipient.findUnique({
-      where: { id },
+  async getRecipientDetail(id: string, actor: EmailActor) {
+    const recipient = await this.prisma.emailRecipient.findFirst({
+      where: { AND: [{ id }, this.recipientScope(actor)] },
     });
     if (!recipient) throw new NotFoundException('Recipient not found');
     const emails = await this.prisma.email.findMany({
-      where: { recipientId: id },
+      where: {
+        recipientId: id,
+        ...(this.isAdmin(actor) ? {} : { senderId: actor.id }),
+      },
       orderBy: { createdAt: 'desc' },
       take: 200,
       select: {
@@ -1844,8 +1948,12 @@ export class EmailsService {
                 const messageId = parsed.messageId || null;
 
                 if (messageId) {
+                  // 去重按"账户 + Message-ID"：同一封信出现在同事邮箱里
+                  // 不影响本账户入库。
                   const existing = await this.prisma.email.findUnique({
-                    where: { messageId },
+                    where: {
+                      emailConfigId_messageId: { emailConfigId: configId, messageId },
+                    },
                   });
                   if (existing) {
                     // Backfill: if this email was synced before we started
@@ -1904,6 +2012,7 @@ export class EmailsService {
                 // by subject. Only emails that are genuine replies to one
                 // another share a thread.
                 let threadId: string | null = await this.findThreadByReplyHeaders(
+                  configId,
                   parsed.inReplyTo as string | undefined,
                   parsed.references as string | string[] | undefined,
                 );
@@ -1911,27 +2020,36 @@ export class EmailsService {
                   threadId = await this.createThread(rawSubject);
                 }
 
-                const newEmail = await this.prisma.email.create({
-                  data: {
-                    messageId,
-                    fromAddr,
-                    fromName: fromName || null,
-                    toAddr,
-                    cc: ccAddr,
-                    subject: rawSubject,
-                    bodyHtml: parsed.html || null,
-                    bodyText: parsed.text || null,
-                    direction,
-                    status,
-                    category,
-                    sentAt: direction === 'OUTBOUND' ? (parsed.date || new Date()) : null,
-                    receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
-                    customerId: customer?.id || null,
-                    senderId: userId,
-                    emailConfigId: configId,
-                    threadId,
-                  },
-                });
+                let newEmail;
+                try {
+                  newEmail = await this.prisma.email.create({
+                    data: {
+                      messageId,
+                      fromAddr,
+                      fromName: fromName || null,
+                      toAddr,
+                      cc: ccAddr,
+                      subject: rawSubject,
+                      bodyHtml: parsed.html || null,
+                      bodyText: parsed.text || null,
+                      direction,
+                      status,
+                      category,
+                      sentAt: direction === 'OUTBOUND' ? (parsed.date || new Date()) : null,
+                      receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
+                      customerId: customer?.id || null,
+                      senderId: userId,
+                      emailConfigId: configId,
+                      threadId,
+                    },
+                    });
+                } catch (e: any) {
+                  // 同一批里同一封信出现两次（服务器上有重复副本）时，
+                  // 并发插入会撞唯一约束——跳过即可，不要让整批
+                  // Promise.all 失败。
+                  if (e?.code === 'P2002') return;
+                  throw e;
+                }
 
                 // 回邮自动关闭跟进：若这封 INBOUND 邮件的 In-Reply-To /
                 // References 命中某条 PENDING 跟进的 triggerEmail，就打 DONE。
@@ -2227,13 +2345,45 @@ export class EmailsService {
   // ==================== Template CRUD ====================
 
   async findAllTemplates() {
+    // 模板是公司共享资源，大家都能看、都能用。
     return this.prisma.emailTemplate.findMany({
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  async createTemplate(dto: CreateTemplateDto) {
+  async createTemplate(dto: CreateTemplateDto, actor: EmailActor) {
     return this.prisma.emailTemplate.create({
+      data: {
+        name: dto.name,
+        subject: dto.subject,
+        bodyHtml: dto.bodyHtml,
+        category: dto.category,
+        createdById: actor.id,
+      },
+    });
+  }
+
+  /** 改 / 删模板：创建人或管理员；历史模板没有创建人，仅管理员。 */
+  private async assertCanEditTemplate(id: string, actor: EmailActor) {
+    const template = await this.prisma.emailTemplate.findUnique({
+      where: { id },
+    });
+    if (!template) {
+      throw new NotFoundException('Email template not found');
+    }
+    if (!this.isAdmin(actor) && template.createdById !== actor.id) {
+      throw new ForbiddenException('只有模板创建人或管理员可以修改该模板');
+    }
+  }
+
+  async updateTemplate(
+    id: string,
+    dto: Partial<CreateTemplateDto>,
+    actor: EmailActor,
+  ) {
+    await this.assertCanEditTemplate(id, actor);
+    return this.prisma.emailTemplate.update({
+      where: { id },
       data: {
         name: dto.name,
         subject: dto.subject,
@@ -2243,30 +2393,8 @@ export class EmailsService {
     });
   }
 
-  async updateTemplate(id: string, dto: Partial<CreateTemplateDto>) {
-    const template = await this.prisma.emailTemplate.findUnique({
-      where: { id },
-    });
-
-    if (!template) {
-      throw new NotFoundException('Email template not found');
-    }
-
-    return this.prisma.emailTemplate.update({
-      where: { id },
-      data: dto,
-    });
-  }
-
-  async deleteTemplate(id: string) {
-    const template = await this.prisma.emailTemplate.findUnique({
-      where: { id },
-    });
-
-    if (!template) {
-      throw new NotFoundException('Email template not found');
-    }
-
+  async deleteTemplate(id: string, actor: EmailActor) {
+    await this.assertCanEditTemplate(id, actor);
     return this.prisma.emailTemplate.delete({ where: { id } });
   }
 
@@ -2398,7 +2526,7 @@ export class EmailsService {
    *      重新解析这封邮件，按 filename+mime+size 找到对应附件，落盘缓存；
    *   3. UID 缺失（历史邮件）或上游不可用 → 抛错，前端提示用户。
    */
-  async downloadAttachment(attachmentId: string, _userId: string, _role: string) {
+  async downloadAttachment(attachmentId: string, actor: EmailActor) {
     const att = await this.prisma.emailAttachment.findUnique({
       where: { id: attachmentId },
       include: {
@@ -2412,6 +2540,7 @@ export class EmailsService {
     if (!att) {
       throw new NotFoundException('附件不存在');
     }
+    await this.assertCanRead(att.emailId, actor);
 
     // 1) 已缓存 → 直接用
     if (att.storagePath && fs.existsSync(att.storagePath)) {

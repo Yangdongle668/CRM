@@ -440,8 +440,12 @@ export const weatherApi = {
 
 // ==================== Translate API ====================
 export const translateApi = {
-  translate: (segments: { index: number; text: string }[], target = 'zh-CN') =>
-    api.post('/translate', { segments, target }),
+  // emailId 可选：带上后后端按邮件缓存译文。长邮件分批翻译，给 60s。
+  translate: (
+    segments: { index: number; text: string }[],
+    target = 'zh-CN',
+    emailId?: string,
+  ) => api.post('/translate', { segments, target, emailId }, { timeout: 60000 }),
 };
 
 // ==================== RBAC API ====================
