@@ -128,6 +128,7 @@ model User {
   emailsSent      Email[]        @relation("SentEmails")
   emailConfigs    EmailConfig[]
   campaignsCreated EmailCampaign[] @relation("CampaignsCreated")
+  emailTemplates   EmailTemplate[] @relation("EmailTemplatesCreated")
   memos           Memo[]
   pisOwned        ProformaInvoice[] @relation("PIsOwned")
   pisApproved     ProformaInvoice[] @relation("PIsApproved")
@@ -157,11 +158,17 @@ model EmailConfig {
   imapSecure Boolean @default(true) @map("imap_secure")
   fromName   String? @map("from_name")
   signature  String?
+  // ---- 收信同步状态（后台定时同步写入，前端展示） ----
+  lastSyncAt        DateTime? @map("last_sync_at")         // 最近一次成功
+  lastSyncAttemptAt DateTime? @map("last_sync_attempt_at") // 最近一次尝试
+  lastSyncError     String?   @map("last_sync_error")      // 最近一次失败原因，成功后清空
+  syncFailCount     Int       @default(0) @map("sync_fail_count") // 连续失败次数，用于退避
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  emails Email[] @relation("EmailAccount")
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails     Email[]          @relation("EmailAccount")
+  syncStates EmailSyncState[]
 
   @@map("email_configs")
 }
@@ -324,7 +331,9 @@ enum EmailDirection {
 }
 
 enum EmailStatus {
-  DRAFT
+  DRAFT    // 草稿（category = drafts）
+  QUEUED   // 已提交发送：撤回窗口内 / 定时发送等待中 / 排队中
+  SENDING  // 发送任务已认领，正在走 SMTP
   SENT
   RECEIVED
   FAILED
@@ -334,7 +343,9 @@ enum EmailStatus {
 
 model Email {
   id            String         @id @default(uuid())
-  messageId     String?        @unique @map("message_id")
+  // Message-ID 只在同一邮箱账户内唯一：同事之间互发 / 同时被抄送时，
+  // 同一封信会在两个人的邮箱里各存一份。
+  messageId     String?        @map("message_id")
   threadId      String?        @map("thread_id")
   emailConfigId String?        @map("email_config_id")
   fromAddr      String         @map("from_addr")
@@ -345,6 +356,16 @@ model Email {
   subject       String
   bodyHtml      String?        @map("body_html")
   bodyText      String?        @map("body_text")
+  // 列表预览：正文纯文本前 200 字，入库时生成。列表接口只返回它，
+  // 不再返回动辄几 MB 的正文（内嵌图片是 base64 写在 bodyHtml 里的）。
+  snippet       String?
+  // ---- 发信流程 ----
+  // 最近一次发送失败的原因（成功或重发时清空），前端据此展示并提供重发
+  lastError     String?        @map("last_error")
+  // 计划发送时间：撤回窗口（发出后几秒）或用户选择的定时发送
+  scheduledAt   DateTime?      @map("scheduled_at")
+  // 草稿是对哪封邮件的回复：发送时据此带上 In-Reply-To 并归入原线程
+  replyToEmailId String?       @map("reply_to_email_id")
   direction     EmailDirection
   status        EmailStatus    @default(DRAFT)
   category      String?        @default("inbox")
@@ -391,10 +412,32 @@ model Email {
   recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
   attachments  EmailAttachment[]
   triggeredFollowUps FollowUp[]  @relation("FollowUpTrigger")
+  translations EmailTranslation[]
 
+  @@unique([emailConfigId, messageId])
+  @@index([messageId])
   @@index([campaignId])
   @@index([recipientId])
   @@map("emails")
+}
+
+// ==================== IMAP 增量同步游标 ====================
+// 每个邮箱账户的每个文件夹一行。IMAP UID 在同一个 UIDVALIDITY 下单调
+// 递增，所以只需记住已同步到的最大 UID，下次只拉 lastUid+1 之后的邮件。
+// 服务器重建文件夹会换 UIDVALIDITY，此时游标作废、按时间窗口重新扫描
+// （已有邮件按 Message-ID 去重，不会重复入库）。
+model EmailSyncState {
+  id            String   @id @default(uuid())
+  emailConfigId String   @map("email_config_id")
+  folder        String
+  uidValidity   String   @map("uid_validity")
+  lastUid       BigInt   @default(0) @map("last_uid") // UID 是 32 位无符号数，可能超过 int4
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  emailConfig EmailConfig @relation(fields: [emailConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([emailConfigId, folder])
+  @@map("email_sync_states")
 }
 
 // ==================== 邮件附件（懒下载） ====================
@@ -549,15 +592,40 @@ model EmailThread {
 }
 
 model EmailTemplate {
-  id        String   @id @default(uuid())
-  name      String
-  subject   String
-  bodyHtml  String   @map("body_html")
-  category  String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id          String   @id @default(uuid())
+  name        String
+  subject     String
+  bodyHtml    String   @map("body_html")
+  category    String?
+  // 创建人：只有创建人或管理员能改 / 删。老模板为空，仅管理员可改。
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy User? @relation("EmailTemplatesCreated", fields: [createdById], references: [id], onDelete: SetNull)
 
   @@map("email_templates")
+}
+
+// ==================== 邮件译文缓存 ====================
+// 按 (邮件, 目标语言) 缓存逐段译文，再次打开直接显示，不重复调用翻译
+// 服务。邮件删除时级联删除。
+model EmailTranslation {
+  id         String   @id @default(uuid())
+  emailId    String   @map("email_id")
+  targetLang String   @map("target_lang")
+  sourceLang String?  @map("source_lang")
+  // 原文段落的指纹：前端抽取的段落变了（极少见）缓存自动失效。
+  sourceHash String   @map("source_hash")
+  // JSON: [{ index, translated }]
+  segments   Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  email Email @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  @@unique([emailId, targetLang])
+  @@map("email_translations")
 }
 
 // ==================== 报价单 ====================

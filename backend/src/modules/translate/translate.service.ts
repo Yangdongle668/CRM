@@ -1,4 +1,16 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { createHash } from 'crypto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { EmailActor, EmailsService } from '../emails/emails.service';
+import {
+  GoogleTranslateProvider,
+  TranslateProvider,
+} from './translate.provider';
 
 export interface TranslateSegment {
   index: number;
@@ -10,132 +22,202 @@ export interface TranslateResult {
   sourceLang: string;
   targetLang: string;
   segments: TranslateSegment[];
+  /** 翻译失败、按原文返回的段落 index。前端据此提示"N 段未能翻译"。 */
+  failed: number[];
+  /** 是否命中译文缓存。 */
+  cached: boolean;
 }
 
+// 分批：每批最多 50 段、5000 字符；最多 3 批并发。实测谷歌单次 POST
+// 能吃下 100 段 / 20000 字符，这里留足余量，避免触发限流。
+const BATCH_MAX_SEGMENTS = 50;
+const BATCH_MAX_CHARS = 5000;
+const CONCURRENCY = 3;
+
 /**
- * TranslateService — takes an array of text segments (extracted from
- * email HTML by the frontend, skipping images/tags), translates each
- * via Google Translate's free endpoint, and returns translated segments
- * with matching indices so the frontend can replace them in-place.
+ * 逐段翻译邮件正文。前端从邮件 HTML 里抽出文本节点（跳过图片 / 引用
+ * 历史等），按 index 发过来；这里按 index 原样返回译文，前端就地替换。
+ *
+ * 翻译服务商走 TranslateProvider 接口，默认谷歌。以后写信时"中文转
+ * 外文"等功能复用同一个接口。
  */
 @Injectable()
 export class TranslateService {
   private readonly logger = new Logger(TranslateService.name);
+  private readonly provider: TranslateProvider = new GoogleTranslateProvider();
 
-  /**
-   * Translate an array of text segments.
-   * @param segments Array of { index, text } — text portions to translate
-   * @param target   Target language code (default zh-CN)
-   */
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emails: EmailsService,
+  ) {}
+
   async translateSegments(
     segments: { index: number; text: string }[],
     target = 'zh-CN',
+    opts: { emailId?: string; actor?: EmailActor } = {},
   ): Promise<TranslateResult> {
-    if (!segments || segments.length === 0) {
-      throw new BadRequestException('没有可翻译的内容');
-    }
-
-    // Filter out empty/whitespace-only segments
-    const valid = segments.filter((s) => s.text && s.text.trim().length > 0);
+    const valid = (segments || []).filter(
+      (s) => s && typeof s.text === 'string' && s.text.trim().length > 0,
+    );
     if (valid.length === 0) {
       throw new BadRequestException('没有可翻译的内容');
     }
 
-    // Batch segments into groups ≤ 4500 chars total to stay under the
-    // free endpoint's limit, then translate each batch.
-    const results: TranslateSegment[] = [];
-    let detectedLang = 'auto';
+    // 带了 emailId 就走缓存；先校验调用者能读这封邮件，防止借缓存读别人的译文。
+    const emailId = opts.emailId && opts.actor ? opts.emailId : undefined;
+    if (emailId) {
+      await this.emails.ensureCanRead(emailId, opts.actor!);
+    }
+    const sourceHash = this.hashSegments(valid, target);
 
-    const batches = this.batchSegments(valid, 4500);
-    for (const batch of batches) {
-      // Join with a sentinel delimiter that won't appear in normal text
-      const DELIM = '\n\u2063\n';
-      const joined = batch.map((s) => s.text.trim()).join(DELIM);
-
-      try {
-        const { text, sourceLang } = await this.callGoogleTranslate(joined, target);
-        if (detectedLang === 'auto' && sourceLang) detectedLang = sourceLang;
-
-        const parts = text.split(/\n?\u2063\n?/);
-        for (let i = 0; i < batch.length; i++) {
-          results.push({
-            index: batch[i].index,
-            original: batch[i].text,
-            translated: (parts[i] || batch[i].text).trim(),
-          });
-        }
-      } catch (err: any) {
-        this.logger.error(`translate batch failed: ${err?.message}`);
-        // On failure, return originals so the UI doesn't break
-        for (const seg of batch) {
-          results.push({
-            index: seg.index,
-            original: seg.text,
-            translated: seg.text,
-          });
-        }
+    if (emailId) {
+      const hit = await this.prisma.emailTranslation.findUnique({
+        where: { emailId_targetLang: { emailId, targetLang: target } },
+      });
+      if (hit && hit.sourceHash === sourceHash) {
+        const cachedMap = new Map<number, string>(
+          (hit.segments as any[]).map((s) => [s.index, s.translated]),
+        );
+        return {
+          sourceLang: hit.sourceLang || 'auto',
+          targetLang: target,
+          segments: valid.map((s) => ({
+            index: s.index,
+            original: s.text,
+            translated: cachedMap.get(s.index) ?? s.text,
+          })),
+          failed: [],
+          cached: true,
+        };
       }
     }
 
+    const batches = this.batchSegments(valid);
+    const translated = new Map<number, string>();
+    const failed: number[] = [];
+    // 检测到的源语言按字符数加权投票，取最主要的一种。
+    const langWeight = new Map<string, number>();
+
+    await this.runWithConcurrency(batches, CONCURRENCY, async (batch) => {
+      try {
+        const out = await this.provider.translate(
+          batch.map((s) => s.text.trim()),
+          target,
+        );
+        batch.forEach((seg, i) => {
+          const r = out[i];
+          if (r && typeof r.text === 'string' && r.text.trim()) {
+            translated.set(seg.index, r.text.trim());
+            if (r.sourceLang) {
+              langWeight.set(
+                r.sourceLang,
+                (langWeight.get(r.sourceLang) || 0) + seg.text.length,
+              );
+            }
+          } else {
+            failed.push(seg.index);
+          }
+        });
+      } catch (err: any) {
+        this.logger.warn(
+          `translate batch of ${batch.length} failed: ${err?.message || err}`,
+        );
+        failed.push(...batch.map((s) => s.index));
+      }
+    });
+
+    if (failed.length === valid.length) {
+      throw new ServiceUnavailableException('翻译服务暂时不可用，请稍后重试');
+    }
+
+    let sourceLang = 'auto';
+    let best = 0;
+    for (const [lang, w] of langWeight) {
+      if (w > best) {
+        best = w;
+        sourceLang = lang;
+      }
+    }
+
+    const result: TranslateSegment[] = valid.map((s) => ({
+      index: s.index,
+      original: s.text,
+      translated: translated.get(s.index) ?? s.text,
+    }));
+
+    // 只缓存完整成功的结果；部分失败的下次重新翻译。
+    if (emailId && failed.length === 0) {
+      const data = {
+        sourceLang,
+        sourceHash,
+        segments: result.map((r) => ({ index: r.index, translated: r.translated })),
+      };
+      await this.prisma.emailTranslation
+        .upsert({
+          where: { emailId_targetLang: { emailId, targetLang: target } },
+          create: { emailId, targetLang: target, ...data },
+          update: data,
+        })
+        .catch((e) => this.logger.warn(`cache translation failed: ${e?.message}`));
+    }
+
     return {
-      sourceLang: detectedLang,
+      sourceLang,
       targetLang: target,
-      segments: results,
+      segments: result,
+      failed: failed.sort((a, b) => a - b),
+      cached: false,
     };
   }
 
-  private async callGoogleTranslate(text: string, target: string) {
-    const url =
-      'https://translate.googleapis.com/translate_a/single?' +
-      new URLSearchParams({
-        client: 'gtx',
-        sl: 'auto',
-        tl: target,
-        dt: 't',
-        q: text,
-      }).toString();
-
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (compatible; TradeCRM/1.0; +https://example.com)',
-      },
-    });
-
-    if (!res.ok) {
-      throw new Error(`upstream HTTP ${res.status}`);
+  private hashSegments(
+    segments: { index: number; text: string }[],
+    target: string,
+  ): string {
+    const h = createHash('sha256');
+    h.update(target);
+    for (const s of segments) {
+      h.update(`\u0000${s.index}\u0000${s.text}`);
     }
-
-    const data: any = await res.json();
-    if (!Array.isArray(data) || !Array.isArray(data[0])) {
-      throw new Error('unexpected response shape');
-    }
-
-    const translated = data[0]
-      .map((seg: any) => (Array.isArray(seg) && typeof seg[0] === 'string' ? seg[0] : ''))
-      .join('');
-    const sourceLang = typeof data[2] === 'string' ? data[2] : 'auto';
-    return { text: translated, sourceLang };
+    return h.digest('hex');
   }
 
   private batchSegments(
     segments: { index: number; text: string }[],
-    maxLen: number,
   ): { index: number; text: string }[][] {
     const batches: { index: number; text: string }[][] = [];
     let current: { index: number; text: string }[] = [];
     let currentLen = 0;
 
     for (const seg of segments) {
-      if (currentLen + seg.text.length > maxLen && current.length > 0) {
+      const len = seg.text.length;
+      if (
+        current.length > 0 &&
+        (current.length >= BATCH_MAX_SEGMENTS || currentLen + len > BATCH_MAX_CHARS)
+      ) {
         batches.push(current);
         current = [];
         currentLen = 0;
       }
       current.push(seg);
-      currentLen += seg.text.length + 3; // +3 for delimiter
+      currentLen += len;
     }
     if (current.length > 0) batches.push(current);
     return batches;
+  }
+
+  private async runWithConcurrency<T>(
+    items: T[],
+    limit: number,
+    worker: (item: T) => Promise<void>,
+  ): Promise<void> {
+    let next = 0;
+    const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const item = items[next++];
+        await worker(item);
+      }
+    });
+    await Promise.all(runners);
   }
 }

@@ -21,9 +21,17 @@ import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EmailsService } from './emails.service';
 import { EmailTrackingService } from './email-tracking.service';
-import { SendEmailDto } from './dto/send-email.dto';
+import { SendEmailDto, SaveDraftDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
+
+/** RFC 5987 ext-value：encodeURIComponent 不转义的 ' ( ) * 也要转义。 */
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
+}
 
 // 1x1 transparent GIF pixel
 const TRACKING_PIXEL = Buffer.from(
@@ -149,7 +157,8 @@ export class EmailsController {
    * rewritten link list + confidence score. Gated by the usual auth.
    */
   @Get(':id/tracking')
-  async getTracking(@Param('id') id: string) {
+  async getTracking(@CurrentUser() user: any, @Param('id') id: string) {
+    await this.emailsService.ensureCanRead(id, user);
     return this.tracking.getTrackingDetail(id);
   }
 
@@ -210,19 +219,20 @@ export class EmailsController {
 
   /** Aggregate stats: sent / opened / opened-by-human / clicked / open rate. */
   @Get('campaigns/:id/stats')
-  async campaignStats(@Param('id') id: string) {
-    return this.emailsService.getCampaignStats(id);
+  async campaignStats(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getCampaignStats(id, user);
   }
 
   // ==================== Recipients ====================
 
   @Get('recipients')
   async listRecipients(
+    @CurrentUser() user: any,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.emailsService.listRecipients({
+    return this.emailsService.listRecipients(user, {
       search,
       page: page ? parseInt(page, 10) : undefined,
       pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
@@ -230,8 +240,8 @@ export class EmailsController {
   }
 
   @Get('recipients/:id')
-  async getRecipient(@Param('id') id: string) {
-    return this.emailsService.getRecipientDetail(id);
+  async getRecipient(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getRecipientDetail(id, user);
   }
 
   /**
@@ -239,8 +249,16 @@ export class EmailsController {
    * 邮件发件人、CRM 联系人。按最近活跃时间排序。
    */
   @Get('address-suggestions')
-  async suggestAddresses(@Query('q') q?: string, @Query('limit') limit?: string) {
-    return this.emailsService.suggestAddresses(q || '', limit ? parseInt(limit, 10) : 20);
+  async suggestAddresses(
+    @CurrentUser() user: any,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.emailsService.suggestAddresses(
+      user,
+      q || '',
+      limit ? parseInt(limit, 10) : 20,
+    );
   }
 
   /**
@@ -275,6 +293,49 @@ export class EmailsController {
     return this.emailsService.sendEmail(user.id, dto, origin);
   }
 
+  // ==================== Drafts / Undo / Resend ====================
+
+  /** 草稿自动保存：不带 draftId 新建，带了就更新 */
+  @Post('drafts')
+  async saveDraft(@CurrentUser() user: any, @Body() dto: SaveDraftDto) {
+    return this.emailsService.saveDraft(user.id, dto);
+  }
+
+  @Get('drafts/:id')
+  async getDraft(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getDraft(id, user);
+  }
+
+  @Delete('drafts/:id')
+  async discardDraft(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.discardDraft(id, user);
+  }
+
+  /** 撤回（撤回窗口内）/ 取消定时发送：邮件退回草稿，返回草稿内容 */
+  @Post(':id/cancel-send')
+  async cancelSend(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.cancelSend(id, user);
+  }
+
+  /** 发送失败的邮件重新发送 */
+  @Post(':id/resend')
+  async resend(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Req() req: Request,
+  ) {
+    return this.emailsService.resend(id, user, this.tracking.resolveTrackingOrigin(req));
+  }
+
+  /** 列表批量操作：read / unread / flag / unflag / trash / restore / spam / notSpam / delete */
+  @Post('batch')
+  async batch(
+    @CurrentUser() user: any,
+    @Body() body: { ids?: string[]; threadIds?: string[]; action: string },
+  ) {
+    return this.emailsService.batchAction(user, body || ({} as any));
+  }
+
   @Get('unread-count')
   async getUnreadCount(@CurrentUser() user: any) {
     return this.emailsService.getUnreadCount(user.id, user.role);
@@ -298,6 +359,7 @@ export class EmailsController {
     @Query('category') category?: string,
     @Query('flagged') flagged?: string,
     @Query('search') search?: string,
+    @Query('customerOnly') customerOnly?: string,
   ) {
     return this.emailsService.findAll(
       user.id,
@@ -313,6 +375,7 @@ export class EmailsController {
         category,
         flagged,
         search,
+        customerOnly,
       },
       !!user.isSuperAdmin,
     );
@@ -326,7 +389,7 @@ export class EmailsController {
     @Param('id') id: string,
     @Body() body: { flagged: boolean },
   ) {
-    return this.emailsService.toggleFlag(id, user.id, body.flagged);
+    return this.emailsService.toggleFlag(id, user, body.flagged);
   }
 
   @Patch(':id/category')
@@ -335,39 +398,40 @@ export class EmailsController {
     @Param('id') id: string,
     @Body() body: { category: string },
   ) {
-    return this.emailsService.updateCategory(id, user.id, body.category);
+    return this.emailsService.updateCategory(id, user, body.category);
   }
 
   // ==================== Delete / Trash / Spam ====================
 
   @Delete(':id')
-  async deleteEmail(@Param('id') id: string) {
-    return this.emailsService.moveToTrash(id);
+  async deleteEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.moveToTrash(id, user);
   }
 
   @Post('batch-trash')
-  async batchTrash(@Body() body: { ids: string[] }) {
-    return this.emailsService.batchMoveToTrash(body.ids);
+  async batchTrash(@CurrentUser() user: any, @Body() body: { ids: string[] }) {
+    return this.emailsService.batchMoveToTrash(body?.ids, user);
   }
 
   @Post(':id/restore')
-  async restoreEmail(@Param('id') id: string) {
-    return this.emailsService.restoreFromTrash(id);
+  async restoreEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.restoreFromTrash(id, user);
   }
 
   @Delete(':id/permanent')
-  async permanentDeleteEmail(@Param('id') id: string) {
-    return this.emailsService.permanentDelete(id);
+  async permanentDeleteEmail(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.permanentDelete(id, user);
   }
 
+  // 只清空 / 扫描调用者自己邮箱里的邮件
   @Delete('trash/empty')
-  async emptyTrash() {
-    return this.emailsService.emptyTrash();
+  async emptyTrash(@CurrentUser() user: any) {
+    return this.emailsService.emptyTrash(user.id);
   }
 
   @Post('scan-spam')
-  async scanSpam() {
-    return this.emailsService.scanSpam();
+  async scanSpam(@CurrentUser() user: any) {
+    return this.emailsService.scanSpam(user.id);
   }
 
   // ==================== Templates ====================
@@ -378,21 +442,25 @@ export class EmailsController {
   }
 
   @Post('templates')
-  async createTemplate(@Body() dto: CreateTemplateDto) {
-    return this.emailsService.createTemplate(dto);
+  async createTemplate(
+    @CurrentUser() user: any,
+    @Body() dto: CreateTemplateDto,
+  ) {
+    return this.emailsService.createTemplate(dto, user);
   }
 
   @Put('templates/:id')
   async updateTemplate(
+    @CurrentUser() user: any,
     @Param('id') id: string,
     @Body() dto: CreateTemplateDto,
   ) {
-    return this.emailsService.updateTemplate(id, dto);
+    return this.emailsService.updateTemplate(id, dto, user);
   }
 
   @Delete('templates/:id')
-  async deleteTemplate(@Param('id') id: string) {
-    return this.emailsService.deleteTemplate(id);
+  async deleteTemplate(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.deleteTemplate(id, user);
   }
 
   // ==================== Thread & Detail ====================
@@ -402,7 +470,7 @@ export class EmailsController {
     @CurrentUser() user: any,
     @Param('threadId') threadId: string,
   ) {
-    return this.emailsService.findThreadEmails(threadId, user.id, user.role);
+    return this.emailsService.findThreadEmails(threadId, user);
   }
 
   // 附件懒下载：收邮件时只落元数据，用户点"下载"才按需从 IMAP 回源
@@ -414,10 +482,13 @@ export class EmailsController {
     @Res() res: Response,
   ) {
     const { filePath, fileName, mimeType } =
-      await this.emailsService.downloadAttachment(attachmentId, user.id, user.role);
+      await this.emailsService.downloadAttachment(attachmentId, user);
+    // filename 给老客户端一个 ASCII 兜底，filename* 按 RFC 5987 带真实
+    // 文件名。以前 filename="%E6%8A%A5..." 会让中文文件名下载后变成编码串。
+    const asciiName = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(fileName)}"`,
+      `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeRfc5987(fileName)}`,
     );
     res.setHeader('Content-Type', mimeType || 'application/octet-stream');
     res.sendFile(path.resolve(filePath));
@@ -425,7 +496,7 @@ export class EmailsController {
 
   @Get(':id')
   async findOne(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.emailsService.findOne(id, user.id, user.role);
+    return this.emailsService.findOne(id, user);
   }
 
   @Patch('mark-all-read')
@@ -435,7 +506,7 @@ export class EmailsController {
 
   @Patch(':id/read')
   async markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.emailsService.markAsRead(id, user.id, user.role);
+    return this.emailsService.markAsRead(id, user);
   }
 
   @Post('fetch')

@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AddressAutocomplete from './AddressAutocomplete';
+import CustomerPicker from './CustomerPicker';
 import {
   HiOutlineXMark,
   HiOutlineMinus,
@@ -28,6 +29,8 @@ import {
   HiOutlinePencilSquare,
   HiChevronDown,
   HiOutlineDocument,
+  HiOutlineTrash,
+  HiOutlineClock,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import RichTextEditor, { RichTextEditorHandle } from './RichTextEditor';
@@ -62,10 +65,7 @@ interface Account {
   fromName?: string | null;
 }
 
-interface Customer {
-  id: string;
-  companyName: string;
-}
+export type DraftStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 interface ComposeWindowProps {
   open: boolean;
@@ -73,13 +73,18 @@ interface ComposeWindowProps {
   value: ComposeWindowValue;
   onChange: (next: ComposeWindowValue) => void;
   onSend: () => Promise<void> | void;
+  /** 定时发送 */
+  onSchedule?: (at: Date) => Promise<void> | void;
+  /** 丢弃（删除草稿并关闭） */
+  onDiscard?: () => void;
   sending?: boolean;
+  /** 草稿自动保存状态，显示在标题栏 */
+  draftStatus?: DraftStatus;
 
   accounts: Account[];
   selectedAccountId: string | null;
   onAccountChange: (id: string | null) => void;
 
-  customers: Customer[];
   templates?: EmailTemplate[];
   /** 新建窗口时允许外部指定初始是否最大化 */
   initialMaximized?: boolean;
@@ -98,11 +103,13 @@ export default function ComposeWindow({
   value,
   onChange,
   onSend,
+  onSchedule,
+  onDiscard,
   sending,
+  draftStatus = 'idle',
   accounts,
   selectedAccountId,
   onAccountChange,
-  customers,
   templates = [],
   initialMaximized = false,
 }: ComposeWindowProps) {
@@ -118,6 +125,8 @@ export default function ComposeWindow({
   }, [value.cc, value.bcc]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showInsert, setShowInsert] = useState(false);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [scheduleInput, setScheduleInput] = useState('');
 
   // 正在上传中的附件（文件名 → 占位）。上传完成后会被移除并追加到
   // value.attachments 里。
@@ -286,17 +295,60 @@ export default function ComposeWindow({
     return { left: pos.x, top: pos.y, width: size.w, height: size.h };
   }, [mode, pos, size]);
 
-  const handleSend = async () => {
-    if (sending) return;
+  const validateBeforeSend = () => {
+    if (sending) return false;
     if (!value.toAddr.trim()) {
       toast.error('请输入收件人');
-      return;
+      return false;
     }
     if (!value.subject.trim()) {
       toast.error('请输入主题');
+      return false;
+    }
+    return true;
+  };
+
+  const handleSend = async () => {
+    if (!validateBeforeSend()) return;
+    await onSend();
+  };
+
+  // ============== 定时发送 ==============
+  // 常用选项：明早 9 点 / 下周一早 9 点；也可以自己选时间（本地时区）
+  const scheduleOptions = useMemo(() => {
+    const at9 = (d: Date) => {
+      const x = new Date(d);
+      x.setHours(9, 0, 0, 0);
+      return x;
+    };
+    const now = new Date();
+    const tomorrow = at9(new Date(now.getTime() + 24 * 3600_000));
+    const monday = at9(new Date(now));
+    monday.setDate(monday.getDate() + ((8 - monday.getDay()) % 7 || 7));
+    return [
+      { label: '明天 09:00', at: tomorrow },
+      { label: `下周一 09:00（${monday.getMonth() + 1}/${monday.getDate()}）`, at: monday },
+    ];
+    // 打开菜单时重新计算
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSchedule]);
+
+  const handleSchedule = async (at: Date) => {
+    if (!onSchedule || !validateBeforeSend()) return;
+    if (Number.isNaN(at.getTime()) || at.getTime() <= Date.now()) {
+      toast.error('请选择一个将来的时间');
       return;
     }
-    await onSend();
+    setShowSchedule(false);
+    await onSchedule(at);
+  };
+
+  // Ctrl / Cmd + Enter 发送
+  const onKeyDownCapture = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   // ============== 模板插入 ==============
@@ -395,6 +447,7 @@ export default function ComposeWindow({
       ref={windowRef}
       className="fixed z-[115] flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-2xl"
       style={windowStyle}
+      onKeyDownCapture={onKeyDownCapture}
     >
       {/* ============== 标题栏 ============== */}
       <div
@@ -415,6 +468,50 @@ export default function ComposeWindow({
           <HiOutlinePaperAirplane className="h-4 w-4 -rotate-45" />
           {sending ? '发送中…' : '发送'}
         </button>
+        {onSchedule && mode !== 'minimized' && (
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowSchedule((v) => !v)}
+              disabled={sending}
+              className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+              title="定时发送"
+            >
+              <HiOutlineClock className="h-4 w-4" />
+              <span className="hidden sm:inline">定时</span>
+            </button>
+            {showSchedule && (
+              <div className="absolute left-0 top-full z-40 mt-1 w-64 rounded-md border border-gray-200 bg-white p-2 text-sm shadow-lg">
+                {scheduleOptions.map((o) => (
+                  <button
+                    key={o.label}
+                    type="button"
+                    onClick={() => handleSchedule(o.at)}
+                    className="block w-full rounded px-2 py-1.5 text-left hover:bg-gray-50"
+                  >
+                    {o.label}
+                  </button>
+                ))}
+                <div className="mt-1 border-t border-gray-100 pt-2">
+                  <input
+                    type="datetime-local"
+                    value={scheduleInput}
+                    onChange={(e) => setScheduleInput(e.target.value)}
+                    className="w-full rounded border border-gray-200 px-2 py-1 text-sm"
+                  />
+                  <button
+                    type="button"
+                    disabled={!scheduleInput}
+                    onClick={() => handleSchedule(new Date(scheduleInput))}
+                    className="mt-2 w-full rounded bg-rose-500 px-2 py-1 text-white hover:bg-rose-600 disabled:opacity-50"
+                  >
+                    按所选时间发送
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* 发件人选择 */}
         <div className="ml-1 min-w-0 flex-1">
@@ -443,7 +540,28 @@ export default function ComposeWindow({
           )}
         </div>
 
+        {/* 草稿保存状态 */}
+        {mode !== 'minimized' && draftStatus !== 'idle' && (
+          <span
+            className={`hidden flex-shrink-0 text-xs sm:inline ${
+              draftStatus === 'error' ? 'text-red-500' : 'text-gray-400'
+            }`}
+          >
+            {draftStatus === 'saving' ? '保存中…' : draftStatus === 'saved' ? '草稿已保存' : '草稿保存失败'}
+          </span>
+        )}
+
         {/* 右侧控件 */}
+        {onDiscard && (
+          <button
+            type="button"
+            onClick={onDiscard}
+            className="rounded-full p-1 text-gray-500 hover:bg-red-100 hover:text-red-600"
+            title="丢弃草稿"
+          >
+            <HiOutlineTrash className="h-4 w-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setMode(mode === 'minimized' ? 'normal' : 'minimized')}
@@ -470,7 +588,7 @@ export default function ComposeWindow({
           type="button"
           onClick={onClose}
           className="rounded-full p-1 text-gray-500 hover:bg-red-100 hover:text-red-600"
-          title="关闭"
+          title="关闭（自动保存为草稿）"
         >
           <HiOutlineXMark className="h-4 w-4" />
         </button>
@@ -540,18 +658,10 @@ export default function ComposeWindow({
             {/* 关联客户 */}
             <div className="flex items-center gap-2 px-4 py-2">
               <span className="w-14 flex-shrink-0 text-sm text-gray-500">客户</span>
-              <select
+              <CustomerPicker
                 value={value.customerId}
-                onChange={(e) => onChange({ ...value, customerId: e.target.value })}
-                className="flex-1 border-none bg-transparent text-sm text-gray-900 focus:outline-none"
-              >
-                <option value="">不关联客户</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.companyName}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => onChange({ ...latestValueRef.current, customerId: id })}
+              />
             </div>
           </div>
 

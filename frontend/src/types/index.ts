@@ -136,7 +136,15 @@ export interface Lead {
 
 // ==================== 邮件 ====================
 export type EmailDirection = 'INBOUND' | 'OUTBOUND';
-export type EmailStatus = 'DRAFT' | 'SENT' | 'RECEIVED' | 'FAILED' | 'READ' | 'VIEWED';
+export type EmailStatus =
+  | 'DRAFT'
+  | 'QUEUED'
+  | 'SENDING'
+  | 'SENT'
+  | 'RECEIVED'
+  | 'FAILED'
+  | 'READ'
+  | 'VIEWED';
 
 export interface EmailAttachment {
   id: string;
@@ -161,6 +169,12 @@ export interface Email {
   subject: string;
   bodyHtml?: string;
   bodyText?: string;
+  /** 列表接口返回的纯文本预览（列表不返回正文） */
+  snippet?: string | null;
+  /** 最近一次发送失败原因 */
+  lastError?: string | null;
+  /** 计划发送时间（撤回窗口 / 定时发送） */
+  scheduledAt?: string | null;
   direction: EmailDirection;
   status: EmailStatus;
   category?: string;

@@ -148,6 +148,21 @@ export const emailsApi = {
   list: (params?: any) => api.get('/emails', { params }),
   getById: (id: string) => api.get(`/emails/${id}`),
   send: (data: any) => api.post('/emails/send', data),
+  // 撤回（撤回窗口内）/ 取消定时：邮件退回草稿，返回草稿内容
+  cancelSend: (id: string) => api.post(`/emails/${id}/cancel-send`),
+  resend: (id: string) => api.post(`/emails/${id}/resend`),
+
+  // 草稿（写信窗口自动保存）
+  saveDraft: (data: any) => api.post('/emails/drafts', data),
+  getDraft: (id: string) => api.get(`/emails/drafts/${id}`),
+  discardDraft: (id: string) => api.delete(`/emails/drafts/${id}`),
+
+  // 列表批量操作；threadIds 表示整个会话
+  batch: (data: {
+    ids?: string[];
+    threadIds?: string[];
+    action: 'read' | 'unread' | 'flag' | 'unflag' | 'trash' | 'restore' | 'spam' | 'notSpam' | 'delete';
+  }) => api.post('/emails/batch', data),
   fetch: () => api.post('/emails/fetch'),
 
   // Flag and category
@@ -440,8 +455,12 @@ export const weatherApi = {
 
 // ==================== Translate API ====================
 export const translateApi = {
-  translate: (segments: { index: number; text: string }[], target = 'zh-CN') =>
-    api.post('/translate', { segments, target }),
+  // emailId 可选：带上后后端按邮件缓存译文。长邮件分批翻译，给 60s。
+  translate: (
+    segments: { index: number; text: string }[],
+    target = 'zh-CN',
+    emailId?: string,
+  ) => api.post('/translate', { segments, target, emailId }, { timeout: 60000 }),
 };
 
 // ==================== RBAC API ====================
