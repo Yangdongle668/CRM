@@ -158,11 +158,17 @@ model EmailConfig {
   imapSecure Boolean @default(true) @map("imap_secure")
   fromName   String? @map("from_name")
   signature  String?
+  // ---- 收信同步状态（后台定时同步写入，前端展示） ----
+  lastSyncAt        DateTime? @map("last_sync_at")         // 最近一次成功
+  lastSyncAttemptAt DateTime? @map("last_sync_attempt_at") // 最近一次尝试
+  lastSyncError     String?   @map("last_sync_error")      // 最近一次失败原因，成功后清空
+  syncFailCount     Int       @default(0) @map("sync_fail_count") // 连续失败次数，用于退避
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  emails Email[] @relation("EmailAccount")
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emails     Email[]          @relation("EmailAccount")
+  syncStates EmailSyncState[]
 
   @@map("email_configs")
 }
@@ -348,6 +354,9 @@ model Email {
   subject       String
   bodyHtml      String?        @map("body_html")
   bodyText      String?        @map("body_text")
+  // 列表预览：正文纯文本前 200 字，入库时生成。列表接口只返回它，
+  // 不再返回动辄几 MB 的正文（内嵌图片是 base64 写在 bodyHtml 里的）。
+  snippet       String?
   direction     EmailDirection
   status        EmailStatus    @default(DRAFT)
   category      String?        @default("inbox")
@@ -401,6 +410,25 @@ model Email {
   @@index([campaignId])
   @@index([recipientId])
   @@map("emails")
+}
+
+// ==================== IMAP 增量同步游标 ====================
+// 每个邮箱账户的每个文件夹一行。IMAP UID 在同一个 UIDVALIDITY 下单调
+// 递增，所以只需记住已同步到的最大 UID，下次只拉 lastUid+1 之后的邮件。
+// 服务器重建文件夹会换 UIDVALIDITY，此时游标作废、按时间窗口重新扫描
+// （已有邮件按 Message-ID 去重，不会重复入库）。
+model EmailSyncState {
+  id            String   @id @default(uuid())
+  emailConfigId String   @map("email_config_id")
+  folder        String
+  uidValidity   String   @map("uid_validity")
+  lastUid       BigInt   @default(0) @map("last_uid") // UID 是 32 位无符号数，可能超过 int4
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  emailConfig EmailConfig @relation(fields: [emailConfigId], references: [id], onDelete: Cascade)
+
+  @@unique([emailConfigId, folder])
+  @@map("email_sync_states")
 }
 
 // ==================== 邮件附件（懒下载） ====================

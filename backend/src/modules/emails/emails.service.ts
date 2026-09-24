@@ -5,12 +5,12 @@ import {
   BadRequestException,
   ForbiddenException,
   Optional,
+  OnApplicationBootstrap,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import * as nodemailer from 'nodemailer';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MailComposer = require('nodemailer/lib/mail-composer');
-import * as Imap from 'imap';
 import * as fs from 'fs';
 import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -27,6 +27,10 @@ import {
 } from '../../queue/queue.constants';
 import { EmailTrackingService } from './email-tracking.service';
 import { FollowUpsService } from '../follow-ups/follow-ups.service';
+import { EmailCustomerMatcher } from './email-customer-matcher.service';
+import { ImapSyncService } from './imap-sync.service';
+import { isSpam, makeSnippet } from './email-utils';
+import { createImap, findSentFolder } from './imap-utils';
 
 /** 调用方身份（来自 JwtStrategy.validate 返回的 user）。 */
 export interface EmailActor {
@@ -35,14 +39,53 @@ export interface EmailActor {
   isSuperAdmin?: boolean;
 }
 
+/**
+ * 列表接口返回的字段：不含 bodyHtml / bodyText（内嵌图片以 base64 存在
+ * bodyHtml 里，一封就可能几 MB），预览用 snippet。正文在详情接口里取。
+ */
+const EMAIL_LIST_SELECT = {
+  id: true,
+  messageId: true,
+  threadId: true,
+  emailConfigId: true,
+  fromAddr: true,
+  fromName: true,
+  toAddr: true,
+  cc: true,
+  subject: true,
+  snippet: true,
+  direction: true,
+  status: true,
+  category: true,
+  flagged: true,
+  sentAt: true,
+  receivedAt: true,
+  viewedAt: true,
+  viewCount: true,
+  firstHumanOpenAt: true,
+  openConfidence: true,
+  totalClicks: true,
+  customerId: true,
+  senderId: true,
+  campaignId: true,
+  createdAt: true,
+  customer: { select: { id: true, companyName: true } },
+  sender: { select: { id: true, name: true, email: true } },
+  emailConfig: { select: { emailAddr: true } },
+  // 只用来在列表上画回形针；内嵌图片由调用方过滤
+  attachments: { select: { id: true, isInline: true } },
+} satisfies Prisma.EmailSelect;
+
 @Injectable()
-export class EmailsService {
+export class EmailsService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EmailsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly tracking: EmailTrackingService,
     private readonly followUps: FollowUpsService,
+    private readonly matcher: EmailCustomerMatcher,
+    private readonly imapSync: ImapSyncService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -109,6 +152,43 @@ export class EmailsService {
     return actor.isSuperAdmin || actor.role === 'ADMIN';
   }
 
+  // ==================== snippet 回填 ====================
+
+  onApplicationBootstrap() {
+    // 不阻塞启动；多实例同时跑也无害（写的是同样的值）
+    setTimeout(() => {
+      this.backfillSnippets().catch((e) =>
+        this.logger.warn(`snippet backfill stopped: ${e?.message || e}`),
+      );
+    }, 10_000);
+  }
+
+  /** 给升级前的老邮件分批生成 snippet。没有正文的写空串，避免反复处理。 */
+  async backfillSnippets(batchSize = 200): Promise<number> {
+    let total = 0;
+    for (;;) {
+      const rows = await this.prisma.email.findMany({
+        where: { snippet: null },
+        select: { id: true, bodyText: true, bodyHtml: true },
+        take: batchSize,
+      });
+      if (rows.length === 0) break;
+      await this.prisma.$transaction(
+        rows.map((r) =>
+          this.prisma.email.update({
+            where: { id: r.id },
+            data: { snippet: makeSnippet(r.bodyText, r.bodyHtml) },
+          }),
+        ),
+      );
+      total += rows.length;
+      // 给正常请求让出数据库
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (total > 0) this.logger.log(`Backfilled snippet for ${total} email(s)`);
+    return total;
+  }
+
   private stripTrackingPixel(html: string | null): string | null {
     if (!html) return html;
     return html.replace(/<img[^>]*\/api\/emails\/track\/[^>]*>/gi, '');
@@ -136,36 +216,6 @@ export class EmailsService {
     return thread.id;
   }
 
-  /**
-   * Try to locate an existing thread by looking up emails whose
-   * messageId matches the In-Reply-To or References headers from the
-   * incoming email. Returns null if no match is found.
-   */
-  private async findThreadByReplyHeaders(
-    emailConfigId: string,
-    inReplyTo?: string | null,
-    references?: string | string[] | null,
-  ): Promise<string | null> {
-    const ids: string[] = [];
-    if (inReplyTo) ids.push(inReplyTo);
-    if (references) {
-      const refs = Array.isArray(references) ? references : [references];
-      for (const r of refs) {
-        if (r && !ids.includes(r)) ids.push(r);
-      }
-    }
-    if (ids.length === 0) return null;
-
-    // 只在同一邮箱账户内找父邮件：同一个 Message-ID 在不同同事的邮箱里
-    // 各有一份，跨账户匹配会把两个人的会话串到同一个线程里。
-    const parent = await this.prisma.email.findFirst({
-      where: { emailConfigId, messageId: { in: ids } },
-      select: { threadId: true },
-      orderBy: { createdAt: 'desc' },
-    });
-    return parent?.threadId || null;
-  }
-
   // ==================== Email Account Management ====================
 
   async listEmailAccounts(userId: string) {
@@ -176,6 +226,10 @@ export class EmailsService {
         emailAddr: true,
         fromName: true,
         createdAt: true,
+        lastSyncAt: true,
+        lastSyncAttemptAt: true,
+        lastSyncError: true,
+        syncFailCount: true,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -413,7 +467,7 @@ export class EmailsService {
     let customerId = dto.customerId || null;
     let category = 'sent';
     if (!customerId) {
-      const matched = await this.autoMatchCustomer(dto.toAddr);
+      const matched = await this.matcher.match(dto.toAddr);
       if (matched) {
         customerId = matched.id;
         category = 'customer';
@@ -445,6 +499,7 @@ export class EmailsService {
         bcc: dto.bcc,
         subject: dto.subject,
         bodyHtml: htmlBody,
+        snippet: makeSnippet(null, htmlBody),
         direction: 'OUTBOUND',
         status: 'DRAFT',
         category,
@@ -802,11 +857,7 @@ export class EmailsService {
     const [items, total] = await Promise.all([
       this.prisma.email.findMany({
         where,
-        include: {
-          customer: { select: { id: true, companyName: true } },
-          sender: { select: { id: true, name: true, email: true } },
-          emailConfig: { select: { emailAddr: true } },
-        },
+        select: EMAIL_LIST_SELECT,
         orderBy,
         skip,
         take: pageSize,
@@ -989,14 +1040,7 @@ export class EmailsService {
 
     const latestEmails = await this.prisma.email.findMany({
       where: latestEmailsWhere,
-      include: {
-        customer: { select: { id: true, companyName: true } },
-        sender: { select: { id: true, name: true, email: true } },
-        emailConfig: { select: { emailAddr: true } },
-        // 仅取最少字段，让前端能在列表上画一个回形针；
-        // 内嵌图片（isInline）由前端过滤。
-        attachments: { select: { id: true, isInline: true } },
-      },
+      select: EMAIL_LIST_SELECT,
     });
 
     const results = threadRows.map((row: any) => {
@@ -1147,64 +1191,7 @@ export class EmailsService {
     return { deleted: result.count };
   }
 
-  // ── Spam filter ───────────────────────────────────────────
-  // Lightweight keyword/pattern filter aimed at the unsolicited
-  // SEO / marketing / phishing junk that foreign-trade inboxes
-  // drown in. Runs on every IMAP-fetched email and can also be
-  // triggered retroactively via POST /emails/scan-spam.
-
-  private static readonly SPAM_SUBJECT_KEYWORDS = [
-    // SEO / ranking spam
-    'seo', 'ranking', 'backlink', 'link building', 'page rank',
-    'search engine', 'google ranking', 'first page',
-    'top of google', 'website traffic', 'domain authority',
-    // Web / app dev spam
-    'web design', 'website redesign', 'app development',
-    'mobile app', 'wordpress', 'shopify',
-    // Digital marketing spam
-    'digital marketing', 'social media marketing', 'email marketing',
-    'lead generation', 'facebook ads', 'google ads',
-    'content marketing', 'brand awareness', 'influencer',
-    // Generic commercial spam
-    'limited time offer', 'act now', 'buy now',
-    'free trial', 'special offer', 'exclusive deal',
-    'make money', 'earn money', 'work from home',
-    'casino', 'lottery', 'winner', 'bitcoin', 'crypto',
-    'weight loss', 'diet',
-    // Phishing
-    'verify your account', 'confirm your identity',
-    'update your payment', 'account suspended',
-    'unusual activity', 'security alert',
-    // B2B spam common in foreign trade
-    'business proposal', 'partnership opportunity',
-    'data entry', 'virtual assistant',
-    'alibaba', 'supplier list', 'manufacturers list',
-  ];
-
-  private static readonly SPAM_SENDER_PATTERNS = [
-    'newsletter@', 'marketing@',
-    'promo@', 'offers@', 'deals@', 'info@seo',
-    'sales@seo', 'hello@seo', 'contact@seo',
-  ];
-
-  /**
-   * Returns true if the email looks like spam based on subject keywords
-   * and sender patterns. Case-insensitive matching.
-   */
-  isSpam(email: { subject?: string | null; fromAddr?: string | null; bodyText?: string | null }): boolean {
-    const subject = (email.subject || '').toLowerCase();
-    const from = (email.fromAddr || '').toLowerCase();
-
-    for (const pattern of EmailsService.SPAM_SENDER_PATTERNS) {
-      if (from.includes(pattern)) return true;
-    }
-
-    for (const kw of EmailsService.SPAM_SUBJECT_KEYWORDS) {
-      if (subject.includes(kw)) return true;
-    }
-
-    return false;
-  }
+  // ── Spam filter（规则见 email-utils.ts 的 isSpam） ──────────
 
   /**
    * Scan all existing emails (inbox + customer + advertisement) and move
@@ -1222,7 +1209,7 @@ export class EmailsService {
 
     const spamIds: string[] = [];
     for (const email of candidates) {
-      if (this.isSpam(email)) spamIds.push(email.id);
+      if (isSpam(email)) spamIds.push(email.id);
     }
 
     if (spamIds.length > 0) {
@@ -1743,397 +1730,48 @@ export class EmailsService {
   }
 
   // ==================== Fetch Emails ====================
+  // 实际同步逻辑在 ImapSyncService（按 UID 增量拉取）。这里只做权限
+  // 校验，手动"收取"和后台定时任务撞上时共用同一次同步。
 
-  async fetchEmails(userId: string, configId: string): Promise<{ fetched: number; inboxFetched?: number; sentFetched?: number; sentFolder?: string | null }> {
+  async fetchEmails(userId: string, configId: string) {
     const config = await this.prisma.emailConfig.findFirst({
       where: { id: configId, userId },
+      select: { id: true },
     });
-
     if (!config) {
       throw new BadRequestException(
         'Email configuration not found. Please configure your IMAP settings first.',
       );
     }
-
-    const imap = new Imap({
-      user: config.imapUser,
-      password: config.imapPass,
-      host: config.imapHost,
-      port: config.imapPort,
-      tls: config.imapSecure,
-      tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 30000,
-      connTimeout: 30000,
-    });
-
-    // 取这个账号每个方向最新一封邮件的时间，作为本次拉取的 SINCE 起点。
-    // 减去 7 天 buffer 容忍：
-    //   - IMAP SINCE 的天级精度（不带时分秒）
-    //   - IMAP 服务器与本机时区差
-    //   - 偶发的"邮件延迟投递"——上游服务器卡几天后才 push，这种邮件
-    //     的 INTERNALDATE 会落在过去，2 天 buffer 容易漏，7 天足够覆盖
-    //     绝大多数现实场景。
-    //   - 后端宕机几天后恢复——SINCE 自动从 DB 最近一封邮件回算，重启
-    //     不会丢邮件（哪怕宕机了一周，最近一封是一周前 → SINCE = 14 天前）。
-    // 第一次（DB 没有数据）传 null 走全量，把历史邮件都补齐。
-    // DB 层 messageId UNIQUE 约束兜底去重，多扫几天没有副作用。
-    const lastInbound = await this.prisma.email.findFirst({
-      where: { emailConfigId: configId, direction: 'INBOUND' },
-      orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
-      select: { receivedAt: true, createdAt: true },
-    });
-    const lastOutbound = await this.prisma.email.findFirst({
-      where: { emailConfigId: configId, direction: 'OUTBOUND' },
-      orderBy: [{ sentAt: 'desc' }, { createdAt: 'desc' }],
-      select: { sentAt: true, createdAt: true },
-    });
-    const SINCE_BUFFER_MS = 7 * 24 * 60 * 60 * 1000;
-    const inboxSince = lastInbound
-      ? new Date(
-          (lastInbound.receivedAt || lastInbound.createdAt).getTime() - SINCE_BUFFER_MS,
-        )
-      : null;
-    const sentSince = lastOutbound
-      ? new Date(
-          (lastOutbound.sentAt || lastOutbound.createdAt).getTime() - SINCE_BUFFER_MS,
-        )
-      : null;
-
-    return new Promise((resolve, reject) => {
-      let totalFetched = 0;
-
-      imap.once('ready', async () => {
-        try {
-          const inboxCount = await this.fetchFromFolder(
-            imap,
-            userId,
-            configId,
-            config.emailAddr,
-            'INBOX',
-            'INBOUND',
-            inboxSince,
-          );
-          totalFetched += inboxCount;
-
-          let sentCount = 0;
-          const sentFolder = await this.findSentFolder(imap);
-          if (sentFolder) {
-            sentCount = await this.fetchFromFolder(
-              imap,
-              userId,
-              configId,
-              config.emailAddr,
-              sentFolder,
-              'OUTBOUND',
-              sentSince,
-            );
-            totalFetched += sentCount;
-          } else {
-            this.logger.warn('No sent folder found on IMAP server');
-          }
-
-          imap.end();
-          resolve({
-            fetched: totalFetched,
-            inboxFetched: inboxCount,
-            sentFetched: sentCount,
-            sentFolder: sentFolder || null,
-          });
-        } catch (error) {
-          imap.end();
-          reject(
-            error instanceof BadRequestException
-              ? error
-              : new BadRequestException(`Fetch failed: ${error.message}`),
-          );
-        }
-      });
-
-      imap.once('error', (imapErr: Error) => {
-        reject(
-          new BadRequestException(
-            `IMAP connection failed: ${imapErr.message}`,
-          ),
-        );
-      });
-
-      imap.connect();
-    });
+    try {
+      return await this.imapSync.syncAccount(configId);
+    } catch (error: any) {
+      throw new BadRequestException(`收取失败：${error?.message || error}`);
+    }
   }
 
   async fetchAllAccounts(userId: string) {
     const configs = await this.prisma.emailConfig.findMany({
       where: { userId },
+      select: { id: true, emailAddr: true },
     });
-
     if (configs.length === 0) {
       throw new BadRequestException('No email configurations found');
     }
 
-    const results: any = {
-      totalFetched: 0,
-      accounts: [],
-    };
-
-    for (const config of configs) {
-      try {
-        const result = await this.fetchEmails(userId, config.id);
-        results.accounts.push({
-          emailAddr: config.emailAddr,
-          ...result,
-        });
-        results.totalFetched += result.fetched;
-      } catch (error) {
-        this.logger.error(`Failed to fetch emails for ${config.emailAddr}: ${error.message}`);
-        results.accounts.push({
-          emailAddr: config.emailAddr,
-          error: error.message,
-        });
-      }
-    }
-
-    return results;
-  }
-
-  private fetchFromFolder(
-    imap: any,
-    userId: string,
-    configId: string,
-    userEmail: string,
-    folderName: string,
-    direction: 'INBOUND' | 'OUTBOUND',
-    since: Date | null = null,
-  ): Promise<number> {
-    return new Promise((resolve, reject) => {
-      imap.openBox(folderName, true, (err: any) => {
-        if (err) {
-          this.logger.warn(`Failed to open folder ${folderName}: ${err.message}`);
-          return resolve(0);
+    // 各账户并行收取，互不影响
+    const accounts = await Promise.all(
+      configs.map(async (config) => {
+        try {
+          const result = await this.imapSync.syncAccount(config.id);
+          return { emailAddr: config.emailAddr, ...result };
+        } catch (error: any) {
+          return { emailAddr: config.emailAddr, error: error?.message || String(error) };
         }
-
-        // 增量拉取：只搜索 since 日期之后的邮件。IMAP SINCE 精度到天，
-        // 我们已经用 messageId 唯一约束在 DB 层兜底去重，所以重叠几小时
-        // 没关系，但能避免一上线就重新拉几千封历史邮件。
-        const searchCriteria: any[] = since ? [['SINCE', since]] : ['ALL'];
-
-        imap.search(searchCriteria, (searchErr: any, results: number[]) => {
-          if (searchErr) {
-            this.logger.warn(`Search failed in ${folderName}: ${searchErr.message}`);
-            return resolve(0);
-          }
-
-          if (!results || results.length === 0) {
-            return resolve(0);
-          }
-
-          const toFetch = results;
-          const fetch = imap.fetch(toFetch, {
-            bodies: '',
-            struct: true,
-          });
-
-          let fetchedCount = 0;
-          const emailPromises: Promise<void>[] = [];
-
-          fetch.on('message', (msg: any) => {
-            // IMAP fetch 同一封消息会先后派发 'attributes' 和 'body'。这里
-            // 记下 UID，稍后附件元数据入库时一起保存，以便用户点击下载
-            // 时能按 UID 精确地回源拉这封邮件里的附件。
-            let msgUid: number | null = null;
-            msg.on('attributes', (attrs: any) => {
-              if (attrs?.uid != null) msgUid = Number(attrs.uid);
-            });
-            msg.on('body', (stream: any) => {
-              const promise = simpleParser(stream).then(async (parsed) => {
-                const messageId = parsed.messageId || null;
-
-                if (messageId) {
-                  // 去重按"账户 + Message-ID"：同一封信出现在同事邮箱里
-                  // 不影响本账户入库。
-                  const existing = await this.prisma.email.findUnique({
-                    where: {
-                      emailConfigId_messageId: { emailConfigId: configId, messageId },
-                    },
-                  });
-                  if (existing) {
-                    // Backfill: if this email was synced before we started
-                    // storing fromName / display-name toAddr, patch it now.
-                    const parsedFromName = parsed.from?.value?.[0]?.name || null;
-                    const fmtA = (v: { name?: string; address?: string }) =>
-                      v.name ? `${v.name} <${v.address}>` : (v.address || '');
-                    const richToAddr = parsed.to?.value?.map(fmtA).join(', ') || '';
-                    const richCc = parsed.cc?.value?.map(fmtA).join(', ') || null;
-
-                    const patch: Record<string, any> = {};
-                    if (!existing.fromName && parsedFromName) {
-                      patch.fromName = parsedFromName;
-                    }
-                    if (existing.toAddr && !existing.toAddr.includes('<') && richToAddr.includes('<')) {
-                      patch.toAddr = richToAddr;
-                    }
-                    if (existing.cc && !existing.cc.includes('<') && richCc?.includes('<')) {
-                      patch.cc = richCc;
-                    }
-                    if (Object.keys(patch).length > 0) {
-                      await this.prisma.email.update({
-                        where: { id: existing.id },
-                        data: patch,
-                      });
-                    }
-                    return;
-                  }
-                }
-
-                const fromAddr = parsed.from?.value?.[0]?.address || 'unknown';
-                const fromName = parsed.from?.value?.[0]?.name || null;
-                // Store to/cc with display names so the frontend can show
-                // "Tom Harvey" instead of just "tom@foo.com".
-                const fmtAddr = (v: { name?: string; address?: string }) =>
-                  v.name ? `${v.name} <${v.address}>` : (v.address || '');
-                const toAddr = parsed.to?.value?.map(fmtAddr).join(', ') || '';
-                const ccAddr = parsed.cc?.value?.map(fmtAddr).join(', ') || null;
-
-                const matchEmail = direction === 'INBOUND' ? fromAddr : (parsed.to?.value?.[0]?.address || '');
-                const customer = matchEmail ? await this.autoMatchCustomer(matchEmail) : null;
-
-                const status = direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
-                let category = 'inbox';
-                if (direction === 'INBOUND' && this.isSpam({ subject: parsed.subject, fromAddr, bodyText: parsed.text })) {
-                  category = 'spam';
-                } else if (customer) {
-                  category = 'customer';
-                } else if (direction === 'OUTBOUND') {
-                  category = 'sent';
-                }
-
-                const rawSubject = parsed.subject || '(No Subject)';
-
-                // Thread by reply chain (In-Reply-To / References), not
-                // by subject. Only emails that are genuine replies to one
-                // another share a thread.
-                let threadId: string | null = await this.findThreadByReplyHeaders(
-                  configId,
-                  parsed.inReplyTo as string | undefined,
-                  parsed.references as string | string[] | undefined,
-                );
-                if (!threadId) {
-                  threadId = await this.createThread(rawSubject);
-                }
-
-                let newEmail;
-                try {
-                  newEmail = await this.prisma.email.create({
-                    data: {
-                      messageId,
-                      fromAddr,
-                      fromName: fromName || null,
-                      toAddr,
-                      cc: ccAddr,
-                      subject: rawSubject,
-                      bodyHtml: parsed.html || null,
-                      bodyText: parsed.text || null,
-                      direction,
-                      status,
-                      category,
-                      sentAt: direction === 'OUTBOUND' ? (parsed.date || new Date()) : null,
-                      receivedAt: direction === 'INBOUND' ? (parsed.date || new Date()) : null,
-                      customerId: customer?.id || null,
-                      senderId: userId,
-                      emailConfigId: configId,
-                      threadId,
-                    },
-                    });
-                } catch (e: any) {
-                  // 同一批里同一封信出现两次（服务器上有重复副本）时，
-                  // 并发插入会撞唯一约束——跳过即可，不要让整批
-                  // Promise.all 失败。
-                  if (e?.code === 'P2002') return;
-                  throw e;
-                }
-
-                // 回邮自动关闭跟进：若这封 INBOUND 邮件的 In-Reply-To /
-                // References 命中某条 PENDING 跟进的 triggerEmail，就打 DONE。
-                if (direction === 'INBOUND') {
-                  await this.followUps.resolveOnInboundEmail({
-                    inReplyTo: parsed.inReplyTo as string | undefined,
-                    references: parsed.references as string | string[] | undefined,
-                    fromAddr,
-                  });
-                }
-
-                // 只落元数据，不落内容：用户点击下载时再按 UID 回源 IMAP。
-                if (parsed.attachments && parsed.attachments.length > 0) {
-                  const rows = parsed.attachments.map((a: any) => ({
-                    emailId: newEmail.id,
-                    fileName:
-                      a.filename ||
-                      a.cid ||
-                      `attachment-${Date.now()}`,
-                    mimeType: a.contentType || 'application/octet-stream',
-                    size: Number(a.size) || (a.content?.length ?? 0),
-                    contentId: a.cid || null,
-                    isInline: a.contentDisposition === 'inline',
-                    imapUid: msgUid,
-                    imapFolder: folderName,
-                  }));
-                  await this.prisma.emailAttachment
-                    .createMany({ data: rows })
-                    .catch((e: any) => {
-                      this.logger.warn(
-                        `Failed to save attachments metadata for email ${newEmail.id}: ${e.message}`,
-                      );
-                    });
-                }
-
-                if (customer) {
-                  const senderLabel = fromName ? `${fromName} (${fromAddr})` : fromAddr;
-                  const actContent = direction === 'INBOUND'
-                    ? `收到邮件 - 发件人: ${senderLabel}，主题: ${parsed.subject || '(无主题)'}`
-                    : `发送邮件 - 收件人: ${toAddr}，主题: ${parsed.subject || '(无主题)'}`;
-
-                  // 使用邮件的实际收发时间作为活动时间，避免同步时所有历史邮件都被标成
-                  // 当前时刻，导致时间轴顺序错乱。
-                  const activityTime = parsed.date || new Date();
-
-                  await this.prisma.activity.create({
-                    data: {
-                      type: 'EMAIL',
-                      content: actContent,
-                      customerId: customer.id,
-                      ownerId: userId,
-                      relatedType: 'email',
-                      relatedId: newEmail.id,
-                      createdAt: activityTime,
-                    },
-                  }).catch(() => {});
-                }
-
-                fetchedCount++;
-              });
-
-              emailPromises.push(promise);
-            });
-          });
-
-          fetch.once('end', () => {
-            Promise.all(emailPromises)
-              .then(() => {
-                this.logger.log(`Fetched ${fetchedCount} emails from ${folderName}`);
-                resolve(fetchedCount);
-              })
-              .catch((promiseErr) => {
-                this.logger.error(`Error processing emails from ${folderName}: ${promiseErr.message}`);
-                resolve(fetchedCount);
-              });
-          });
-
-          fetch.once('error', (fetchErr: any) => {
-            this.logger.warn(`Fetch error in ${folderName}: ${fetchErr.message}`);
-            resolve(0);
-          });
-        });
-      });
-    });
+      }),
+    );
+    const totalFetched = accounts.reduce((n, a: any) => n + (a.fetched || 0), 0);
+    return { totalFetched, accounts };
   }
 
   /**
@@ -2162,16 +1800,7 @@ export class EmailsService {
       });
     });
 
-    const imap = new Imap({
-      user: config.imapUser,
-      password: config.imapPass,
-      host: config.imapHost,
-      port: config.imapPort,
-      tls: config.imapSecure,
-      tlsOptions: { rejectUnauthorized: false },
-      authTimeout: 30000,
-      connTimeout: 30000,
-    });
+    const imap = createImap(config);
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
@@ -2188,7 +1817,7 @@ export class EmailsService {
 
       imap.once('ready', async () => {
         try {
-          const sentFolder = await this.findSentFolder(imap);
+          const sentFolder = await findSentFolder(imap, this.logger);
           if (!sentFolder) {
             this.logger.warn(
               'No Sent folder on IMAP server; skipping APPEND of outgoing message',
@@ -2209,137 +1838,6 @@ export class EmailsService {
       imap.once('error', (err: Error) => done(err));
       imap.connect();
     });
-  }
-
-  private findSentFolder(imap: any): Promise<string | null> {
-    return new Promise((resolve) => {
-      imap.getBoxes((err: any, boxes: any) => {
-        if (err) {
-          this.logger.warn(`Failed to list IMAP boxes: ${err.message}`);
-          return resolve(null);
-        }
-
-        const sentNames = [
-          'Sent', 'SENT', 'sent', 'Sent Items', 'Sent Messages', 'Sent Mail',
-          'INBOX.Sent', 'INBOX.Sent Messages', 'INBOX.Sent Items', 'INBOX.Sent Mail',
-          '已发送', '已发邮件', '已发送邮件', 'INBOX.已发送', 'INBOX.已发邮件',
-          '&XfJT0ZAB-', 'INBOX.&XfJT0ZAB-', '&XfJSIJZk;',
-          'Sent Items', 'SentItems',
-          'Gesendete Objekte', 'Gesendet', 'Messages envoyés', 'Envoyés', 'Enviados', 'Mensajes enviados',
-        ];
-
-        const flattenBoxes = (boxTree: any, prefix = ''): Array<{ path: string; attribs: string[] }> => {
-          const result: Array<{ path: string; attribs: string[] }> = [];
-          for (const [name, box] of Object.entries(boxTree)) {
-            const delimiter = (box as any).delimiter || '/';
-            const path = prefix ? `${prefix}${delimiter}${name}` : name;
-            const attribs = (box as any).attribs || [];
-            result.push({ path, attribs });
-            if ((box as any).children) {
-              result.push(...flattenBoxes((box as any).children, path));
-            }
-          }
-          return result;
-        };
-
-        const allFolders = flattenBoxes(boxes);
-
-        for (let i = 0; i < allFolders.length; i++) {
-          const folder = allFolders[i];
-          if (folder.attribs.includes('\\Sent') || folder.attribs.includes('\\sent')) {
-            return resolve(folder.path);
-          }
-        }
-
-        for (const name of sentNames) {
-          if (boxes[name]) {
-            return resolve(name);
-          }
-        }
-
-        const gmailKey = Object.keys(boxes).find((k) => k === '[Gmail]' || k === '[Google Mail]') || null;
-        if (gmailKey && (boxes[gmailKey] as any).children) {
-          const children = (boxes[gmailKey] as any).children;
-          const gmailDelim = (boxes[gmailKey] as any).delimiter || '/';
-          const gmailSentNames = ['Sent Mail', '已发送邮件', 'Sent', 'Sent Messages'];
-          for (const name of gmailSentNames) {
-            if (children[name]) {
-              return resolve(`${gmailKey}${gmailDelim}${name}`);
-            }
-          }
-        }
-
-        if (boxes['INBOX'] && (boxes['INBOX'] as any).children) {
-          const inboxChildren = (boxes['INBOX'] as any).children;
-          const inboxDelim = (boxes['INBOX'] as any).delimiter || '/';
-          const inboxSentNames = ['Sent', 'Sent Messages', 'Sent Items', 'Sent Mail', '已发送', '已发邮件'];
-          for (const name of inboxSentNames) {
-            if (inboxChildren[name]) {
-              return resolve(`INBOX${inboxDelim}${name}`);
-            }
-          }
-        }
-
-        const skipPatterns = /^(INBOX|Drafts|Trash|Junk|Spam|Archive|Deleted|Deleted Items|Deleted Messages|Notes|Outbox)$/i;
-        for (let i = 0; i < allFolders.length; i++) {
-          const folder = allFolders[i];
-          const baseName = folder.path.split('/').pop() || '';
-          if (skipPatterns.test(baseName)) continue;
-          if (/sent/i.test(baseName) || /已发/.test(baseName) || /envoy/i.test(baseName) || /enviados/i.test(baseName) || /gesendet/i.test(baseName)) {
-            return resolve(folder.path);
-          }
-        }
-
-        const folderPaths = allFolders.map(f => `${f.path} [${f.attribs.join(',')}]`);
-        this.logger.warn(`Could not find Sent folder. Available folders: ${folderPaths.join('; ')}`);
-        resolve(null);
-      });
-    });
-  }
-
-  private async autoMatchCustomer(emailAddress: string) {
-    // 邮箱大小写在 RFC 5321 中地址本地部分理论上区分，但事实标准 / 几乎
-    // 所有提供商都做大小写不敏感处理。Prisma 默认 `email: x` 是精确匹配，
-    // 这里用 mode: 'insensitive' 避免 IMAP 取回的 to-addr 大小写和我们存
-    // 的联系人邮箱不一致时漏匹配（最直接症状：客户详情邮件 tab 看不到自己
-    // 发出去的邮件）。
-    const contact = await this.prisma.contact.findFirst({
-      where: { email: { equals: emailAddress, mode: 'insensitive' } },
-      include: { customer: true },
-    });
-
-    if (contact) {
-      return contact.customer;
-    }
-
-    const domain = emailAddress.split('@')[1]?.toLowerCase();
-    if (domain && domain !== 'gmail.com' && domain !== 'yahoo.com' &&
-        domain !== 'hotmail.com' && domain !== 'outlook.com' &&
-        domain !== 'qq.com' && domain !== '163.com' && domain !== '126.com' &&
-        domain !== 'foxmail.com' && domain !== 'icloud.com' &&
-        domain !== 'live.com' && domain !== 'msn.com' &&
-        domain !== 'aol.com' && domain !== 'mail.com' &&
-        domain !== 'protonmail.com' && domain !== 'zoho.com') {
-      const customers = await this.prisma.customer.findMany({
-        where: { OR: [{ website: { not: null } }, { website2: { not: null } }] },
-        select: { id: true, website: true, website2: true, companyName: true },
-      });
-
-      const extractDomain = (url: string) =>
-        url.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0].toLowerCase();
-
-      for (const c of customers) {
-        for (const w of [c.website, c.website2]) {
-          if (!w) continue;
-          const websiteDomain = extractDomain(w);
-          if (websiteDomain === domain || domain.endsWith('.' + websiteDomain)) {
-            return c;
-          }
-        }
-      }
-    }
-
-    return null;
   }
 
   // ==================== Template CRUD ====================
@@ -2399,72 +1897,7 @@ export class EmailsService {
   }
 
   // ==================== 邮件时间轴时间戳修正 ====================
-
-  // 防止多个执行重叠（例如手动触发时 cron 正好也触发）。
-  // ==================== Background IMAP Polling ====================
-  private isFetchingAll = false;
-
-  /**
-   * Automatically fetch new emails for ALL configured IMAP accounts
-   * every 60 seconds. A lock prevents overlapping runs — if the
-   * previous fetch is still in progress, the tick is silently skipped.
-   */
-  @Cron('*/1 * * * *')
-  async backgroundFetchAll(): Promise<void> {
-    if (this.isFetchingAll) {
-      this.logger.warn('[Auto] previous fetch still running, skipping tick');
-      return;
-    }
-    this.isFetchingAll = true;
-    const startTs = Date.now();
-    let totalNew = 0;
-    let okCount = 0;
-    let failCount = 0;
-
-    try {
-      const configs = await this.prisma.emailConfig.findMany({
-        select: { id: true, userId: true, emailAddr: true },
-      });
-
-      for (const cfg of configs) {
-        // 单账号 90s 超时熔断：IMAP 偶尔会"连上但卡住不回 BYE"，没有
-        // 这层超时，整个 cron 锁会被一个挂起的账号拖到永远，后面的账号
-        // 也轮不到——表面看就是"定时不动"。
-        const ACCOUNT_TIMEOUT_MS = 90_000;
-        try {
-          const result = await Promise.race<{ fetched: number }>([
-            this.fetchEmails(cfg.userId, cfg.id),
-            new Promise<{ fetched: number }>((_resolve, reject) =>
-              setTimeout(
-                () => reject(new Error(`timed out after ${ACCOUNT_TIMEOUT_MS}ms`)),
-                ACCOUNT_TIMEOUT_MS,
-              ),
-            ),
-          ]);
-          okCount++;
-          totalNew += result.fetched;
-          if (result.fetched > 0) {
-            this.logger.log(
-              `[Auto] Fetched ${result.fetched} new email(s) for ${cfg.emailAddr}`,
-            );
-          }
-        } catch (err: any) {
-          failCount++;
-          this.logger.warn(
-            `[Auto] Failed to fetch ${cfg.emailAddr}: ${err?.message || err}`,
-          );
-        }
-      }
-    } catch (err: any) {
-      this.logger.error(`[Auto] backgroundFetchAll error: ${err?.message || err}`);
-    } finally {
-      this.isFetchingAll = false;
-      const ms = Date.now() - startTs;
-      this.logger.log(
-        `[Auto] tick done: ${okCount} ok, ${failCount} fail, ${totalNew} new (${ms}ms)`,
-      );
-    }
-  }
+  // （后台收信调度见 ImapSyncService.scheduleSync）
 
   private reconcilingEmailActivityTimestamps = false;
 
@@ -2605,16 +2038,7 @@ export class EmailsService {
     wantedCid: string | null,
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
-      const imap = new Imap({
-        user: config.imapUser,
-        password: config.imapPass,
-        host: config.imapHost,
-        port: config.imapPort,
-        tls: config.imapSecure,
-        tlsOptions: { rejectUnauthorized: false },
-        authTimeout: 30000,
-        connTimeout: 30000,
-      });
+      const imap = createImap(config);
 
       let settled = false;
       const finish = (err: any, buf?: Buffer) => {

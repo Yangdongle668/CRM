@@ -1,8 +1,17 @@
 import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
 import { Job } from 'bullmq';
-import { QUEUE_EMAIL, EMAIL_JOB_SEND } from '../../queue/queue.constants';
+import {
+  QUEUE_EMAIL,
+  EMAIL_JOB_SEND,
+  EMAIL_JOB_FETCH,
+} from '../../queue/queue.constants';
 import { EmailsService } from './emails.service';
+import { ImapSyncService } from './imap-sync.service';
+
+interface FetchEmailJobData {
+  configId: string;
+}
 
 interface SendEmailJobData {
   emailId: string;
@@ -14,22 +23,29 @@ interface SendEmailJobData {
 /**
  * BullMQ worker for the "email" queue.
  *
- * Currently handles the "send" job (SMTP delivery). The job payload is
- * small — we persist the email as a DRAFT row before enqueueing, so the
- * worker only needs the id to pick up.
+ * - "send"：SMTP 发信。邮件先以 DRAFT 落库再入队，任务里只带 id。
+ * - "fetch-imap"：单个邮箱账户的 IMAP 增量同步，由
+ *   ImapSyncService.scheduleSync 每分钟按账户投递。
+ *
+ * 并发 4：一个账户同步慢不会卡住其它账户和发信。
  */
-@Processor(QUEUE_EMAIL)
+@Processor(QUEUE_EMAIL, { concurrency: 4 })
 export class EmailProcessor extends WorkerHost {
   private readonly logger = new Logger(EmailProcessor.name);
 
-  constructor(private readonly emailsService: EmailsService) {
+  constructor(
+    private readonly emailsService: EmailsService,
+    private readonly imapSync: ImapSyncService,
+  ) {
     super();
   }
 
-  async process(job: Job<SendEmailJobData>): Promise<any> {
+  async process(job: Job<SendEmailJobData | FetchEmailJobData>): Promise<any> {
     switch (job.name) {
       case EMAIL_JOB_SEND:
-        return this.handleSend(job);
+        return this.handleSend(job as Job<SendEmailJobData>);
+      case EMAIL_JOB_FETCH:
+        return this.imapSync.syncAccount((job.data as FetchEmailJobData).configId);
       default:
         throw new Error(`Unknown email job: ${job.name}`);
     }
@@ -47,6 +63,8 @@ export class EmailProcessor extends WorkerHost {
 
   @OnWorkerEvent('completed')
   onCompleted(job: Job) {
+    // 收信任务每分钟每账户一次，成功日志太吵；结果在 ImapSyncService 里记
+    if (job.name === EMAIL_JOB_FETCH) return;
     this.logger.log(`Email job ${job.id} (${job.name}) completed`);
   }
 

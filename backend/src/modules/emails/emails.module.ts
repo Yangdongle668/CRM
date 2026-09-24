@@ -4,6 +4,8 @@ import { EmailsController } from './emails.controller';
 import { EmailsService } from './emails.service';
 import { EmailTrackingService } from './email-tracking.service';
 import { EmailProcessor } from './email.processor';
+import { ImapSyncService } from './imap-sync.service';
+import { EmailCustomerMatcher } from './email-customer-matcher.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { QUEUE_EMAIL } from '../../queue/queue.constants';
 import { FollowUpsModule } from '../follow-ups/follow-ups.module';
@@ -16,7 +18,13 @@ import { FollowUpsModule } from '../follow-ups/follow-ups.module';
     FollowUpsModule,
   ],
   controllers: [EmailsController],
-  providers: [EmailsService, EmailTrackingService, EmailProcessor],
+  providers: [
+    EmailsService,
+    EmailTrackingService,
+    EmailProcessor,
+    ImapSyncService,
+    EmailCustomerMatcher,
+  ],
   exports: [EmailsService, EmailTrackingService],
 })
 export class EmailsModule {}

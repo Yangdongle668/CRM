@@ -953,9 +953,9 @@ export default function CustomerDetailPage() {
                                     <span className="mx-2">&rarr;</span>
                                     <span>收件人: {email.toAddr}</span>
                                   </div>
-                                  {email.bodyText && (
+                                  {(email.snippet || email.bodyText) && (
                                     <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                                      {email.bodyText}
+                                      {email.snippet || email.bodyText}
                                     </p>
                                   )}
                                 </div>

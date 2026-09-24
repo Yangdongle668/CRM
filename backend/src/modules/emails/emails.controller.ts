@@ -25,6 +25,14 @@ import { SendEmailDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
+/** RFC 5987 ext-value：encodeURIComponent 不转义的 ' ( ) * 也要转义。 */
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase(),
+  );
+}
+
 // 1x1 transparent GIF pixel
 const TRACKING_PIXEL = Buffer.from(
   'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
@@ -430,9 +438,12 @@ export class EmailsController {
   ) {
     const { filePath, fileName, mimeType } =
       await this.emailsService.downloadAttachment(attachmentId, user);
+    // filename 给老客户端一个 ASCII 兜底，filename* 按 RFC 5987 带真实
+    // 文件名。以前 filename="%E6%8A%A5..." 会让中文文件名下载后变成编码串。
+    const asciiName = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${encodeURIComponent(fileName)}"`,
+      `attachment; filename="${asciiName}"; filename*=UTF-8''${encodeRfc5987(fileName)}`,
     );
     res.setHeader('Content-Type', mimeType || 'application/octet-stream');
     res.sendFile(path.resolve(filePath));

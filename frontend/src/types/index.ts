@@ -161,6 +161,8 @@ export interface Email {
   subject: string;
   bodyHtml?: string;
   bodyText?: string;
+  /** 列表接口返回的纯文本预览（列表不返回正文） */
+  snippet?: string | null;
   direction: EmailDirection;
   status: EmailStatus;
   category?: string;

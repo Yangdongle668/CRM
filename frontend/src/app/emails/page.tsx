@@ -377,6 +377,7 @@ export default function EmailsPage() {
   // Poll for new emails every 60 seconds
   useEffect(() => {
     const interval = setInterval(async () => {
+      loadAccounts(); // 顺带刷新各账户的同步状态
       const count = await fetchUnreadCount();
       if (count > prevUnreadRef.current) {
         const newCount = count - prevUnreadRef.current;
@@ -404,7 +405,7 @@ export default function EmailsPage() {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [fetchUnreadCount, activeFolder, fetchEmails]);
+  }, [fetchUnreadCount, activeFolder, fetchEmails, loadAccounts]);
 
   // View email detail (with thread loading)
   const handleViewEmail = async (email: Email, threadId?: string | null) => {
@@ -417,17 +418,9 @@ export default function EmailsPage() {
       setSelectedEmail(emailData);
       setViewingThreadEmailId(emailData.id);
 
-      // Load thread emails if this email belongs to a thread
-      const tId = threadId || emailData.threadId;
-      if (tId) {
-        try {
-          const threadRes: any = await emailsApi.getThreadEmails(tId);
-          const tEmails = Array.isArray(threadRes.data) ? threadRes.data : [];
-          setThreadEmails(tEmails);
-        } catch {
-          // thread load failed, ignore
-        }
-      }
+      // 详情接口已经带上了整个线程（按权限过滤、去掉了追踪像素），
+      // 不用再单独请求一次线程接口
+      setThreadEmails(Array.isArray(emailData.thread?.emails) ? emailData.thread.emails : []);
 
       // Mark as read if inbound and unread
       if (email.direction === 'INBOUND' && email.status === 'RECEIVED') {
@@ -464,12 +457,9 @@ export default function EmailsPage() {
       return;
     }
     setViewingThreadEmailId(email.id);
-    try {
-      const res: any = await emailsApi.getById(email.id);
-      setSelectedEmail(res.data);
-    } catch {
-      setSelectedEmail(email);
-    }
+    // 线程里的每封邮件打开详情时已经带全了正文和附件，直接用，不再请求。
+    // 保留 selectedEmail 上的 thread，回复 / 转发等操作还要用。
+    setSelectedEmail((prev) => ({ ...email, thread: prev?.thread }));
   };
 
   // 回复 —— 复用同一个 ComposeWindow，预先把被引用的原邮件放进正文
@@ -601,6 +591,8 @@ export default function EmailsPage() {
       fetchUnreadCount();
     } catch {
       toast.error('邮件收取失败', { id: 'fetch-email' });
+    } finally {
+      loadAccounts(); // 刷新各账户的同步状态
     }
   };
 
@@ -889,10 +881,29 @@ export default function EmailsPage() {
     };
   };
 
-  // 抠出正文预览 —— 后端 list 接口返回了 bodyText / bodyHtml，这里剥掉
-  // 标签、折叠多余空白，截到 80 字符。
+  // 邮箱账户的收信同步状态（后台每分钟同步一次）
+  const syncStatusOf = (acct: any): { level: 'ok' | 'warn' | 'error'; text: string } => {
+    const last = acct.lastSyncAt ? `最近同步：${formatTime(acct.lastSyncAt)}` : '尚未同步成功';
+    if (acct.syncFailCount > 0) {
+      return {
+        level: 'error',
+        text: `同步失败（连续 ${acct.syncFailCount} 次）：${acct.lastSyncError || '未知错误'}。${last}`,
+      };
+    }
+    if (acct.lastSyncError) {
+      return { level: 'warn', text: `${acct.lastSyncError}。${last}` };
+    }
+    // 超过 15 分钟没有成功同步，多半是后台任务出了问题
+    if (!acct.lastSyncAt || Date.now() - new Date(acct.lastSyncAt).getTime() > 15 * 60_000) {
+      return { level: 'warn', text: last };
+    }
+    return { level: 'ok', text: last };
+  };
+
+  // 列表预览：折叠多余空白，截到 60 字符。
   const previewOf = (email: Email): string => {
-    const raw = email.bodyText || email.bodyHtml || '';
+    // 列表接口只返回 snippet（后端生成的纯文本预览），不再返回正文
+    const raw = email.snippet ?? email.bodyText ?? email.bodyHtml ?? '';
     const stripped = raw.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
     // Shorter preview since the subject + preview now share a single line
     return stripped.length > 60 ? stripped.slice(0, 60) + '…' : stripped;
@@ -2073,6 +2084,18 @@ export default function EmailsPage() {
                         <span className="truncate flex-1 text-left">
                           {acct.emailAddr}
                         </span>
+                        {(() => {
+                          const st = syncStatusOf(acct);
+                          if (st.level === 'ok') return null;
+                          return (
+                            <span
+                              title={st.text}
+                              className={`flex-shrink-0 h-2 w-2 rounded-full ${
+                                st.level === 'error' ? 'bg-red-500' : 'bg-amber-400'
+                              }`}
+                            />
+                          );
+                        })()}
                       </button>
 
                       {/* Folders under this account */}
@@ -2186,6 +2209,22 @@ export default function EmailsPage() {
                             )}
                           </div>
                           <p className="text-xs text-gray-500 mt-0.5">{acct.fromName || '(未设置发件人名称)'}</p>
+                          {(() => {
+                            const st = syncStatusOf(acct);
+                            return (
+                              <p
+                                className={`text-xs mt-0.5 ${
+                                  st.level === 'error'
+                                    ? 'text-red-600'
+                                    : st.level === 'warn'
+                                      ? 'text-amber-600'
+                                      : 'text-gray-400'
+                                }`}
+                              >
+                                {st.text}
+                              </p>
+                            );
+                          })()}
                         </div>
                         <div className="flex gap-2">
                           <button
