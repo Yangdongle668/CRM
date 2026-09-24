@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +11,15 @@ import * as path from 'path';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // 请求体上限：Express 默认只有 100KB。回复 / 转发会把原邮件引用进正文，
+  // 原邮件里的内嵌图片是 base64，正文动辄几百 KB 到几 MB，超过上限会直接
+  // 失败（之前被异常过滤器报成 500"服务器内部错误"）。附件走单独的上传
+  // 接口，不受这里影响。外层反向代理的请求体上限（如 nginx
+  // client_max_body_size）要不小于这个值，备份导入还需要更大（建议 200M）。
+  app.useBodyParser('json', { limit: '30mb' });
+  app.useBodyParser('urlencoded', { limit: '30mb', extended: true });
   
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port', 3000);
