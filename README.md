@@ -35,7 +35,7 @@
 - **全量数据备份与恢复**：ZIP 格式导出（含 CSV），异步队列处理，支持破坏性全量恢复
 - **实时汇率**：后端轮询中国银行现汇买入价（USD_CNY / EUR_CNY / EUR_USD），15 分钟缓存，失败指数退避
 - **WebSocket 即时消息**：基于 Socket.IO 的团队一对一实时通讯，含打字状态、已读回执
-- **Docker 一键部署 / 一键升级**：含 Nginx SSL 终止、自动迁移、随机密钥生成
+- **Docker 一键部署 / 一键升级**：自动迁移、随机密钥生成（域名 / HTTPS 由你自己的反向代理负责）
 
 ### 业务流程图
 
@@ -82,8 +82,7 @@
 | **邮件收件** | node-imap + mailparser | — | IMAP 多账户收件、附件懒加载 |
 | **邮件发件** | Nodemailer | — | SMTP 发件，HTML 链接改写 + 跟踪像素注入 |
 | **PDF 生成** | pdfkit | — | 服务端生成形式发票 PDF |
-| **反向代理** | Nginx (Alpine) | — | SSL 终止、静态资源缓存、gzip 压缩 |
-| **容器编排** | Docker + Compose | — | 五服务编排（pg / redis / backend / frontend / nginx）|
+| **容器编排** | Docker + Compose | — | 四服务编排（pg / redis / backend / frontend），反向代理自备 |
 | **API 文档** | Swagger / OpenAPI | — | 自动生成，访问 `/api-docs` |
 
 ### 关键依赖
@@ -123,10 +122,8 @@
 
 ```
                         ┌─────────────────────────────┐
-                        │       Nginx (Alpine)         │
-                        │  :80 → HTTPS 重定向          │
-                        │  :443 SSL 终止 + 路由分发     │
-                        │  gzip / 安全响应头 / 大文件上传│
+                        │   反向代理（自备，不在本仓库） │
+                        │   域名 / HTTPS / 路由分发      │
                         └────────────┬────────────────┘
                                      │
               ┌──────────────────────┴──────────────────────┐
@@ -147,15 +144,26 @@
    │   复合索引优化        │ │  汇率缓存 15min  │  │   附件懒加载         │
    └──────────────────────┘ └─────────────────┘  └──────────────────────┘
 
-   Nginx 路由规则：
-   /api/*         → backend:3001 (NestJS REST API)
-   /socket.io/*   → backend:3001 (WebSocket)
-   /ws/*          → backend:3001 (WebSocket 备用)
-   /uploads/*     → backend:3001 (静态文件, 7天缓存)
-   /api-docs      → backend:3001 (Swagger 文档)
-   /*.{js,css}    → frontend:3000 (静态资源, 30天缓存)
-   /              → frontend:3000 (Next.js SSR)
+   反向代理路由规则：见下方「反向代理」
 ```
+
+### 反向代理
+
+仓库不再自带 nginx，域名 / HTTPS / 路由由你自己部署的反向代理负责。
+需要满足以下几点：
+
+| 路径 | 转发到 | 说明 |
+|------|--------|------|
+| `/api/` | `backend:3001` | REST API。**必须带上 `Host`、`X-Forwarded-Host`、`X-Forwarded-Proto`**，邮件追踪链接靠它们还原公网域名 |
+| `/socket.io/` | `backend:3001` | 实时推送（站内消息、新邮件、发信结果）。**需要转发 WebSocket 升级头**（`Upgrade` / `Connection: upgrade`，HTTP/1.1），读超时建议 ≥ 1 小时 |
+| `/uploads/` | `backend:3001` | 上传的文件 |
+| `/api-docs` | `backend:3001` | Swagger 文档（不想公开可不转发）|
+| 其余所有路径 | `frontend:3000` | Next.js 页面 |
+
+- **请求体上限不小于 200M**（nginx 是 `client_max_body_size`）：后端单个请求上限 30MB（带图片的回复 / 转发正文），备份导入 ZIP 最大 200MB。
+- `/api/emails/track/` 下的追踪像素是 `.png` 结尾的，如果代理对静态资源后缀有单独规则，要让 `/api/` 规则优先。
+- 只把所有流量转给前端也能用（前端会把 `/api`、`/socket.io` 转发给后端），但实时推送只能走 HTTP 长轮询，且多一跳，**推荐按上表分流**。
+- 部署后自检：`curl 'https://你的域名/socket.io/?EIO=4&transport=polling'` 返回以 `0{"sid":` 开头即为正常。
 
 ---
 
@@ -1259,12 +1267,12 @@ chmod +x deploy.sh
 1. 检测并安装 Docker / Docker Compose
 2. 生成随机数据库密码（20位）和 JWT 密钥（40位）
 3. 创建 `.env` 配置文件
-4. 构建全部镜像（backend / frontend / nginx）
-5. 启动所有容器（postgres → redis → backend → frontend → nginx）
+4. 构建全部镜像（backend / frontend）
+5. 启动所有容器（postgres → redis → backend → frontend）
 6. 执行数据库迁移（`prisma migrate deploy`）
 7. 打印访问地址
 
-访问 `http://<服务器IP>` 进入系统，首次注册的用户自动成为超级管理员。
+前端监听 `:3000`、后端监听 `:3001`，在你自己的反向代理上按「反向代理」一节配置好域名后访问。首次注册的用户自动成为超级管理员。
 
 ### 升级
 
@@ -1291,7 +1299,6 @@ chmod +x deploy.sh
 | redis | redis:7 | 6379 | 队列 + 缓存，volume 持久化 |
 | backend | 本地构建 | 3001 | NestJS API，depends on postgres+redis |
 | frontend | 本地构建 | 3000 | Next.js，depends on backend |
-| nginx | nginx:alpine | 80 / 443 | SSL 终止 + 反向代理，client_max_body_size 200M |
 
 ---
 
@@ -1397,7 +1404,6 @@ GET /api/dashboard/time    # 返回 { serverTime, epochMs, tz, tzOffsetMinutes }
 | `JWT_SECRET` | JWT 密钥（deploy.sh 自动生成）|
 | `FRONTEND_PORT` | 前端端口（默认 3000）|
 | `BACKEND_PORT` | 后端端口（默认 3001）|
-| `NGINX_PORT` | Nginx HTTP 端口（默认 80）|
 
 ---
 
@@ -1472,9 +1478,7 @@ CRM/
 │       ├── lib/                      # API 客户端（axios 封装）/ constants
 │       └── types/                    # TypeScript 类型定义
 │
-├── nginx/
-│   └── nginx.conf                    # 反向代理配置（HTTP→HTTPS 重定向、路由规则、gzip、安全头）
-├── docker-compose.yml                # 五服务编排
+├── docker-compose.yml                # 四服务编排（反向代理自备）
 ├── deploy.sh                         # 一键部署/升级/重置脚本
 └── README.md
 ```
@@ -1487,7 +1491,6 @@ CRM/
 # 查看实时日志
 docker compose logs -f backend
 docker compose logs -f frontend
-docker compose logs -f nginx
 
 # 进入数据库交互
 docker compose exec postgres psql -U crm_user -d trade_crm

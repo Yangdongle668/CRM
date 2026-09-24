@@ -71,7 +71,6 @@ JWT_SECRET=${JWT_SECRET}
 # 服务端口
 FRONTEND_PORT=3000
 BACKEND_PORT=3001
-NGINX_PORT=80
 EOF
         echo -e "${GREEN}[✓] 环境配置文件已创建${NC}"
     else
@@ -168,7 +167,8 @@ show_result() {
     echo -e "${GREEN}    部署完成！${NC}"
     echo -e "${GREEN}============================================${NC}"
     echo ""
-    echo -e "  访问地址: ${BLUE}http://${server_ip}${NC}"
+    echo -e "  前端: ${BLUE}http://${server_ip}:3000${NC}    后端: ${BLUE}http://${server_ip}:3001${NC}"
+    echo -e "  ${YELLOW}请在你自己的反向代理上配置域名 / HTTPS，路由规则见 README「反向代理」${NC}"
     echo ""
     echo -e "  ${YELLOW}首次访问请设置管理员账户${NC}"
     echo ""
