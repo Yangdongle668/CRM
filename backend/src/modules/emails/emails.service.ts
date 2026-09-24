@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
   Optional,
   OnApplicationBootstrap,
 } from '@nestjs/common';
@@ -19,7 +20,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
-import { SendEmailDto } from './dto/send-email.dto';
+import { SendEmailDto, SaveDraftDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import {
   QUEUE_EMAIL,
@@ -29,6 +30,7 @@ import { EmailTrackingService } from './email-tracking.service';
 import { FollowUpsService } from '../follow-ups/follow-ups.service';
 import { EmailCustomerMatcher } from './email-customer-matcher.service';
 import { ImapSyncService } from './imap-sync.service';
+import { EmailEventsService } from './email-events.service';
 import { isSpam, makeSnippet } from './email-utils';
 import { createImap, findSentFolder } from './imap-utils';
 
@@ -56,6 +58,8 @@ const EMAIL_LIST_SELECT = {
   snippet: true,
   direction: true,
   status: true,
+  lastError: true,
+  scheduledAt: true,
   category: true,
   flagged: true,
   sentAt: true,
@@ -86,6 +90,7 @@ export class EmailsService implements OnApplicationBootstrap {
     private readonly followUps: FollowUpsService,
     private readonly matcher: EmailCustomerMatcher,
     private readonly imapSync: ImapSyncService,
+    private readonly events: EmailEventsService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -405,25 +410,90 @@ export class EmailsService implements OnApplicationBootstrap {
   }
 
   // ==================== Send Email ====================
+  //
+  // 发信状态流转：
+  //   DRAFT ──提交──▶ QUEUED ──worker 认领──▶ SENDING ──▶ SENT
+  //                    │  ▲                       └──▶ FAILED ──重发──▶ QUEUED
+  //                    └──撤回 / 取消定时──▶ DRAFT
+  //
+  // 提交后先等 UNDO_WINDOW_MS（或用户选的定时时间）再真正发送，期间可以
+  // 撤回。每次提交都有唯一的 scheduledAt，发送任务带着它认领：撤回后再
+  // 提交，旧任务的 scheduledAt 对不上，认领失败，不会提前 / 重复发出。
 
-  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
-    let config: any;
+  /** 发出后可撤回的时间窗口 */
+  static readonly UNDO_WINDOW_MS = 10_000;
 
-    if (dto.emailConfigId) {
-      config = await this.prisma.emailConfig.findFirst({
-        where: { id: dto.emailConfigId, userId },
-      });
-    } else {
-      config = await this.prisma.emailConfig.findFirst({
-        where: { userId },
-        orderBy: { createdAt: 'asc' },
-      });
-    }
-
+  private async resolveSendingConfig(userId: string, emailConfigId?: string) {
+    const config = await this.prisma.emailConfig.findFirst({
+      where: emailConfigId ? { id: emailConfigId, userId } : { userId },
+      orderBy: { createdAt: 'asc' },
+    });
     if (!config) {
       throw new BadRequestException(
         'Email configuration not found. Please configure your SMTP settings first.',
       );
+    }
+    return config;
+  }
+
+  /** 自己邮箱里的一份草稿；不存在 / 不是草稿 → 404。 */
+  private async findOwnDraft(draftId: string, userId: string) {
+    const draft = await this.prisma.email.findFirst({
+      where: {
+        AND: [
+          { id: draftId, status: 'DRAFT', category: 'drafts' },
+          this.ownMailboxWhere(userId),
+        ],
+      },
+    });
+    if (!draft) throw new NotFoundException('草稿不存在或已发送');
+    return draft;
+  }
+
+  /** 把当前用户上传的文档挂到邮件上；传了列表就以它为准（草稿里删掉的附件解绑）。 */
+  private async syncAttachments(emailId: string, userId: string, ids?: string[]) {
+    if (!ids) return;
+    await this.prisma.document.updateMany({
+      where: { relatedType: 'email', relatedId: emailId, id: { notIn: ids } },
+      data: { relatedType: null, relatedId: null },
+    });
+    if (ids.length > 0) {
+      // 只接受自己上传的文件，防止用别人的 Document id 把他人的文件带出去
+      await this.prisma.document.updateMany({
+        where: { id: { in: ids }, ownerId: userId },
+        data: { relatedType: 'email', relatedId: emailId, category: 'email-attachment' },
+      });
+    }
+  }
+
+  /** 前端重新打开草稿 / 撤回后的邮件时需要的附件列表。 */
+  private async listComposeAttachments(emailId: string) {
+    const docs = await this.prisma.document.findMany({
+      where: { relatedType: 'email', relatedId: emailId },
+      select: { id: true, fileName: true, fileSize: true, mimeType: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return docs.map((d) => ({ id: d.id, name: d.fileName, size: d.fileSize, mimeType: d.mimeType }));
+  }
+
+  async sendEmail(userId: string, dto: SendEmailDto, requestOrigin?: string) {
+    const config = await this.resolveSendingConfig(userId, dto.emailConfigId);
+    const draft = dto.draftId ? await this.findOwnDraft(dto.draftId, userId) : null;
+
+    let scheduledAt = new Date(Date.now() + EmailsService.UNDO_WINDOW_MS);
+    if (dto.scheduledAt) {
+      const t = new Date(dto.scheduledAt);
+      if (Number.isNaN(t.getTime()) || t.getTime() < Date.now() - 60_000) {
+        throw new BadRequestException('定时发送时间必须晚于当前时间');
+      }
+      if (t.getTime() > Date.now() + 365 * 24 * 3600_000) {
+        throw new BadRequestException('定时发送最多提前一年');
+      }
+      // 选的时间比撤回窗口还早时，至少保留撤回窗口
+      if (t > scheduledAt) scheduledAt = t;
+    }
+    if (!this.emailQueue && dto.scheduledAt) {
+      throw new BadRequestException('当前服务未启用任务队列，无法定时发送');
     }
 
     let htmlBody = dto.bodyHtml;
@@ -433,18 +503,18 @@ export class EmailsService implements OnApplicationBootstrap {
       htmlBody += `<br/><br/>--<br/>${config.signature}`;
     }
 
-    let inReplyToMessageId: string | undefined;
+    // 回复：只能回复自己看得到的邮件，否则不挂线程也不带 In-Reply-To
+    const replyToId = dto.inReplyTo || draft?.replyToEmailId || undefined;
+    let replyToEmailId: string | null = null;
     let threadId: string | undefined;
-
-    if (dto.inReplyTo) {
-      // 只能回复自己看得到的邮件，否则不挂线程也不带 In-Reply-To。
+    if (replyToId) {
       const originalEmail = await this.prisma.email.findFirst({
         where: {
-          AND: [{ id: dto.inReplyTo }, this.readableWhere({ id: userId, role: '' })],
+          AND: [{ id: replyToId }, this.readableWhere({ id: userId, role: '' })],
         },
       });
       if (originalEmail) {
-        inReplyToMessageId = originalEmail.messageId || undefined;
+        replyToEmailId = originalEmail.id;
         if (originalEmail.threadId) {
           threadId = originalEmail.threadId;
         } else {
@@ -459,21 +529,15 @@ export class EmailsService implements OnApplicationBootstrap {
         }
       }
     }
-
     if (!threadId) {
-      threadId = await this.createThread(dto.subject);
+      threadId = draft?.threadId || (await this.createThread(dto.subject));
     }
 
+    // 客户只是标签，文件夹始终是"已发送"
     let customerId = dto.customerId || null;
-    let category = 'sent';
     if (!customerId) {
       const matched = await this.matcher.match(dto.toAddr);
-      if (matched) {
-        customerId = matched.id;
-        category = 'customer';
-      }
-    } else {
-      category = 'customer';
+      if (matched) customerId = matched.id;
     }
 
     // Resolve / upsert the recipient (cross-email aggregation keyed by
@@ -490,130 +554,239 @@ export class EmailsService implements OnApplicationBootstrap {
       if (campaign) campaignId = campaign.id;
     }
 
-    const emailRecord = await this.prisma.email.create({
-      data: {
-        fromAddr: config.emailAddr,
-        fromName: config.fromName || null,
-        toAddr: dto.toAddr,
-        cc: dto.cc,
-        bcc: dto.bcc,
-        subject: dto.subject,
-        bodyHtml: htmlBody,
-        snippet: makeSnippet(null, htmlBody),
-        direction: 'OUTBOUND',
-        status: 'DRAFT',
-        category,
-        customerId,
-        senderId: userId,
-        emailConfigId: config.id,
-        threadId: threadId || null,
-        recipientId: recipient.id,
-        campaignId,
-      },
-      include: { customer: true },
-    });
+    const data = {
+      fromAddr: config.emailAddr,
+      fromName: config.fromName || null,
+      toAddr: dto.toAddr,
+      cc: dto.cc || null,
+      bcc: dto.bcc || null,
+      subject: dto.subject,
+      bodyHtml: htmlBody,
+      snippet: makeSnippet(null, htmlBody),
+      direction: 'OUTBOUND' as const,
+      status: 'QUEUED' as const,
+      category: 'sent',
+      scheduledAt,
+      lastError: null,
+      replyToEmailId,
+      customerId,
+      senderId: userId,
+      emailConfigId: config.id,
+      threadId: threadId || null,
+      recipientId: recipient.id,
+      campaignId,
+    };
+    const emailRecord = draft
+      ? await this.prisma.email.update({ where: { id: draft.id }, data, include: { customer: true } })
+      : await this.prisma.email.create({ data, include: { customer: true } });
 
-    // Bump recipient.totalSent + lastSentAt immediately so aggregates
-    // stay accurate even if the SMTP send later fails.
-    await this.prisma.emailRecipient.update({
-      where: { id: recipient.id },
-      data: {
-        totalSent: { increment: 1 },
-        lastSentAt: new Date(),
-      },
-    });
+    await this.syncAttachments(emailRecord.id, userId, dto.attachmentIds);
 
-    // 把上传过的附件文档挂到这封邮件上（relatedType='email' + relatedId
-    // = 邮件 id）。只接受当前用户上传的文件，防止用别人的 Document id
-    // 把他人的文件带出去。之后 deliverPendingEmail 会按同样的 where 找
-    // 这些附件。
-    if (dto.attachmentIds && dto.attachmentIds.length > 0) {
-      await this.prisma.document.updateMany({
-        where: {
-          id: { in: dto.attachmentIds },
-          ownerId: userId,
-        },
-        data: {
-          relatedType: 'email',
-          relatedId: emailRecord.id,
-          category: 'email-attachment',
-        },
-      });
-    }
+    const origin = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
 
-    const requestOriginForTracking =
-      process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
-
-    // Enqueue the SMTP delivery so the HTTP request returns immediately.
-    // If BullMQ/Redis is unavailable, fall back to synchronous send so
-    // existing behaviour still works.
     if (this.emailQueue) {
-      await this.emailQueue.add(
-        EMAIL_JOB_SEND,
-        {
-          emailId: emailRecord.id,
-          userId,
-          requestOrigin: requestOriginForTracking,
-          inReplyToMessageId,
-        },
-        {
-          jobId: `send-${emailRecord.id}`,
-        },
-      );
+      await this.enqueueSend(emailRecord.id, userId, scheduledAt, origin);
       return emailRecord;
     }
 
-    // Fallback: inline delivery (no queue configured).
-    this.logger.warn(
-      'Email queue not configured — falling back to synchronous send',
-    );
+    // 没有队列：没法延迟发送，只能当场发（也就没有撤回窗口）
+    this.logger.warn('Email queue not configured — falling back to synchronous send');
     try {
       return await this.deliverPendingEmail(emailRecord.id, {
-        requestOrigin: requestOriginForTracking,
-        inReplyToMessageId,
+        requestOrigin: origin,
         actingUserId: userId,
+        scheduledAt: scheduledAt.toISOString(),
       });
     } catch (error: any) {
-      throw new BadRequestException(
-        `Failed to send email: ${error?.message || error}`,
-      );
+      throw new BadRequestException(`Failed to send email: ${error?.message || error}`);
     }
   }
 
+  private sendJobId(emailId: string, scheduledAt: Date) {
+    return `send-${emailId}-${scheduledAt.getTime()}`;
+  }
+
+  private async enqueueSend(emailId: string, userId: string, scheduledAt: Date, origin: string) {
+    await this.emailQueue!.add(
+      EMAIL_JOB_SEND,
+      {
+        emailId,
+        userId,
+        requestOrigin: origin,
+        scheduledAt: scheduledAt.toISOString(),
+      },
+      {
+        jobId: this.sendJobId(emailId, scheduledAt),
+        delay: Math.max(0, scheduledAt.getTime() - Date.now()),
+      },
+    );
+  }
+
   /**
-   * Worker-side SMTP delivery. Looks up the persisted DRAFT email record
-   * and actually sends it, updating status to SENT or FAILED.
-   * Safe to retry: noop if the email is already SENT.
+   * 撤回（撤回窗口内）或取消定时发送：邮件退回草稿箱，返回草稿内容，
+   * 前端据此重新打开写信窗口。已经开始发送的无法撤回。
+   */
+  async cancelSend(id: string, actor: EmailActor) {
+    const email = await this.assertCanModify(id, actor);
+    const { count } = await this.prisma.email.updateMany({
+      where: { id, status: 'QUEUED' },
+      data: { status: 'DRAFT', category: 'drafts', scheduledAt: null },
+    });
+    if (count === 0) {
+      throw new ConflictException('邮件已经发出，无法撤回');
+    }
+    // 旧任务就算留在队列里也会因为认领失败而空跑，这里顺手删掉
+    if (this.emailQueue && email.scheduledAt) {
+      const job = await this.emailQueue
+        .getJob(this.sendJobId(id, email.scheduledAt))
+        .catch(() => undefined);
+      await job?.remove().catch(() => undefined);
+    }
+    return this.getDraft(id, actor);
+  }
+
+  /** 发送失败的邮件重新发送（立即发，不再等撤回窗口）。 */
+  async resend(id: string, actor: EmailActor, requestOrigin?: string) {
+    await this.assertCanModify(id, actor);
+    const scheduledAt = new Date();
+    const { count } = await this.prisma.email.updateMany({
+      where: { id, direction: 'OUTBOUND', status: 'FAILED' },
+      data: { status: 'QUEUED', scheduledAt, lastError: null },
+    });
+    if (count === 0) {
+      throw new ConflictException('只有发送失败的邮件可以重发');
+    }
+    const origin = process.env.APP_URL || process.env.PUBLIC_URL || requestOrigin || '';
+    if (this.emailQueue) {
+      await this.enqueueSend(id, actor.id, scheduledAt, origin);
+      return this.prisma.email.findUnique({ where: { id } });
+    }
+    return this.deliverPendingEmail(id, {
+      requestOrigin: origin,
+      actingUserId: actor.id,
+      scheduledAt: scheduledAt.toISOString(),
+    });
+  }
+
+  // ==================== Drafts ====================
+
+  /** 新建或更新草稿（写信窗口自动保存）。 */
+  async saveDraft(userId: string, dto: SaveDraftDto) {
+    const config = await this.resolveSendingConfig(userId, dto.emailConfigId);
+    const existing = dto.draftId ? await this.findOwnDraft(dto.draftId, userId) : null;
+
+    let replyToEmailId: string | null = existing?.replyToEmailId ?? null;
+    if (dto.inReplyTo !== undefined) {
+      replyToEmailId = null;
+      if (dto.inReplyTo) {
+        const original = await this.prisma.email.findFirst({
+          where: { AND: [{ id: dto.inReplyTo }, this.readableWhere({ id: userId, role: '' })] },
+          select: { id: true },
+        });
+        replyToEmailId = original?.id ?? null;
+      }
+    }
+
+    const bodyHtml = dto.bodyHtml ?? existing?.bodyHtml ?? '';
+    const data = {
+      fromAddr: config.emailAddr,
+      fromName: config.fromName || null,
+      toAddr: dto.toAddr ?? existing?.toAddr ?? '',
+      cc: (dto.cc ?? existing?.cc) || null,
+      bcc: (dto.bcc ?? existing?.bcc) || null,
+      subject: dto.subject ?? existing?.subject ?? '',
+      bodyHtml,
+      snippet: makeSnippet(null, bodyHtml),
+      customerId: dto.customerId !== undefined ? dto.customerId || null : existing?.customerId ?? null,
+      replyToEmailId,
+      emailConfigId: config.id,
+    };
+    const draft = existing
+      ? await this.prisma.email.update({ where: { id: existing.id }, data })
+      : await this.prisma.email.create({
+          data: {
+            ...data,
+            direction: 'OUTBOUND',
+            status: 'DRAFT',
+            category: 'drafts',
+            senderId: userId,
+          },
+        });
+    await this.syncAttachments(draft.id, userId, dto.attachmentIds);
+    return { id: draft.id, updatedAt: draft.updatedAt };
+  }
+
+  /** 打开草稿：写信窗口需要的全部字段。 */
+  async getDraft(id: string, actor: EmailActor) {
+    const draft = await this.findOwnDraft(id, actor.id);
+    return {
+      id: draft.id,
+      emailConfigId: draft.emailConfigId,
+      toAddr: draft.toAddr,
+      cc: draft.cc || '',
+      bcc: draft.bcc || '',
+      subject: draft.subject,
+      bodyHtml: draft.bodyHtml || '',
+      customerId: draft.customerId || '',
+      inReplyTo: draft.replyToEmailId || '',
+      attachments: await this.listComposeAttachments(draft.id),
+      updatedAt: draft.updatedAt,
+    };
+  }
+
+  /** 丢弃草稿（连同挂在上面的附件关联）。 */
+  async discardDraft(id: string, actor: EmailActor) {
+    await this.findOwnDraft(id, actor.id);
+    await this.syncAttachments(id, actor.id, []);
+    await this.prisma.email.delete({ where: { id } });
+    return { deleted: true };
+  }
+
+  /**
+   * Worker 端 SMTP 投递。
+   *
+   * 先按 (id, 状态 QUEUED/FAILED, scheduledAt) 原子认领为 SENDING：
+   *   - 已撤回（变回 DRAFT）/ 已发出 / 被新的提交取代 → 认领失败，空跑；
+   *   - 认领时发现是 SENDING 且 scheduledAt 对得上 → 上次发送途中进程
+   *     挂了，不知道到底发没发出去，标为失败让用户确认，绝不自动重发。
+   * SMTP 成功之后的数据库写入出错只记日志不抛出，避免任务重试把同一封
+   * 邮件再发一遍。
    */
   async deliverPendingEmail(
     emailId: string,
     opts: {
       requestOrigin?: string;
+      /** 旧版本入队的任务会带这个；新任务从 replyToEmailId 现查 */
       inReplyToMessageId?: string;
       actingUserId?: string;
+      scheduledAt?: string;
     } = {},
   ) {
-    const emailRecord = await this.prisma.email.findUnique({
-      where: { id: emailId },
+    const tokenWhere = opts.scheduledAt ? { scheduledAt: new Date(opts.scheduledAt) } : {};
+    const claimed = await this.prisma.email.updateMany({
+      where: { id: emailId, status: { in: ['QUEUED', 'FAILED'] }, ...tokenWhere },
+      data: { status: 'SENDING', lastError: null },
     });
-    if (!emailRecord) {
-      throw new NotFoundException(`Email ${emailId} not found`);
-    }
-    if (emailRecord.status === 'SENT') {
-      return emailRecord;
-    }
-    if (!emailRecord.emailConfigId) {
-      throw new BadRequestException('Email record has no emailConfigId');
+    if (claimed.count === 0) {
+      const current = await this.prisma.email.findUnique({ where: { id: emailId } });
+      if (!current) throw new NotFoundException(`Email ${emailId} not found`);
+      const sameSubmission =
+        !opts.scheduledAt || current.scheduledAt?.toISOString() === opts.scheduledAt;
+      if (current.status === 'SENDING' && sameSubmission) {
+        return this.markFailed(
+          emailId,
+          '发送过程中服务中断，无法确认是否已发出。请先确认对方是否收到，再决定是否重发',
+        );
+      }
+      return current; // 已撤回 / 已发出 / 被新提交取代
     }
 
-    const config = await this.prisma.emailConfig.findUnique({
-      where: { id: emailRecord.emailConfigId },
-    });
+    const emailRecord = (await this.prisma.email.findUnique({ where: { id: emailId } }))!;
+    const config = emailRecord.emailConfigId
+      ? await this.prisma.emailConfig.findUnique({ where: { id: emailRecord.emailConfigId } })
+      : null;
     if (!config) {
-      await this.prisma.email.update({
-        where: { id: emailId },
-        data: { status: 'FAILED' },
-      });
+      await this.markFailed(emailId, '发件邮箱账户已删除');
       throw new BadRequestException('Email configuration no longer exists');
     }
 
@@ -628,14 +801,13 @@ export class EmailsService implements OnApplicationBootstrap {
       ? `"${config.fromName}" <${config.emailAddr}>`
       : config.emailAddr;
 
-    const appUrl = opts.requestOrigin || '';
     // Multi-signal tracking: rewrite every <a href> through the click
     // redirector AND append a 1×1 pixel. Pixel alone is blocked by Gmail
     // proxy caching / Apple MPP; wrapped links pick up the slack.
     const htmlWithTracking = await this.tracking.rewriteEmailHtml(
       emailRecord.id,
       emailRecord.bodyHtml || '',
-      appUrl,
+      opts.requestOrigin || '',
     );
 
     // 预先定死 Message-Id：SMTP 发出去的和 IMAP APPEND 回服务器的要一致，
@@ -653,9 +825,17 @@ export class EmailsService implements OnApplicationBootstrap {
       messageId: presetMessageId,
     };
 
-    if (opts.inReplyToMessageId) {
-      mailOptions.inReplyTo = opts.inReplyToMessageId;
-      mailOptions.references = [opts.inReplyToMessageId];
+    let inReplyToMessageId = opts.inReplyToMessageId;
+    if (!inReplyToMessageId && emailRecord.replyToEmailId) {
+      const original = await this.prisma.email.findUnique({
+        where: { id: emailRecord.replyToEmailId },
+        select: { messageId: true },
+      });
+      inReplyToMessageId = original?.messageId || undefined;
+    }
+    if (inReplyToMessageId) {
+      mailOptions.inReplyTo = inReplyToMessageId;
+      mailOptions.references = [inReplyToMessageId];
     }
 
     // 装载附件 —— 查这封邮件关联的 Document 行。用磁盘路径的形式交给
@@ -665,38 +845,45 @@ export class EmailsService implements OnApplicationBootstrap {
       where: { relatedType: 'email', relatedId: emailRecord.id },
       select: { id: true, fileName: true, filePath: true, mimeType: true },
     });
-    if (attachmentDocs.length > 0) {
-      const nmAttachments: any[] = [];
-      for (const d of attachmentDocs) {
-        if (d.filePath && fs.existsSync(d.filePath)) {
-          nmAttachments.push({
-            filename: d.fileName,
-            path: d.filePath,
-            contentType: d.mimeType || undefined,
-          });
-        } else {
-          this.logger.warn(
-            `Attachment file missing on disk, skipping: ${d.fileName} (${d.filePath})`,
-          );
-        }
-      }
-      if (nmAttachments.length > 0) {
-        mailOptions.attachments = nmAttachments;
+    const nmAttachments: any[] = [];
+    for (const d of attachmentDocs) {
+      if (d.filePath && fs.existsSync(d.filePath)) {
+        nmAttachments.push({ filename: d.fileName, path: d.filePath, contentType: d.mimeType || undefined });
+      } else {
+        this.logger.warn(`Attachment file missing on disk, skipping: ${d.fileName} (${d.filePath})`);
       }
     }
+    if (nmAttachments.length > 0) mailOptions.attachments = nmAttachments;
 
+    let info: any;
     try {
-      const info = await transporter.sendMail(mailOptions);
+      info = await transporter.sendMail(mailOptions);
+    } catch (error: any) {
+      this.logger.error(`Failed to send email ${emailId}: ${error?.message}`, error?.stack);
+      await this.markFailed(emailId, error?.message || String(error));
+      throw error;
+    }
 
-      const email = await this.prisma.email.update({
+    // ---- 以下都在 SMTP 成功之后：出错只记日志，不能让任务重试重发 ----
+    let email: any = emailRecord;
+    try {
+      email = await this.prisma.email.update({
         where: { id: emailRecord.id },
         data: {
-          messageId: info.messageId,
+          messageId: info.messageId || presetMessageId,
           status: 'SENT',
           sentAt: new Date(),
+          lastError: null,
         },
         include: { customer: true },
       });
+
+      if (email.recipientId) {
+        await this.prisma.emailRecipient.update({
+          where: { id: email.recipientId },
+          data: { totalSent: { increment: 1 }, lastSentAt: new Date() },
+        });
+      }
 
       if (email.customerId) {
         const ownerId = opts.actingUserId || emailRecord.senderId || undefined;
@@ -717,35 +904,49 @@ export class EmailsService implements OnApplicationBootstrap {
       }
 
       // 跟进钩子：收件人如命中 Lead 则自动建/续期一条 PENDING 跟进。
-      // 错误不传播，不影响主流程。
       await this.followUps.createForOutboundEmail({
         id: email.id,
         toAddr: email.toAddr,
         customerId: email.customerId,
         senderId: email.senderId,
       });
-
-      // 把发出去的邮件 APPEND 到 IMAP Sent 文件夹，保证其它邮箱客户端
-      // （手机 / 网页 / Outlook 等）也能看到本系统发出的邮件。
-      // 纯 best-effort：失败只记日志，不影响主流程（SMTP 已送达）。
-      this.appendToImapSent(config, mailOptions).catch((err) =>
-        this.logger.warn(
-          `IMAP APPEND to Sent folder failed for ${emailId}: ${err?.message || err}`,
-        ),
-      );
-
-      return email;
-    } catch (error: any) {
+    } catch (err: any) {
       this.logger.error(
-        `Failed to send email ${emailId}: ${error?.message}`,
-        error?.stack,
+        `Email ${emailId} was delivered but post-send bookkeeping failed: ${err?.message}`,
       );
-      await this.prisma.email.update({
-        where: { id: emailId },
-        data: { status: 'FAILED' },
-      });
-      throw error;
     }
+
+    this.events.emailSent(emailRecord.senderId, { id: emailId, subject: emailRecord.subject });
+
+    // 把发出去的邮件 APPEND 到 IMAP Sent 文件夹，保证其它邮箱客户端
+    // （手机 / 网页 / Outlook 等）也能看到本系统发出的邮件。
+    // 纯 best-effort：失败只记日志，不影响主流程（SMTP 已送达）。
+    this.appendToImapSent(config, mailOptions).catch((err) =>
+      this.logger.warn(`IMAP APPEND to Sent folder failed for ${emailId}: ${err?.message || err}`),
+    );
+
+    return email;
+  }
+
+  /** 发信任务最终失败后推送给发件人（由 EmailProcessor 调用）。 */
+  async notifySendFailed(emailId: string) {
+    const email = await this.prisma.email.findUnique({
+      where: { id: emailId },
+      select: { id: true, subject: true, senderId: true, status: true, lastError: true },
+    });
+    if (!email || email.status !== 'FAILED') return;
+    this.events.emailFailed(email.senderId, {
+      id: email.id,
+      subject: email.subject,
+      error: email.lastError || '未知错误',
+    });
+  }
+
+  private async markFailed(emailId: string, message: string) {
+    return this.prisma.email.update({
+      where: { id: emailId },
+      data: { status: 'FAILED', lastError: String(message).slice(0, 500) },
+    });
   }
 
   // ==================== List Emails ====================
@@ -764,6 +965,8 @@ export class EmailsService implements OnApplicationBootstrap {
       category?: string;
       flagged?: string;
       search?: string;
+      /** 'true'：只看关联了客户的邮件（"客户邮件"视图，不是文件夹） */
+      customerOnly?: string;
     },
     isSuperAdmin?: boolean,
   ) {
@@ -819,6 +1022,14 @@ export class EmailsService implements OnApplicationBootstrap {
 
     if (query.category) {
       where.category = query.category;
+    }
+
+    // "客户邮件"是跨收件箱 / 已发送的标签视图：有客户、且不在回收站 / 垃圾 / 草稿里
+    if (query.customerOnly === 'true' && !query.customerId) {
+      where.customerId = { not: null };
+      if (!query.category) {
+        where.category = { notIn: ['trash', 'spam', 'drafts'] };
+      }
     }
 
     if (query.flagged === 'true') {
@@ -958,8 +1169,12 @@ export class EmailsService implements OnApplicationBootstrap {
       params.push(where.senderId);
     }
     if (where.customerId) {
-      conditions.push(`e.customer_id = $${paramIdx++}`);
-      params.push(where.customerId);
+      if (typeof where.customerId === 'object') {
+        conditions.push('e.customer_id IS NOT NULL');
+      } else {
+        conditions.push(`e.customer_id = $${paramIdx++}`);
+        params.push(where.customerId);
+      }
     }
     if (where.direction) {
       conditions.push(`e.direction::text = $${paramIdx++}`);
@@ -986,8 +1201,15 @@ export class EmailsService implements OnApplicationBootstrap {
       }
     }
     if (where.category) {
-      conditions.push(`e.category = $${paramIdx++}`);
-      params.push(where.category);
+      if (typeof where.category === 'object' && where.category.notIn) {
+        const cats: string[] = where.category.notIn;
+        const placeholders = cats.map(() => `$${paramIdx++}`).join(', ');
+        conditions.push(`COALESCE(e.category, 'inbox') NOT IN (${placeholders})`);
+        params.push(...cats);
+      } else {
+        conditions.push(`e.category = $${paramIdx++}`);
+        params.push(where.category);
+      }
     }
     if (where.flagged) {
       conditions.push(`e.flagged = true`);
@@ -1110,7 +1332,8 @@ export class EmailsService implements OnApplicationBootstrap {
   }
 
   async updateCategory(id: string, actor: EmailActor, category: string) {
-    const validCategories = ['inbox', 'sent', 'customer', 'advertisement', 'drafts', 'starred', 'trash', 'spam'];
+    // "客户"不再是文件夹（改为 customerId 标签），"星标"用 flagged
+    const validCategories = ['inbox', 'sent', 'advertisement', 'trash', 'spam'];
     if (!validCategories.includes(category)) {
       throw new BadRequestException('Invalid category');
     }
@@ -1165,7 +1388,7 @@ export class EmailsService implements OnApplicationBootstrap {
    */
   async restoreFromTrash(id: string, actor: EmailActor) {
     const email = await this.assertCanModify(id, actor);
-    const newCat = email.direction === 'OUTBOUND' ? 'sent' : 'inbox';
+    const newCat = this.homeFolderOf(email);
     return this.prisma.email.update({
       where: { id },
       data: { category: newCat },
@@ -1191,6 +1414,87 @@ export class EmailsService implements OnApplicationBootstrap {
     return { deleted: result.count };
   }
 
+  /** 邮件"原本"所在的文件夹：恢复出回收站 / 移出垃圾邮件时用。 */
+  private homeFolderOf(email: { direction: string; status: string }) {
+    if (email.direction === 'INBOUND') return 'inbox';
+    return email.status === 'DRAFT' ? 'drafts' : 'sent';
+  }
+
+  /**
+   * 列表批量操作。ids 是单封邮件，threadIds 表示整个会话（和 Gmail 一样，
+   * 对会话操作会作用到其中所有邮件）。只作用于调用者自己邮箱里的邮件，
+   * 无权的静默跳过。返回受影响的邮件数。
+   */
+  async batchAction(
+    actor: EmailActor,
+    body: { ids?: string[]; threadIds?: string[]; action: string },
+  ): Promise<{ affected: number }> {
+    const ids = (body.ids || []).filter(Boolean);
+    const threadIds = (body.threadIds || []).filter(Boolean);
+    if (ids.length === 0 && threadIds.length === 0) return { affected: 0 };
+    if (ids.length + threadIds.length > 500) {
+      throw new BadRequestException('一次最多操作 500 项');
+    }
+    const scope: Prisma.EmailWhereInput = {
+      AND: [
+        this.mailboxWhere(actor),
+        {
+          OR: [
+            ...(ids.length ? [{ id: { in: ids } }] : []),
+            ...(threadIds.length ? [{ threadId: { in: threadIds } }] : []),
+          ],
+        },
+      ],
+    };
+    const upd = async (extra: Prisma.EmailWhereInput, data: Prisma.EmailUpdateManyMutationInput) =>
+      (await this.prisma.email.updateMany({ where: { AND: [scope, extra] }, data })).count;
+
+    let affected = 0;
+    switch (body.action) {
+      case 'read':
+        affected = await upd({ direction: 'INBOUND', status: 'RECEIVED' }, { status: 'READ' });
+        break;
+      case 'unread':
+        affected = await upd({ direction: 'INBOUND', status: 'READ' }, { status: 'RECEIVED' });
+        break;
+      case 'flag':
+        affected = await upd({}, { flagged: true });
+        break;
+      case 'unflag':
+        affected = await upd({}, { flagged: false });
+        break;
+      case 'trash':
+        affected = await upd({ NOT: { category: 'trash' } }, { category: 'trash' });
+        break;
+      case 'spam':
+        affected = await upd(
+          { direction: 'INBOUND', NOT: { category: 'spam' } },
+          { category: 'spam' },
+        );
+        break;
+      case 'restore':
+      case 'notSpam': {
+        const from = body.action === 'restore' ? 'trash' : 'spam';
+        affected += await upd({ category: from, direction: 'INBOUND' }, { category: 'inbox' });
+        affected += await upd({ category: from, direction: 'OUTBOUND', status: 'DRAFT' }, { category: 'drafts' });
+        affected += await upd(
+          { category: from, direction: 'OUTBOUND', NOT: { status: 'DRAFT' } },
+          { category: 'sent' },
+        );
+        break;
+      }
+      case 'delete':
+        // 永久删除只对回收站里的邮件生效，防止误删
+        affected = (
+          await this.prisma.email.deleteMany({ where: { AND: [scope, { category: 'trash' }] } })
+        ).count;
+        break;
+      default:
+        throw new BadRequestException(`Unknown action: ${body.action}`);
+    }
+    return { affected };
+  }
+
   // ── Spam filter（规则见 email-utils.ts 的 isSpam） ──────────
 
   /**
@@ -1200,8 +1504,9 @@ export class EmailsService implements OnApplicationBootstrap {
   async scanSpam(userId: string): Promise<{ flagged: number }> {
     const candidates = await this.prisma.email.findMany({
       where: {
-        category: { in: ['inbox', 'customer', 'advertisement'] },
+        category: { in: ['inbox', 'advertisement'] },
         direction: 'INBOUND',
+        customerId: null, // 客户来信不做关键词判断
         ...this.ownMailboxWhere(userId),
       },
       select: { id: true, subject: true, fromAddr: true, bodyText: true },
@@ -1230,9 +1535,11 @@ export class EmailsService implements OnApplicationBootstrap {
       where: { userId },
       select: { id: true },
     });
+    // 和"未读"文件夹同一口径：只算收件箱里的（不含垃圾邮件 / 回收站）
     const where: any = {
       direction: 'INBOUND',
       status: 'RECEIVED',
+      category: 'inbox',
       emailConfigId: { in: myConfigs.map((c) => c.id) },
     };
 

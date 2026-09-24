@@ -331,7 +331,9 @@ enum EmailDirection {
 }
 
 enum EmailStatus {
-  DRAFT
+  DRAFT    // 草稿（category = drafts）
+  QUEUED   // 已提交发送：撤回窗口内 / 定时发送等待中 / 排队中
+  SENDING  // 发送任务已认领，正在走 SMTP
   SENT
   RECEIVED
   FAILED
@@ -357,6 +359,13 @@ model Email {
   // 列表预览：正文纯文本前 200 字，入库时生成。列表接口只返回它，
   // 不再返回动辄几 MB 的正文（内嵌图片是 base64 写在 bodyHtml 里的）。
   snippet       String?
+  // ---- 发信流程 ----
+  // 最近一次发送失败的原因（成功或重发时清空），前端据此展示并提供重发
+  lastError     String?        @map("last_error")
+  // 计划发送时间：撤回窗口（发出后几秒）或用户选择的定时发送
+  scheduledAt   DateTime?      @map("scheduled_at")
+  // 草稿是对哪封邮件的回复：发送时据此带上 In-Reply-To 并归入原线程
+  replyToEmailId String?       @map("reply_to_email_id")
   direction     EmailDirection
   status        EmailStatus    @default(DRAFT)
   category      String?        @default("inbox")

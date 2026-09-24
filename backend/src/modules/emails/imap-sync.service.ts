@@ -7,6 +7,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { FollowUpsService } from '../follow-ups/follow-ups.service';
 import { QUEUE_EMAIL, EMAIL_JOB_FETCH } from '../../queue/queue.constants';
 import { EmailCustomerMatcher } from './email-customer-matcher.service';
+import { EmailEventsService } from './email-events.service';
 import { isSpam, makeSnippet } from './email-utils';
 import {
   ImapAccount,
@@ -76,6 +77,7 @@ export class ImapSyncService {
     private readonly prisma: PrismaService,
     private readonly followUps: FollowUpsService,
     private readonly matcher: EmailCustomerMatcher,
+    private readonly events: EmailEventsService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -185,6 +187,11 @@ export class ImapSyncService {
       });
       if (result.fetched > 0) {
         this.logger.log(`[${ctx.emailAddr}] synced ${result.fetched} new email(s)`);
+        this.events.newMail(ctx.userId, {
+          configId,
+          inbound: result.inboxFetched,
+          outbound: result.sentFetched,
+        });
       }
       return result;
     } catch (err: any) {
@@ -358,13 +365,16 @@ export class ImapSyncService {
     const customer = matchEmail ? await this.matcher.match(matchEmail) : null;
 
     const status = direction === 'INBOUND' ? 'RECEIVED' : 'SENT';
-    let category = 'inbox';
-    if (direction === 'INBOUND' && isSpam({ subject: parsed.subject, fromAddr, bodyText: parsed.text })) {
+    // 文件夹只有收件箱 / 已发送 / 垃圾邮件；客户是 customerId 标签，不是文件夹
+    let category = direction === 'OUTBOUND' ? 'sent' : 'inbox';
+    // 已匹配到客户的来信不做关键词判断：外贸往来里 shopify / alibaba /
+    // free trial 之类的词很常见，误判代价远大于漏判
+    if (
+      direction === 'INBOUND' &&
+      !customer &&
+      isSpam({ subject: parsed.subject, fromAddr, bodyText: parsed.text })
+    ) {
       category = 'spam';
-    } else if (customer) {
-      category = 'customer';
-    } else if (direction === 'OUTBOUND') {
-      category = 'sent';
     }
 
     const rawSubject = parsed.subject || '(No Subject)';

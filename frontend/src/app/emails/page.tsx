@@ -8,6 +8,7 @@ import Badge from '@/components/ui/Badge';
 import EmailTrackingPanel from '@/components/emails/EmailTrackingPanel';
 import SignatureEditor from '@/components/emails/SignatureEditor';
 import ComposeWindow, { ComposeAttachment } from '@/components/emails/ComposeWindow';
+import { useComposeDraft } from '@/components/emails/useComposeDraft';
 import OpenNotificationBell from '@/components/emails/OpenNotificationBell';
 import EmailBodyFrame from '@/components/emails/EmailBodyFrame';
 import { sanitizeEmailHtml, escapeHtml } from '@/lib/sanitize-email';
@@ -18,15 +19,28 @@ import {
   htmlToText,
   langName,
 } from '@/lib/email-translate';
-import { emailsApi, customersApi, translateApi } from '@/lib/api';
+import { emailsApi, translateApi } from '@/lib/api';
+import { getMessagesSocket } from '@/lib/socket';
 import { useAuth } from '@/contexts/auth-context';
-import type { Email, EmailAttachment, EmailTemplate, EmailThreadItem, Customer } from '@/types';
+import type { Email, EmailAttachment, EmailTemplate, EmailThreadItem } from '@/types';
 import toast from 'react-hot-toast';
 
-type FolderType = 'inbox' | 'unread' | 'sent' | 'customer' | 'advertisement' | 'trash' | 'spam' | 'templates' | 'settings';
+type FolderType =
+  | 'inbox'
+  | 'unread'
+  | 'sent'
+  | 'drafts'
+  | 'customer'
+  | 'advertisement'
+  | 'trash'
+  | 'spam'
+  | 'templates'
+  | 'settings';
 
 const STATUS_MAP: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'bg-gray-100 text-gray-800' },
+  QUEUED: { label: '待发送', color: 'bg-amber-100 text-amber-800' },
+  SENDING: { label: '发送中', color: 'bg-amber-100 text-amber-800' },
   SENT: { label: '已发送', color: 'bg-green-100 text-green-800' },
   RECEIVED: { label: '未读', color: 'bg-blue-100 text-blue-800' },
   FAILED: { label: '发送失败', color: 'bg-red-100 text-red-800' },
@@ -55,6 +69,12 @@ const emptyComposeForm: ComposeForm = {
   inReplyTo: '',
   attachments: [],
 };
+
+/** 去掉主题前面已有的 Re:/Fwd:/回复:/转发: 等前缀（可能叠了好几层） */
+const stripSubjectPrefixes = (subject: string) =>
+  (subject || '').replace(/^\s*((re|fw|fwd|aw|wg|sv|antw|回复|答复|转发)\s*(\[\d+\])?\s*[:：]\s*)+/i, '');
+const replySubject = (subject: string) => `Re: ${stripSubjectPrefixes(subject)}`;
+const forwardSubject = (subject: string) => `Fwd: ${stripSubjectPrefixes(subject)}`;
 
 interface TemplateForm {
   name: string;
@@ -134,7 +154,6 @@ export default function EmailsPage() {
   // 邮件搜索：主题/收发件地址/正文（后端走 pg_trgm 索引）
   const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [customers, setCustomers] = useState<Customer[]>([]);
   const [templates, setTemplates] = useState<EmailTemplate[]>([]);
 
   // Multi-account support
@@ -175,6 +194,12 @@ export default function EmailsPage() {
   const [composeOpen, setComposeOpen] = useState(false);
   const [composeForm, setComposeForm] = useState<ComposeForm>(emptyComposeForm);
   const [sending, setSending] = useState(false);
+  // 写信用哪个邮箱发：和左侧栏选中的账户分开，改发件账户不再把收件箱也切走
+  const [composeAccountId, setComposeAccountId] = useState<string | null>(null);
+  const draft = useComposeDraft(composeOpen, composeForm, composeAccountId);
+  // 撤回提示等异步回调里闭包拿到的 composeOpen 可能已过期，用 ref 读最新值
+  const composeOpenRef = useRef(false);
+  composeOpenRef.current = composeOpen;
 
   // ?composeTo=xxx 的处理见 <ComposeToWatcher /> —— 单独放一层 Suspense
   // 以满足 Next.js 14 对 useSearchParams 的预渲染要求。
@@ -189,6 +214,10 @@ export default function EmailsPage() {
   const [accountSaving, setAccountSaving] = useState(false);
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
   const [testingAccountId, setTestingAccountId] = useState<string | null>(null);
+
+  // 列表多选（key：会话 id；搜索结果按单封邮件 id）
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Unread count for notification
   const [unreadCount, setUnreadCount] = useState(0);
@@ -250,10 +279,15 @@ export default function EmailsPage() {
             params.direction = 'INBOUND';
             break;
           case 'sent':
-            params.direction = 'OUTBOUND';
+            // 含待发送 / 定时 / 发送失败；回收站里的不算
+            params.category = 'sent';
+            break;
+          case 'drafts':
+            params.category = 'drafts';
             break;
           case 'customer':
-            params.category = 'customer';
+            // 不是文件夹，是"关联了客户"的邮件视图（跨收件箱和已发送）
+            params.customerOnly = 'true';
             break;
           case 'advertisement':
             params.category = 'advertisement';
@@ -315,15 +349,6 @@ export default function EmailsPage() {
     }
   }, []);
 
-  const fetchCustomers = useCallback(async () => {
-    try {
-      const res: any = await customersApi.list({ page: 1, pageSize: 200 });
-      setCustomers(Array.isArray(res.data?.items) ? res.data.items : []);
-    } catch {
-      // handled by interceptor
-    }
-  }, []);
-
   // Poll unread count
   const fetchUnreadCount = useCallback(async () => {
     try {
@@ -363,9 +388,145 @@ export default function EmailsPage() {
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedEmail]);
 
+  // 换文件夹 / 翻页 / 搜索后清空多选
   useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+    setSelectedKeys(new Set());
+  }, [activeFolder, page, searchQuery, selectedAccountId]);
+
+  // ==================== 键盘快捷键 ====================
+  // 每次渲染重新注册，处理函数总是拿到最新的 state。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tgt = e.target as HTMLElement | null;
+      if (tgt?.closest('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return;
+      if (composeOpen || activeFolder === 'templates' || activeFolder === 'settings') return;
+
+      const openAt = (i: number) => {
+        const t = threads[i];
+        if (!t?.latestEmail) return;
+        if (t.latestEmail.status === 'DRAFT') openDraftById(t.latestEmail.id);
+        else handleViewEmail(t.latestEmail, t.threadId);
+      };
+      const currentIndex = () =>
+        threads.findIndex(
+          (t) =>
+            t.latestEmail?.id === selectedEmail?.id ||
+            (!!t.threadId && t.threadId === selectedEmail?.threadId),
+        );
+
+      switch (e.key) {
+        case 'j':
+        case 'k': {
+          if (threads.length === 0) return;
+          const i = currentIndex();
+          const next = i < 0 ? 0 : Math.min(threads.length - 1, Math.max(0, i + (e.key === 'j' ? 1 : -1)));
+          if (next !== i) openAt(next);
+          break;
+        }
+        case 'r':
+          if (selectedEmail && selectedEmail.status !== 'DRAFT') handleReply();
+          break;
+        case 'a':
+          if (selectedEmail && canReplyAll) handleReplyAll();
+          break;
+        case 'f':
+          if (selectedEmail) handleForward();
+          break;
+        case 's':
+          if (selectedEmail) runBatch(selectedEmail.flagged ? 'unflag' : 'flag', { ids: [selectedEmail.id] });
+          break;
+        case 'u':
+          if (selectedEmail?.direction === 'INBOUND') markCurrentUnread();
+          break;
+        case '#':
+        case 'Delete':
+          if (selectedEmail && activeFolder !== 'trash') runBatch('trash', { ids: [selectedEmail.id] });
+          break;
+        case 'c':
+          openCompose({ ...emptyComposeForm });
+          break;
+        case '/':
+          searchInputRef.current?.focus();
+          break;
+        case '?':
+          toast(
+            'j / k 下一封 / 上一封\nr 回复　a 回复全部　f 转发\ns 红旗　u 标为未读　# 删除\nc 写邮件　/ 搜索　Esc 关闭',
+            { duration: 6000, icon: '⌨️', style: { whiteSpace: 'pre-line' } },
+          );
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  // ==================== 实时推送 ====================
+  // 复用站内消息的 WebSocket：新邮件到达 / 发出 / 发送失败都即时推过来。
+  // 连着的时候不再轮询未读数，断线时退回 60 秒轮询。
+  const socketConnectedRef = useRef(false);
+  const liveRef = useRef<{ onNew: (p: any) => void; onSent: (p: any) => void; onFailed: (p: any) => void }>();
+  liveRef.current = {
+    onNew: async (p: { inbound?: number }) => {
+      loadAccounts();
+      if (!p?.inbound) {
+        if (activeFolder === 'sent') fetchEmails();
+        return;
+      }
+      const count = await fetchUnreadCount();
+      prevUnreadRef.current = count;
+      toast(`收到 ${p.inbound} 封新邮件`, { icon: '📬', duration: 5000 });
+      if (['inbox', 'unread', 'customer'].includes(activeFolder)) fetchEmails();
+    },
+    onSent: (p: { id: string }) => {
+      if (activeFolder === 'sent') fetchEmails();
+      setSelectedEmail((prev) => (prev?.id === p?.id ? { ...prev, status: 'SENT' as const } : prev));
+    },
+    onFailed: (p: { id: string; subject: string; error: string }) => {
+      toast.error(`「${p?.subject || '(无主题)'}」发送失败：${p?.error || '未知错误'}。可在"已发送"里重新发送`, {
+        duration: 10000,
+      });
+      if (activeFolder === 'sent') fetchEmails();
+      setSelectedEmail((prev) =>
+        prev?.id === p?.id ? { ...prev, status: 'FAILED' as const, lastError: p.error } : prev,
+      );
+    },
+  };
+  useEffect(() => {
+    let sock: ReturnType<typeof getMessagesSocket> | null = null;
+    try {
+      sock = getMessagesSocket();
+    } catch {
+      return;
+    }
+    const onNew = (p: any) => liveRef.current?.onNew(p);
+    const onSent = (p: any) => liveRef.current?.onSent(p);
+    const onFailed = (p: any) => liveRef.current?.onFailed(p);
+    const onConnect = () => {
+      socketConnectedRef.current = true;
+    };
+    const onDisconnect = () => {
+      socketConnectedRef.current = false;
+    };
+    socketConnectedRef.current = sock.connected;
+    sock.on('email:new', onNew);
+    sock.on('email:sent', onSent);
+    sock.on('email:failed', onFailed);
+    sock.on('connect', onConnect);
+    sock.on('disconnect', onDisconnect);
+    return () => {
+      // 站内消息页面也在用这个连接，这里只摘掉自己的监听，不断开
+      sock?.off('email:new', onNew);
+      sock?.off('email:sent', onSent);
+      sock?.off('email:failed', onFailed);
+      sock?.off('connect', onConnect);
+      sock?.off('disconnect', onDisconnect);
+    };
+  }, []);
+
 
   // Initial unread count fetch
   useEffect(() => {
@@ -378,6 +539,8 @@ export default function EmailsPage() {
   useEffect(() => {
     const interval = setInterval(async () => {
       loadAccounts(); // 顺带刷新各账户的同步状态
+      // 实时推送连着时新邮件由 email:new 事件处理，不再轮询
+      if (socketConnectedRef.current) return;
       const count = await fetchUnreadCount();
       if (count > prevUnreadRef.current) {
         const newCount = count - prevUnreadRef.current;
@@ -474,21 +637,20 @@ export default function EmailsPage() {
       selectedEmail.direction === 'INBOUND'
         ? selectedEmail.fromAddr
         : selectedEmail.toAddr;
-    const subject = selectedEmail.subject.startsWith('Re:')
-      ? selectedEmail.subject
-      : `Re: ${selectedEmail.subject}`;
-
-    setComposeForm({
-      toAddr: replyTo,
-      cc: '',
-      bcc: '',
-      subject,
-      bodyHtml: buildQuotedBlock(selectedEmail),
-      customerId: selectedEmail.customerId || '',
-      inReplyTo: selectedEmail.id,
-      attachments: [],
-    });
-    setComposeOpen(true);
+    openCompose(
+      {
+        toAddr: replyTo,
+        cc: '',
+        bcc: '',
+        subject: replySubject(selectedEmail.subject),
+        bodyHtml: buildQuotedBlock(selectedEmail),
+        customerId: selectedEmail.customerId || '',
+        inReplyTo: selectedEmail.id,
+        attachments: [],
+      },
+      // 从收到这封信的邮箱回复
+      selectedEmail.emailConfigId || null,
+    );
   };
 
   // 从 "Name <user@example.com>" 或 "user@example.com" 中提取纯邮箱地址。
@@ -550,28 +712,198 @@ export default function EmailsPage() {
   const handleReplyAll = () => {
     const r = getReplyAllCc();
     if (!selectedEmail || !r) return;
-    const subject = selectedEmail.subject.startsWith('Re:')
-      ? selectedEmail.subject
-      : `Re: ${selectedEmail.subject}`;
-
-    setComposeForm({
-      toAddr: r.primaryTo,
-      cc: r.cc,
-      bcc: '',
-      subject,
-      bodyHtml: buildQuotedBlock(selectedEmail),
-      customerId: selectedEmail.customerId || '',
-      inReplyTo: selectedEmail.id,
-      attachments: [],
-    });
     // ComposeWindow 会借 useEffect 监听 cc / bcc 自动展开抄送区
     // （见 ComposeWindow.tsx），这里只需把 cc 预填上即可。
-    setComposeOpen(true);
+    openCompose(
+      {
+        toAddr: r.primaryTo,
+        cc: r.cc,
+        bcc: '',
+        subject: replySubject(selectedEmail.subject),
+        bodyHtml: buildQuotedBlock(selectedEmail),
+        customerId: selectedEmail.customerId || '',
+        inReplyTo: selectedEmail.id,
+        attachments: [],
+      },
+      selectedEmail.emailConfigId || null,
+    );
   };
 
-  // 发送新邮件的逻辑已经移到 ComposeWindow 的 onSend 回调里
-  // （renderComposeModal），那边能直接访问最新的 composeForm 和
-  // skipSignatureAppend 标志。
+  const handleForward = () => {
+    if (!selectedEmail) return;
+    // 用 data-role="quoted" 包起来，ComposeWindow 会把签名插到这一段之前。
+    const fwdBody = `<br/><br/><div data-role="quoted">---------- 转发的邮件 ----------<br/>发件人: ${escapeHtml(selectedEmail.fromAddr)}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${escapeHtml(selectedEmail.subject)}<br/>收件人: ${escapeHtml(selectedEmail.toAddr)}<br/><br/>${selectedEmail.bodyHtml ? sanitizeEmailHtml(selectedEmail.bodyHtml) : `<pre>${escapeHtml(selectedEmail.bodyText)}</pre>`}</div>`;
+    openCompose(
+      {
+        ...emptyComposeForm,
+        subject: forwardSubject(selectedEmail.subject),
+        bodyHtml: fwdBody,
+        customerId: selectedEmail.customerId || '',
+      },
+      selectedEmail.emailConfigId || null,
+    );
+  };
+
+  // ==================== 写信：打开 / 关闭 / 发送 / 撤回 / 草稿 ====================
+
+  /**
+   * 打开写信窗口。已经开着一封时，先把它存成草稿再换，不丢内容。
+   */
+  const openCompose = async (
+    form: ComposeForm,
+    accountId?: string | null,
+    draftId: string | null = null,
+  ) => {
+    if (composeOpenRef.current) {
+      const saved = await draft.flush();
+      if (saved) toast('上一封已保存到草稿箱');
+      draft.reset();
+      setComposeOpen(false);
+    }
+    draft.setDraftId(draftId);
+    setComposeForm(form);
+    setComposeAccountId(accountId ?? selectedAccountId ?? null);
+    // 等表单写进去再打开，草稿基线才是新内容
+    setTimeout(() => setComposeOpen(true), 0);
+  };
+
+  /** 关闭：有内容就自动存为草稿（和 Gmail 一样），不弹确认框 */
+  const closeCompose = async () => {
+    const savedId = await draft.flush();
+    draft.reset();
+    setComposeOpen(false);
+    setComposeForm(emptyComposeForm);
+    if (savedId) {
+      toast('已保存到草稿箱');
+      if (activeFolder === 'drafts') fetchEmails();
+    }
+  };
+
+  const discardCompose = async () => {
+    await draft.discard();
+    draft.reset();
+    setComposeOpen(false);
+    setComposeForm(emptyComposeForm);
+    toast('草稿已丢弃');
+    if (activeFolder === 'drafts') fetchEmails();
+  };
+
+  /** 把服务端返回的草稿（撤回 / 打开草稿箱）放回写信窗口 */
+  const openDraftInCompose = (d: any) =>
+    openCompose(
+      {
+        toAddr: d.toAddr || '',
+        cc: d.cc || '',
+        bcc: d.bcc || '',
+        subject: d.subject || '',
+        bodyHtml: d.bodyHtml || '',
+        customerId: d.customerId || '',
+        inReplyTo: d.inReplyTo || '',
+        attachments: Array.isArray(d.attachments) ? d.attachments : [],
+      },
+      d.emailConfigId || null,
+      d.id,
+    );
+
+  const openDraftById = async (id: string) => {
+    try {
+      const res: any = await emailsApi.getDraft(id);
+      openDraftInCompose(res.data);
+    } catch {
+      /* 拦截器已提示 */
+    }
+  };
+
+  /** 撤回 / 取消定时：邮件退回草稿并重新打开 */
+  const undoSend = async (id: string) => {
+    try {
+      const res: any = await emailsApi.cancelSend(id);
+      toast.success('已撤回，邮件已退回草稿');
+      openDraftInCompose(res.data);
+      setSelectedEmail((prev) => (prev?.id === id ? null : prev));
+      fetchEmails();
+    } catch {
+      /* 已发出等情况拦截器会提示 */
+    }
+  };
+
+  const resendEmail = async (id: string) => {
+    try {
+      await emailsApi.resend(id);
+      toast.success('已重新提交发送');
+      setSelectedEmail((prev) =>
+        prev?.id === id ? { ...prev, status: 'QUEUED' as any, lastError: null } : prev,
+      );
+      fetchEmails();
+    } catch {
+      /* */
+    }
+  };
+
+  const submitCompose = async (scheduledAt?: Date) => {
+    if (sending) return;
+    setSending(true);
+    const draftId = await draft.pauseForSend();
+    try {
+      const payload: any = {
+        toAddr: composeForm.toAddr,
+        subject: composeForm.subject,
+        bodyHtml: composeForm.bodyHtml,
+        emailConfigId: composeAccountId || undefined,
+        // ComposeWindow 已经把签名可视化插入到正文里了，告诉服务器
+        // 不要再追加一次，否则收件人看到的就是两份签名。
+        skipSignatureAppend: true,
+        draftId: draftId || undefined,
+        scheduledAt: scheduledAt ? scheduledAt.toISOString() : undefined,
+        // 附件 id 总是带上（包括空数组），草稿里删掉的附件才会被解绑
+        attachmentIds: (composeForm.attachments || []).map((a) => a.id),
+      };
+      if (composeForm.cc) payload.cc = composeForm.cc;
+      if (composeForm.bcc) payload.bcc = composeForm.bcc;
+      if (composeForm.customerId) payload.customerId = composeForm.customerId;
+      // 回复 / 转发场景下 inReplyTo 会由 handleReply 预置，带上就能
+      // 让后端把这封新邮件归到原会话里。
+      if (composeForm.inReplyTo) payload.inReplyTo = composeForm.inReplyTo;
+
+      const res: any = await emailsApi.send(payload);
+      const sent = res.data;
+      draft.reset();
+      setComposeOpen(false);
+      setComposeForm(emptyComposeForm);
+
+      if (scheduledAt) {
+        toast.success(`已定时于 ${formatTime(sent?.scheduledAt || scheduledAt.toISOString())} 发送，可在"已发送"里取消`, {
+          duration: 5000,
+        });
+      } else if (sent?.id && sent.status === 'QUEUED') {
+        // 撤回窗口 10 秒，提示留 8 秒，避免点"撤回"时已经发出
+        toast(
+          (t) => (
+            <span className="flex items-center gap-3">
+              邮件即将发出
+              <button
+                onClick={() => {
+                  toast.dismiss(t.id);
+                  undoSend(sent.id);
+                }}
+                className="font-semibold text-blue-600 hover:text-blue-800"
+              >
+                撤回
+              </button>
+            </span>
+          ),
+          { duration: 8000, icon: '📤' },
+        );
+      } else {
+        toast.success('邮件已发送');
+      }
+      if (activeFolder === 'sent' || activeFolder === 'drafts') fetchEmails();
+    } catch {
+      draft.resume();
+    } finally {
+      setSending(false);
+    }
+  };
 
   // Fetch IMAP
   const handleFetchImap = async () => {
@@ -799,9 +1131,10 @@ export default function EmailsPage() {
   // Folders that live under each email account (tree children).
   const accountFolders: { key: FolderType; label: string; icon: string }[] = [
     { key: 'inbox', label: '收件箱', icon: 'inbox' },
-    { key: 'customer', label: '客户', icon: 'customer' },
     { key: 'unread', label: '未读邮件', icon: 'unread' },
+    { key: 'customer', label: '客户邮件', icon: 'customer' },
     { key: 'sent', label: '已发送', icon: 'sent' },
+    { key: 'drafts', label: '草稿箱', icon: 'drafts' },
     { key: 'advertisement', label: '广告邮件', icon: 'advertisement' },
     { key: 'spam', label: '垃圾邮件', icon: 'spam' },
     { key: 'trash', label: '垃圾箱', icon: 'trash' },
@@ -841,6 +1174,11 @@ export default function EmailsPage() {
     templates: (
       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+    ),
+    drafts: (
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zM19.5 7.125L16.862 4.487M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
       </svg>
     ),
     customer: (
@@ -1059,6 +1397,140 @@ export default function EmailsPage() {
     );
   };
 
+  // ==================== 多选 / 批量操作 ====================
+
+  const isSearchMode = !!searchQuery.trim();
+  // 普通列表按会话选；搜索结果是一封封的邮件，按邮件选
+  const selectionKeyOf = (t: EmailThreadItem) =>
+    isSearchMode ? t.latestEmail?.id || '' : t.threadId || t.latestEmail?.id || '';
+
+  const toggleSelected = (key: string) =>
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  const runBatch = async (
+    action: 'read' | 'unread' | 'flag' | 'unflag' | 'trash' | 'restore' | 'spam' | 'notSpam' | 'delete',
+    target?: { ids?: string[]; threadIds?: string[] },
+  ) => {
+    let payload = target;
+    if (!payload) {
+      const ids: string[] = [];
+      const threadIds: string[] = [];
+      for (const t of threads) {
+        if (!selectedKeys.has(selectionKeyOf(t))) continue;
+        if (!isSearchMode && t.threadId) threadIds.push(t.threadId);
+        else if (t.latestEmail) ids.push(t.latestEmail.id);
+      }
+      payload = { ids, threadIds };
+    }
+    if (action === 'delete' && !confirm('永久删除选中的邮件？此操作不可撤销。')) return;
+    try {
+      const res: any = await emailsApi.batch({ ...payload, action });
+      const n = res.data?.affected ?? 0;
+      const labels: Record<string, string> = {
+        read: '标为已读', unread: '标为未读', flag: '标记红旗', unflag: '取消红旗',
+        trash: '移到垃圾箱', restore: '恢复', spam: '标为垃圾邮件', notSpam: '移回收件箱', delete: '永久删除',
+      };
+      toast.success(`已${labels[action]} ${n} 封`);
+      setSelectedKeys(new Set());
+      if (['trash', 'restore', 'spam', 'notSpam', 'delete'].includes(action)) setSelectedEmail(null);
+      fetchEmails();
+      fetchUnreadCount().then((c) => {
+        prevUnreadRef.current = c;
+      });
+    } catch {
+      /* 拦截器已提示 */
+    }
+  };
+
+  const markCurrentUnread = async () => {
+    if (!selectedEmail) return;
+    await runBatch('unread', { ids: [selectedEmail.id] });
+    setSelectedEmail(null);
+  };
+
+  const renderListToolbar = () => {
+    if (threads.length === 0) return null;
+    const allKeys = threads.map(selectionKeyOf).filter(Boolean);
+    const allSelected = allKeys.length > 0 && allKeys.every((k) => selectedKeys.has(k));
+    const count = selectedKeys.size;
+    const btn = 'rounded px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100';
+    return (
+      <div className="flex flex-shrink-0 flex-wrap items-center gap-1 border-b px-4 py-1.5">
+        <input
+          type="checkbox"
+          checked={allSelected}
+          onChange={() => setSelectedKeys(allSelected ? new Set() : new Set(allKeys))}
+          className="mr-2 h-3.5 w-3.5 cursor-pointer rounded border-gray-300"
+          aria-label="全选"
+          title="全选本页"
+        />
+        {count === 0 ? (
+          <span className="text-xs text-gray-400">勾选邮件可批量操作 · 按 ? 查看快捷键</span>
+        ) : (
+          <>
+            <span className="mr-1 text-xs text-gray-500">已选 {count}</span>
+            {activeFolder === 'trash' ? (
+              <>
+                <button className={btn} onClick={() => runBatch('restore')}>恢复</button>
+                <button className={`${btn} text-red-600`} onClick={() => runBatch('delete')}>永久删除</button>
+              </>
+            ) : activeFolder === 'spam' ? (
+              <>
+                <button className={btn} onClick={() => runBatch('notSpam')}>不是垃圾邮件</button>
+                <button className={`${btn} text-red-600`} onClick={() => runBatch('trash')}>删除</button>
+              </>
+            ) : (
+              <>
+                {activeFolder !== 'sent' && activeFolder !== 'drafts' && (
+                  <>
+                    <button className={btn} onClick={() => runBatch('read')}>标为已读</button>
+                    <button className={btn} onClick={() => runBatch('unread')}>标为未读</button>
+                  </>
+                )}
+                <button className={btn} onClick={() => runBatch('flag')}>标红旗</button>
+                <button className={btn} onClick={() => runBatch('unflag')}>取消红旗</button>
+                {(activeFolder === 'inbox' || activeFolder === 'unread' || activeFolder === 'advertisement') && (
+                  <button className={btn} onClick={() => runBatch('spam')}>垃圾邮件</button>
+                )}
+                <button className={`${btn} text-red-600`} onClick={() => runBatch('trash')}>删除</button>
+              </>
+            )}
+            <button className={`${btn} text-gray-400`} onClick={() => setSelectedKeys(new Set())}>取消选择</button>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  /** 列表行上的小标签：客户、草稿、待发送、发送失败 */
+  const renderRowTags = (email: Email) => {
+    const tags: React.ReactNode[] = [];
+    if (email.status === 'DRAFT') {
+      tags.push(<span key="d" className="mr-1.5 text-red-500">[草稿]</span>);
+    } else if (email.status === 'FAILED' && email.direction === 'OUTBOUND') {
+      tags.push(<span key="f" className="mr-1.5 rounded bg-red-50 px-1 text-[11px] text-red-600">发送失败</span>);
+    } else if (email.status === 'QUEUED' || email.status === 'SENDING') {
+      const label =
+        email.status === 'QUEUED' && email.scheduledAt && new Date(email.scheduledAt).getTime() - Date.now() > 60_000
+          ? `定时 ${formatShortTime(email.scheduledAt)}`
+          : '待发送';
+      tags.push(<span key="q" className="mr-1.5 rounded bg-amber-50 px-1 text-[11px] text-amber-700">{label}</span>);
+    }
+    if (email.customer?.companyName && activeFolder !== 'customer') {
+      tags.push(
+        <span key="c" className="mr-1.5 rounded bg-blue-50 px-1 text-[11px] text-blue-700" title="关联客户">
+          {email.customer.companyName}
+        </span>,
+      );
+    }
+    return tags;
+  };
+
   const renderThreadListItem = (thread: EmailThreadItem) => {
     const email = thread.latestEmail;
     if (!email) return null;
@@ -1087,11 +1559,21 @@ export default function EmailsPage() {
     return (
       <div
         key={thread.threadId || email.id}
-        onClick={() => handleViewEmail(email, thread.threadId)}
+        onClick={() =>
+          email.status === 'DRAFT' ? openDraftById(email.id) : handleViewEmail(email, thread.threadId)
+        }
         className={`group flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-gray-100 transition-colors ${
           isSelected ? 'bg-rose-50' : 'hover:bg-gray-50'
         }`}
       >
+        <input
+          type="checkbox"
+          checked={selectedKeys.has(selectionKeyOf(thread))}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleSelected(selectionKeyOf(thread))}
+          className="h-3.5 w-3.5 flex-shrink-0 cursor-pointer rounded border-gray-300"
+          aria-label="选择"
+        />
         {/* Unread indicator — small dot on the very left */}
         <span
           className={`w-1.5 flex-shrink-0 h-1.5 rounded-full ${
@@ -1155,6 +1637,7 @@ export default function EmailsPage() {
 
           {/* Line 2: subject followed by preview in gray */}
           <div className="mt-0.5 truncate text-[13px]">
+            {renderRowTags(email)}
             <span className={isUnread ? 'text-gray-900 font-medium' : 'text-gray-600'}>
               {thread.threadSubject || email.subject || '(无主题)'}
             </span>
@@ -1273,6 +1756,43 @@ export default function EmailsPage() {
             </div>
           </div>
 
+          {selectedEmail.direction === 'OUTBOUND' && selectedEmail.status === 'FAILED' && (
+            <div className="mt-3 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+              <div className="min-w-0 flex-1">
+                <div className="font-medium">发送失败</div>
+                {selectedEmail.lastError && (
+                  <div className="mt-0.5 break-words text-xs text-red-700">{selectedEmail.lastError}</div>
+                )}
+              </div>
+              <button
+                onClick={() => resendEmail(selectedEmail.id)}
+                className="flex-shrink-0 rounded-md bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                重新发送
+              </button>
+            </div>
+          )}
+          {selectedEmail.direction === 'OUTBOUND' &&
+            (selectedEmail.status === 'QUEUED' || selectedEmail.status === 'SENDING') && (
+              <div className="mt-3 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <div className="flex-1">
+                  {selectedEmail.status === 'SENDING'
+                    ? '正在发送…'
+                    : selectedEmail.scheduledAt
+                      ? `将于 ${formatTime(selectedEmail.scheduledAt)} 发送`
+                      : '等待发送'}
+                </div>
+                {selectedEmail.status === 'QUEUED' && (
+                  <button
+                    onClick={() => undoSend(selectedEmail.id)}
+                    className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100"
+                  >
+                    取消发送并编辑
+                  </button>
+                )}
+              </div>
+            )}
+
           {/* Action buttons */}
           <div className="flex items-center gap-2 mt-3 pt-3 border-t">
             {activeFolder === 'trash' || activeFolder === 'spam' ? (
@@ -1330,22 +1850,7 @@ export default function EmailsPage() {
               </button>
             )}
             <button
-              onClick={() => {
-                if (!selectedEmail) return;
-                const fwdSubject = selectedEmail.subject.startsWith('Fwd:')
-                  ? selectedEmail.subject
-                  : `Fwd: ${selectedEmail.subject}`;
-                // 用 data-role="quoted" 包起来，ComposeWindow 会把签名
-                // 插到这一段之前。
-                const fwdBody = `<br/><br/><div data-role="quoted">---------- 转发的邮件 ----------<br/>发件人: ${escapeHtml(selectedEmail.fromAddr)}<br/>日期: ${formatTime(selectedEmail.sentAt || selectedEmail.receivedAt || selectedEmail.createdAt)}<br/>主题: ${escapeHtml(selectedEmail.subject)}<br/>收件人: ${escapeHtml(selectedEmail.toAddr)}<br/><br/>${selectedEmail.bodyHtml ? sanitizeEmailHtml(selectedEmail.bodyHtml) : `<pre>${escapeHtml(selectedEmail.bodyText)}</pre>`}</div>`;
-                setComposeForm({
-                  ...emptyComposeForm,
-                  subject: fwdSubject,
-                  bodyHtml: fwdBody,
-                  customerId: selectedEmail.customerId || '',
-                });
-                setComposeOpen(true);
-              }}
+              onClick={handleForward}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1353,6 +1858,15 @@ export default function EmailsPage() {
               </svg>
               转发
             </button>
+            {selectedEmail.direction === 'INBOUND' && (
+              <button
+                onClick={markCurrentUnread}
+                className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                title="标为未读 (U)"
+              >
+                标为未读
+              </button>
+            )}
             {(() => {
               // In thread view, the button acts on whichever email is
               // currently expanded. So its "active" state must compare
@@ -1560,12 +2074,11 @@ export default function EmailsPage() {
                 <td className="px-4 py-3 text-sm">
                   <button
                     onClick={() => {
-                      setComposeForm({
+                      openCompose({
                         ...emptyComposeForm,
                         subject: tpl.subject,
                         bodyHtml: tpl.bodyHtml,
                       });
-                      setComposeOpen(true);
                     }}
                     className="text-blue-600 hover:text-blue-800"
                   >
@@ -1591,60 +2104,17 @@ export default function EmailsPage() {
   const renderComposeModal = () => (
     <ComposeWindow
       open={composeOpen}
-      onClose={() => setComposeOpen(false)}
+      onClose={closeCompose}
+      onDiscard={discardCompose}
       value={composeForm}
       onChange={setComposeForm}
-      onSend={async () => {
-        // 复用已有的发送逻辑 —— handleSendEmail 需要一个 FormEvent，
-        // 这里自己构造一次发送动作，避免伪造事件对象。
-        if (!composeForm.toAddr.trim()) {
-          toast.error('请输入收件人地址');
-          return;
-        }
-        if (!composeForm.subject.trim()) {
-          toast.error('请输入邮件主题');
-          return;
-        }
-        setSending(true);
-        try {
-          const payload: any = {
-            toAddr: composeForm.toAddr,
-            subject: composeForm.subject,
-            bodyHtml: composeForm.bodyHtml,
-            emailConfigId: selectedAccountId || undefined,
-            // ComposeWindow 已经把签名可视化插入到正文里了，告诉服务器
-            // 不要再追加一次，否则收件人看到的就是两份签名。
-            skipSignatureAppend: true,
-          };
-          if (composeForm.cc) payload.cc = composeForm.cc;
-          if (composeForm.bcc) payload.bcc = composeForm.bcc;
-          if (composeForm.customerId) payload.customerId = composeForm.customerId;
-          // 回复 / 转发场景下 inReplyTo 会由 handleReply 预置，带上就能
-          // 让后端把这封新邮件归到原会话里。
-          if (composeForm.inReplyTo) payload.inReplyTo = composeForm.inReplyTo;
-          // 附件：前端已经把文件通过 documentsApi.upload 落盘并拿到 id，
-          // 这里把 id 列表传给后端，让它绑到这封邮件上并当真正的 SMTP
-          // 附件发出去。
-          if (composeForm.attachments && composeForm.attachments.length > 0) {
-            payload.attachmentIds = composeForm.attachments.map((a) => a.id);
-          }
-
-          await emailsApi.send(payload);
-          toast.success(composeForm.inReplyTo ? '回复已发送' : '邮件已发送');
-          setComposeOpen(false);
-          setComposeForm(emptyComposeForm);
-          if (activeFolder === 'sent') fetchEmails();
-        } catch {
-          /* handled by interceptor */
-        } finally {
-          setSending(false);
-        }
-      }}
+      onSend={() => submitCompose()}
+      onSchedule={(at) => submitCompose(at)}
       sending={sending}
+      draftStatus={draft.status}
       accounts={accounts}
-      selectedAccountId={selectedAccountId}
-      onAccountChange={setSelectedAccountId}
-      customers={customers}
+      selectedAccountId={composeAccountId}
+      onAccountChange={setComposeAccountId}
       templates={templates}
     />
   );
@@ -1933,8 +2403,7 @@ export default function EmailsPage() {
       <Suspense fallback={null}>
         <ComposeToWatcher
           onOpen={(to) => {
-            setComposeForm({ ...emptyComposeForm, toAddr: to });
-            setComposeOpen(true);
+            openCompose({ ...emptyComposeForm, toAddr: to });
           }}
         />
       </Suspense>
@@ -1981,8 +2450,7 @@ export default function EmailsPage() {
               onClick={() => {
                 // 正文初始化为空，ComposeWindow 会根据选中的发件账户自动
                 // 拉签名并可视化追加到正文末尾。
-                setComposeForm({ ...emptyComposeForm });
-                setComposeOpen(true);
+                openCompose({ ...emptyComposeForm });
               }}
               className="px-3 sm:px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700"
             >
@@ -2347,6 +2815,7 @@ export default function EmailsPage() {
                         d="M21 21l-4.35-4.35M10.5 17a6.5 6.5 0 110-13 6.5 6.5 0 010 13z" />
                     </svg>
                     <input
+                      ref={searchInputRef}
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       placeholder="搜索当前文件夹内的邮件（主题、收发件人、正文）…"
@@ -2371,6 +2840,7 @@ export default function EmailsPage() {
                     </div>
                   )}
                 </div>
+                {renderListToolbar()}
                 {/* List header with mark-all-read */}
                 {(activeFolder === 'inbox' || activeFolder === 'unread') && unreadCount > 0 && (
                   <div className="flex items-center justify-end px-3 py-2 border-b flex-shrink-0">

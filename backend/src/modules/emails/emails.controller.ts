@@ -21,7 +21,7 @@ import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { EmailsService } from './emails.service';
 import { EmailTrackingService } from './email-tracking.service';
-import { SendEmailDto } from './dto/send-email.dto';
+import { SendEmailDto, SaveDraftDto } from './dto/send-email.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { CreateCampaignDto, UpdateCampaignDto } from './dto/campaign.dto';
 
@@ -293,6 +293,49 @@ export class EmailsController {
     return this.emailsService.sendEmail(user.id, dto, origin);
   }
 
+  // ==================== Drafts / Undo / Resend ====================
+
+  /** 草稿自动保存：不带 draftId 新建，带了就更新 */
+  @Post('drafts')
+  async saveDraft(@CurrentUser() user: any, @Body() dto: SaveDraftDto) {
+    return this.emailsService.saveDraft(user.id, dto);
+  }
+
+  @Get('drafts/:id')
+  async getDraft(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.getDraft(id, user);
+  }
+
+  @Delete('drafts/:id')
+  async discardDraft(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.discardDraft(id, user);
+  }
+
+  /** 撤回（撤回窗口内）/ 取消定时发送：邮件退回草稿，返回草稿内容 */
+  @Post(':id/cancel-send')
+  async cancelSend(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.emailsService.cancelSend(id, user);
+  }
+
+  /** 发送失败的邮件重新发送 */
+  @Post(':id/resend')
+  async resend(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Req() req: Request,
+  ) {
+    return this.emailsService.resend(id, user, this.tracking.resolveTrackingOrigin(req));
+  }
+
+  /** 列表批量操作：read / unread / flag / unflag / trash / restore / spam / notSpam / delete */
+  @Post('batch')
+  async batch(
+    @CurrentUser() user: any,
+    @Body() body: { ids?: string[]; threadIds?: string[]; action: string },
+  ) {
+    return this.emailsService.batchAction(user, body || ({} as any));
+  }
+
   @Get('unread-count')
   async getUnreadCount(@CurrentUser() user: any) {
     return this.emailsService.getUnreadCount(user.id, user.role);
@@ -316,6 +359,7 @@ export class EmailsController {
     @Query('category') category?: string,
     @Query('flagged') flagged?: string,
     @Query('search') search?: string,
+    @Query('customerOnly') customerOnly?: string,
   ) {
     return this.emailsService.findAll(
       user.id,
@@ -331,6 +375,7 @@ export class EmailsController {
         category,
         flagged,
         search,
+        customerOnly,
       },
       !!user.isSuperAdmin,
     );

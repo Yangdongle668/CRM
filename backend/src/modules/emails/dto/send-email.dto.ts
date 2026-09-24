@@ -6,6 +6,8 @@ import {
   IsEmail,
   IsBoolean,
   IsArray,
+  IsISO8601,
+  ValidateIf,
 } from 'class-validator';
 
 export class SendEmailDto {
@@ -60,6 +62,63 @@ export class SendEmailDto {
    * （relatedType='email', relatedId=emailId），然后 SMTP 发送时以
    * nodemailer attachments 的形式随邮件发出。
    */
+  @IsArray()
+  @IsUUID('4', { each: true })
+  @IsOptional()
+  attachmentIds?: string[];
+
+  /** 从草稿发送：直接把这份草稿转为待发送，不再新建一封 */
+  @IsUUID()
+  @IsOptional()
+  draftId?: string;
+
+  /** 定时发送（ISO 时间）。不传则在撤回窗口结束后发送 */
+  @IsISO8601()
+  @IsOptional()
+  scheduledAt?: string;
+}
+
+/** 草稿自动保存：所有字段可选，只更新传了的字段 */
+export class SaveDraftDto {
+  @IsUUID()
+  @IsOptional()
+  draftId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  emailConfigId?: string;
+
+  @IsString()
+  @IsOptional()
+  toAddr?: string;
+
+  @IsString()
+  @IsOptional()
+  cc?: string;
+
+  @IsString()
+  @IsOptional()
+  bcc?: string;
+
+  @IsString()
+  @IsOptional()
+  subject?: string;
+
+  @IsString()
+  @IsOptional()
+  bodyHtml?: string;
+
+  /** 空串表示清除 */
+  @IsOptional()
+  @ValidateIf((o) => o.customerId !== '')
+  @IsUUID()
+  customerId?: string;
+
+  /** 空串表示不再是回复 */
+  @IsString()
+  @IsOptional()
+  inReplyTo?: string;
+
   @IsArray()
   @IsUUID('4', { each: true })
   @IsOptional()

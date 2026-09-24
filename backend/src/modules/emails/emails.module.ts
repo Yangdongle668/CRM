@@ -9,6 +9,8 @@ import { EmailCustomerMatcher } from './email-customer-matcher.service';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { QUEUE_EMAIL } from '../../queue/queue.constants';
 import { FollowUpsModule } from '../follow-ups/follow-ups.module';
+import { MessagesModule } from '../messages/messages.module';
+import { EmailEventsService } from './email-events.service';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { FollowUpsModule } from '../follow-ups/follow-ups.module';
     BullModule.registerQueue({ name: QUEUE_EMAIL }),
     // Email 成功发送 / 收到回邮时通知跟进模块
     FollowUpsModule,
+    // 复用站内消息的 WebSocket 网关推送邮件事件
+    MessagesModule,
   ],
   controllers: [EmailsController],
   providers: [
@@ -24,6 +28,7 @@ import { FollowUpsModule } from '../follow-ups/follow-ups.module';
     EmailProcessor,
     ImapSyncService,
     EmailCustomerMatcher,
+    EmailEventsService,
   ],
   exports: [EmailsService, EmailTrackingService],
 })

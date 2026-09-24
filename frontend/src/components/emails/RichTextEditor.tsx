@@ -95,7 +95,9 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
 ) {
   const editorRef = useRef<HTMLDivElement | null>(null);
   const lastSelectionRef = useRef<Range | null>(null);
-  const lastExternalValueRef = useRef<string>(value);
+  // 初始为 null：挂载时第一次同步一定把 value 写进编辑器。以前初始化成
+  // value，导致带初始内容打开（回复时的引用原文、重新打开的草稿）编辑器是空的。
+  const lastExternalValueRef = useRef<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 

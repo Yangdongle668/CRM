@@ -17,7 +17,10 @@ interface SendEmailJobData {
   emailId: string;
   userId: string;
   requestOrigin?: string;
+  /** 旧版本入队的任务才有 */
   inReplyToMessageId?: string;
+  /** 本次提交的 scheduledAt，认领时校验，防止撤回后旧任务把邮件发出去 */
+  scheduledAt?: string;
 }
 
 /**
@@ -52,12 +55,13 @@ export class EmailProcessor extends WorkerHost {
   }
 
   private async handleSend(job: Job<SendEmailJobData>) {
-    const { emailId, userId, requestOrigin, inReplyToMessageId } = job.data;
+    const { emailId, userId, requestOrigin, inReplyToMessageId, scheduledAt } = job.data;
     this.logger.log(`Delivering email ${emailId} (job ${job.id})`);
     return this.emailsService.deliverPendingEmail(emailId, {
       requestOrigin,
       inReplyToMessageId,
       actingUserId: userId,
+      scheduledAt,
     });
   }
 
@@ -69,9 +73,15 @@ export class EmailProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent('failed')
-  onFailed(job: Job, err: Error) {
+  async onFailed(job: Job, err: Error) {
     this.logger.error(
       `Email job ${job?.id} (${job?.name}) failed: ${err?.message}`,
     );
+    // 发信任务重试用尽后才通知用户，中间的自动重试不打扰
+    if (job?.name === EMAIL_JOB_SEND && job.attemptsMade >= (job.opts.attempts ?? 1)) {
+      await this.emailsService
+        .notifySendFailed((job.data as SendEmailJobData).emailId)
+        .catch(() => undefined);
+    }
   }
 }
