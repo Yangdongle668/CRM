@@ -28,6 +28,9 @@ interface AuthedSocket extends Socket {
 @WebSocketGateway({
   namespace: '/ws/messages',
   cors: { origin: '*', credentials: true },
+  // 同时接受 /socket.io/?… 和 /socket.io?…：请求经 Next.js rewrite 兜底
+  // 转发时末尾斜杠会被去掉，默认配置下会 404，实时推送整个失效。
+  addTrailingSlash: false,
 })
 export class MessagesGateway
   implements OnGatewayConnection, OnGatewayDisconnect

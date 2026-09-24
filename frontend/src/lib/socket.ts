@@ -60,7 +60,11 @@ export function getMessagesSocket(): Socket {
 
   socket = io(url, {
     path: '/socket.io',
-    transports: ['websocket', 'polling'],
+    // 先用 HTTP 长轮询建立连接，再尝试升级到 WebSocket（socket.io 默认
+    // 顺序）。以前 websocket 放第一个：只要反向代理没转发 Upgrade 头，
+    // 就一直报 "WebSocket is closed before the connection is established"，
+    // 而且 socket.io-client 不会自动退回轮询，实时推送整个失效。
+    transports: ['polling', 'websocket'],
     autoConnect: true,
     reconnection: true,
     reconnectionAttempts: Infinity,

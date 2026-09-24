@@ -43,6 +43,21 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else {
         message = exception.message;
       }
+    } else if (
+      exception instanceof Error &&
+      typeof (exception as any).status === 'number' &&
+      (exception as any).status >= 400 &&
+      (exception as any).status < 500
+    ) {
+      // body-parser 等中间件抛的客户端错误（请求体过大 413、JSON 格式错误
+      // 400）自带 status，不是服务器故障，按原状态码返回
+      status = (exception as any).status;
+      message =
+        status === HttpStatus.PAYLOAD_TOO_LARGE
+          ? '提交的内容过大（邮件正文不能超过 30MB，大文件请作为附件上传）'
+          : status === HttpStatus.BAD_REQUEST
+            ? '请求格式错误'
+            : exception.message;
     } else if (exception instanceof Error) {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
       message = '服务器内部错误';
