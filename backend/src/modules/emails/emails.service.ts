@@ -9,7 +9,7 @@ import {
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import * as nodemailer from 'nodemailer';
+import { createSmtpTransport, explainSmtpError } from './smtp-utils';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const MailComposer = require('nodemailer/lib/mail-composer');
 import * as fs from 'fs';
@@ -384,16 +384,7 @@ export class EmailsService implements OnApplicationBootstrap {
     }
 
     try {
-      const transporter = nodemailer.createTransport({
-        host: config.smtpHost,
-        port: config.smtpPort,
-        secure: config.smtpSecure,
-        auth: {
-          user: config.smtpUser,
-          pass: config.smtpPass,
-        },
-        connectionTimeout: 10000,
-      });
+      const transporter = createSmtpTransport(config);
 
       await transporter.verify();
 
@@ -404,7 +395,7 @@ export class EmailsService implements OnApplicationBootstrap {
     } catch (error) {
       return {
         success: false,
-        message: `SMTP connection failed: ${error.message}`,
+        message: `SMTP connection failed: ${explainSmtpError(error, config)}`,
       };
     }
   }
@@ -790,12 +781,7 @@ export class EmailsService implements OnApplicationBootstrap {
       throw new BadRequestException('Email configuration no longer exists');
     }
 
-    const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      auth: { user: config.smtpUser, pass: config.smtpPass },
-    });
+    const transporter = createSmtpTransport(config);
 
     const fromAddress = config.fromName
       ? `"${config.fromName}" <${config.emailAddr}>`
@@ -860,7 +846,7 @@ export class EmailsService implements OnApplicationBootstrap {
       info = await transporter.sendMail(mailOptions);
     } catch (error: any) {
       this.logger.error(`Failed to send email ${emailId}: ${error?.message}`, error?.stack);
-      await this.markFailed(emailId, error?.message || String(error));
+      await this.markFailed(emailId, explainSmtpError(error, config));
       throw error;
     }
 

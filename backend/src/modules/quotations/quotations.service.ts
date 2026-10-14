@@ -12,6 +12,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../prisma/prisma.service';
 import { EmailsService } from '../emails/emails.service';
+import { createSmtpTransport } from '../emails/smtp-utils';
 import { CreateQuotationDto } from './dto/create-quotation.dto';
 import { UpdateQuotationDto } from './dto/update-quotation.dto';
 import { QueryQuotationDto } from './dto/query-quotation.dto';
@@ -425,13 +426,7 @@ export class QuotationsService {
       );
     }
 
-    const nodemailer = await import('nodemailer');
-    const transporter = nodemailer.createTransport({
-      host: config.smtpHost,
-      port: config.smtpPort,
-      secure: config.smtpSecure,
-      auth: { user: config.smtpUser, pass: config.smtpPass },
-    });
+    const transporter = createSmtpTransport(config);
 
     const fromAddress = config.fromName
       ? `"${config.fromName}" <${config.smtpUser}>`
