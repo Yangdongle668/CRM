@@ -10,8 +10,6 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-crm_password}
       TZ: ${TZ:-Asia/Shanghai}
       PGTZ: ${TZ:-Asia/Shanghai}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - /etc/localtime:/etc/localtime:ro
@@ -28,8 +26,6 @@ services:
     restart: always
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
       - /etc/localtime:/etc/localtime:ro
