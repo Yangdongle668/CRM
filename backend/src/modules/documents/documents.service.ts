@@ -22,7 +22,7 @@ export class DocumentsService {
       relatedId?: string;
     },
   ) {
-    return this.prisma.document.create({
+    const document = await this.prisma.document.create({
       data: {
         fileName: file.originalname,
         filePath: file.path,
@@ -39,6 +39,7 @@ export class DocumentsService {
         customer: { select: { id: true, companyName: true } },
       },
     });
+    return { ...document, url: `/uploads/${path.basename(file.path)}` };
   }
 
   async findAll(

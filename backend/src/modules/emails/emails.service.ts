@@ -31,6 +31,7 @@ import { FollowUpsService } from '../follow-ups/follow-ups.service';
 import { EmailCustomerMatcher } from './email-customer-matcher.service';
 import { ImapSyncService } from './imap-sync.service';
 import { EmailEventsService } from './email-events.service';
+import { embedUploadedImages, uploadedImagePaths } from './inline-images';
 import { isSpam, makeSnippet } from './email-utils';
 import { createImap, findSentFolder } from './imap-utils';
 
@@ -839,10 +840,23 @@ export class EmailsService implements OnApplicationBootstrap {
         this.logger.warn(`Attachment file missing on disk, skipping: ${d.fileName} (${d.filePath})`);
       }
     }
-    if (nmAttachments.length > 0) mailOptions.attachments = nmAttachments;
-
     let info: any;
     try {
+      const uploadDir = path.resolve(process.cwd(), 'uploads');
+      const origin = process.env.APP_URL || process.env.PUBLIC_URL || opts.requestOrigin;
+      const imagePaths = uploadedImagePaths(htmlWithTracking, uploadDir, origin);
+      const imageDocs = imagePaths.length
+        ? await this.prisma.document.findMany({
+            where: {
+              ownerId: config.userId,
+              filePath: { in: imagePaths },
+            },
+            select: { id: true, fileName: true, filePath: true, mimeType: true },
+          })
+        : [];
+      const inline = embedUploadedImages(htmlWithTracking, imageDocs, uploadDir, origin);
+      mailOptions.html = inline.html;
+      mailOptions.attachments = [...nmAttachments, ...inline.attachments];
       info = await transporter.sendMail(mailOptions);
     } catch (error: any) {
       this.logger.error(`Failed to send email ${emailId}: ${error?.message}`, error?.stack);

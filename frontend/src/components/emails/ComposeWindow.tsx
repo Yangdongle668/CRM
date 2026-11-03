@@ -133,6 +133,9 @@ export default function ComposeWindow({
   const [uploading, setUploading] = useState<
     Array<{ tempId: string; name: string; size: number; progress: number }>
   >([]);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const pendingAttachmentsRef = useRef(0);
+  const uploadsPending = uploading.length > 0 || uploadingImages;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // 上传一次选多文件时，闭包里的 value 是旧的快照，连续几次
@@ -297,6 +300,10 @@ export default function ComposeWindow({
 
   const validateBeforeSend = () => {
     if (sending) return false;
+    if (uploadsPending || pendingAttachmentsRef.current > 0 || editorRef.current?.isUploading()) {
+      toast.error('请等待文件和图片上传完成后再发送');
+      return false;
+    }
     if (!value.toAddr.trim()) {
       toast.error('请输入收件人');
       return false;
@@ -373,45 +380,52 @@ export default function ComposeWindow({
 
   const uploadFiles = async (files: FileList | File[]) => {
     const list = Array.from(files);
-    for (const file of list) {
-      if (file.size > MAX_FILE_SIZE) {
-        toast.error(`${file.name} 超过 40MB，无法上传`);
-        continue;
-      }
-      const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      setUploading((cur) => [
-        ...cur,
-        { tempId, name: file.name, size: file.size, progress: 0 },
-      ]);
-
-      try {
-        const fd = new FormData();
-        fd.append('file', file);
-        fd.append('category', 'email-attachment');
-        const res: any = await documentsApi.upload(fd);
-        const doc = res.data;
-        if (doc && doc.id) {
-          const next: ComposeAttachment = {
-            id: doc.id,
-            name: doc.fileName || file.name,
-            size: doc.fileSize ?? file.size,
-            mimeType: doc.mimeType || file.type || null,
-          };
-          // 读 latestValueRef 而不是闭包的 value，这样多文件上传完成时
-          // 后到的回调能看到前面已经写进去的附件。
-          const cur = latestValueRef.current;
-          onChange({
-            ...cur,
-            attachments: [...(cur.attachments || []), next],
-          });
-        } else {
-          toast.error(`${file.name} 上传失败`);
+    pendingAttachmentsRef.current += 1;
+    try {
+      for (const file of list) {
+        if (file.size > MAX_FILE_SIZE) {
+          toast.error(`${file.name} 超过 40MB，无法上传`);
+          continue;
         }
-      } catch {
-        toast.error(`${file.name} 上传失败`);
-      } finally {
-        setUploading((cur) => cur.filter((u) => u.tempId !== tempId));
+        const tempId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        setUploading((cur) => [
+          ...cur,
+          { tempId, name: file.name, size: file.size, progress: 0 },
+        ]);
+
+        try {
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('category', 'email-attachment');
+          const res: any = await documentsApi.upload(fd);
+          const doc = res.data;
+          if (doc && doc.id) {
+            const next: ComposeAttachment = {
+              id: doc.id,
+              name: doc.fileName || file.name,
+              size: doc.fileSize ?? file.size,
+              mimeType: doc.mimeType || file.type || null,
+            };
+            // 读 latestValueRef 而不是闭包的 value，这样多文件上传完成时
+            // 后到的回调能看到前面已经写进去的附件。
+            const cur = latestValueRef.current;
+            const nextValue = {
+              ...cur,
+              attachments: [...(cur.attachments || []), next],
+            };
+            latestValueRef.current = nextValue;
+            onChange(nextValue);
+          } else {
+            toast.error(`${file.name} 上传失败`);
+          }
+        } catch {
+          toast.error(`${file.name} 上传失败`);
+        } finally {
+          setUploading((cur) => cur.filter((u) => u.tempId !== tempId));
+        }
       }
+    } finally {
+      pendingAttachmentsRef.current -= 1;
     }
   };
 
@@ -461,7 +475,7 @@ export default function ComposeWindow({
         <button
           type="button"
           onClick={handleSend}
-          disabled={sending}
+          disabled={sending || uploadsPending}
           className="inline-flex items-center gap-1.5 rounded-md bg-rose-500 px-3 py-1 text-sm font-medium text-white hover:bg-rose-600 disabled:opacity-50"
           title="发送 (Ctrl+Enter)"
         >
@@ -473,7 +487,7 @@ export default function ComposeWindow({
             <button
               type="button"
               onClick={() => setShowSchedule((v) => !v)}
-              disabled={sending}
+              disabled={sending || uploadsPending}
               className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-50"
               title="定时发送"
             >
@@ -595,8 +609,7 @@ export default function ComposeWindow({
       </div>
 
       {/* ============== 主体（最小化时隐藏） ============== */}
-      {mode !== 'minimized' && (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className={`${mode === 'minimized' ? 'hidden' : 'flex'} min-h-0 flex-1 flex-col`}>
           {/* 收件人 / 抄送 / 密送 / 主题 / 客户 */}
           <div className="flex-shrink-0 border-b border-gray-100">
             {/* 收件人 */}
@@ -720,7 +733,12 @@ export default function ComposeWindow({
           <RichTextEditor
             ref={editorRef}
             value={value.bodyHtml}
-            onChange={(html) => onChange({ ...value, bodyHtml: html })}
+            onChange={(html) => {
+              const next = { ...latestValueRef.current, bodyHtml: html };
+              latestValueRef.current = next;
+              onChange(next);
+            }}
+            onUploadingChange={setUploadingImages}
             placeholder="智能写信新体验，试试唤起 邮箱AI助理"
             flex
             className="!rounded-none !border-0 !border-t !border-gray-100"
@@ -796,12 +814,7 @@ export default function ComposeWindow({
                         type="button"
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
-                          const url = window.prompt('请输入图片 URL');
-                          if (url) {
-                            editorRef.current?.insertHtml(
-                              `<img src="${url.replace(/"/g, '&quot;')}" alt="" style="max-width:100%;height:auto;"/>`,
-                            );
-                          }
+                          editorRef.current?.insertImage();
                           setShowInsert(false);
                         }}
                         className="block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100"
@@ -898,7 +911,6 @@ export default function ComposeWindow({
             }
           />
         </div>
-      )}
 
       {/* ============== 右下角 resize handle ============== */}
       {mode === 'normal' && (

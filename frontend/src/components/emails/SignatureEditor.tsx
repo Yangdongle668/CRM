@@ -32,6 +32,7 @@ export default function SignatureEditor({
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [uploadingImages, setUploadingImages] = useState(false);
   const editorRef = useRef<RichTextEditorHandle | null>(null);
 
   const load = async () => {
@@ -58,6 +59,7 @@ export default function SignatureEditor({
   }, [account?.id]);
 
   const save = async () => {
+    if (editorRef.current?.isUploading()) return;
     setSaving(true);
     try {
       const res: any = await emailsApi.updateSignature(account.id, value);
@@ -97,6 +99,7 @@ export default function SignatureEditor({
         ref={editorRef}
         value={value}
         onChange={setValue}
+        onUploadingChange={setUploadingImages}
         placeholder="在这里设计你的签名，例如姓名、职位、联系方式、公司 Logo 等"
         minHeight={260}
       />
@@ -108,14 +111,14 @@ export default function SignatureEditor({
       <div className="flex items-center justify-end gap-2">
         <button
           onClick={reset}
-          disabled={!dirty || saving}
+          disabled={!dirty || saving || uploadingImages}
           className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
         >
           撤销
         </button>
         <button
           onClick={save}
-          disabled={!dirty || saving}
+          disabled={!dirty || saving || uploadingImages || loading}
           className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40"
         >
           {saving ? '保存中...' : '保存签名'}

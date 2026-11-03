@@ -36,6 +36,8 @@ import {
   HiOutlineLink,
   HiOutlinePhoto,
 } from 'react-icons/hi2';
+import toast from 'react-hot-toast';
+import { documentsApi } from '@/lib/api';
 
 export interface RichTextEditorHandle {
   /** 在光标处插入一段 HTML（会保留当前选区；若无选区则追加到末尾） */
@@ -46,6 +48,9 @@ export interface RichTextEditorHandle {
   getHtml: () => string;
   /** 聚焦编辑器 */
   focus: () => void;
+  /** 选择并上传本地图片 */
+  insertImage: () => void;
+  isUploading: () => boolean;
 }
 
 interface RichTextEditorProps {
@@ -59,6 +64,7 @@ interface RichTextEditorProps {
   /** 工具栏上额外的自定义按钮（例如"跟单模板"/"AI 写信"触发器） */
   extraToolbar?: React.ReactNode;
   className?: string;
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 const FONT_FAMILIES = [
@@ -90,7 +96,7 @@ const HIGHLIGHT_COLORS = [
 ];
 
 const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
-  { value, onChange, placeholder, minHeight = 240, flex = false, extraToolbar, className = '' },
+  { value, onChange, placeholder, minHeight = 240, flex = false, extraToolbar, className = '', onUploadingChange },
   ref,
 ) {
   const editorRef = useRef<HTMLDivElement | null>(null);
@@ -100,6 +106,15 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
   const lastExternalValueRef = useRef<string | null>(null);
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingUploadsRef = useRef(0);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<HTMLImageElement | null>(null);
+  const [imageWidth, setImageWidth] = useState(320);
+
+  useEffect(() => {
+    onUploadingChange?.(uploadingImages);
+  }, [uploadingImages, onUploadingChange]);
 
   // 用 execCommand 前先确保 styleWithCSS —— 这样产生的是 <span style>
   // 而不是 <font> 标签，HTML 更干净也更容易被邮件客户端兼容。
@@ -122,6 +137,8 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
     if (value !== lastExternalValueRef.current && value !== editorRef.current.innerHTML) {
       editorRef.current.innerHTML = value || '';
       lastExternalValueRef.current = value;
+      lastSelectionRef.current = null;
+      setSelectedImage(null);
     }
   }, [value]);
 
@@ -149,7 +166,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
     const sel = window.getSelection();
     if (!sel) return;
     sel.removeAllRanges();
-    if (lastSelectionRef.current) {
+    if (lastSelectionRef.current && editorRef.current?.contains(lastSelectionRef.current.commonAncestorContainer)) {
       sel.addRange(lastSelectionRef.current);
     } else if (editorRef.current) {
       // 没有保存的选区 —— 把光标放到末尾
@@ -232,6 +249,84 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
     [restoreSelection, emitChange],
   );
 
+  const chooseImage = () => {
+    saveSelection();
+    imageInputRef.current?.click();
+  };
+
+  const uploadImages = async (files: File[]) => {
+    // 保存发起上传时的光标，异步完成后仍插入原来的位置。
+    let range = lastSelectionRef.current?.cloneRange();
+    pendingUploadsRef.current += 1;
+    setUploadingImages(true);
+    try {
+      for (const file of files) {
+        if (!/^image\/(png|jpeg|gif|webp)$/i.test(file.type)) {
+          toast.error('请选择 PNG、JPG、GIF 或 WebP 图片');
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          toast.error(`${file.name} 超过 10MB，无法上传`);
+          continue;
+        }
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          form.append('category', 'email-inline-image');
+          const res: any = await documentsApi.upload(form);
+          const doc = res.data;
+          if (!doc?.id || !doc?.url) throw new Error('上传未返回图片地址');
+          const editor = editorRef.current;
+          if (!editor) return;
+          if (!range || !editor.contains(range.commonAncestorContainer)) {
+            range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+          }
+          const img = document.createElement('img');
+          img.setAttribute('src', doc.url);
+          img.alt = file.name;
+          img.width = 320;
+          img.style.cssText = 'width:320px;max-width:100%;height:auto;';
+          // Range 插入不依赖焦点：窗口最小化期间上传完成也不会丢图。
+          range.deleteContents();
+          range.insertNode(img);
+          range.setStartAfter(img);
+          range.collapse(true);
+          lastSelectionRef.current = range.cloneRange();
+          if (editor.getClientRects().length) {
+            editor.focus();
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range.cloneRange());
+          }
+          emitChange();
+        } catch {
+          toast.error(`${file.name} 图片上传失败，请重试`);
+        }
+      }
+    } finally {
+      pendingUploadsRef.current -= 1;
+      setUploadingImages(pendingUploadsRef.current > 0);
+    }
+  };
+
+  const resizeImage = (width: number) => {
+    if (!selectedImage || !editorRef.current?.contains(selectedImage) || !Number.isFinite(width)) return;
+    const next = Math.max(20, Math.min(1600, Math.round(width)));
+    selectedImage.setAttribute('width', String(next));
+    if (selectedImage.naturalWidth && selectedImage.naturalHeight) {
+      selectedImage.setAttribute('height', String(Math.round(next * selectedImage.naturalHeight / selectedImage.naturalWidth)));
+    } else {
+      selectedImage.removeAttribute('height');
+    }
+    selectedImage.style.width = `${next}px`;
+    selectedImage.style.maxWidth = '100%';
+    selectedImage.style.height = 'auto';
+    setImageWidth(next);
+    emitChange();
+  };
+
   useImperativeHandle(
     ref,
     () => ({
@@ -240,13 +335,17 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         if (editorRef.current) {
           editorRef.current.innerHTML = html || '';
           lastExternalValueRef.current = html;
+          lastSelectionRef.current = null;
+          setSelectedImage(null);
           emitChange();
         }
       },
       getHtml: () => editorRef.current?.innerHTML || '',
       focus: () => editorRef.current?.focus(),
+      insertImage: chooseImage,
+      isUploading: () => pendingUploadsRef.current > 0,
     }),
-    [insertHtml, emitChange],
+    [insertHtml, emitChange, saveSelection],
   );
 
   const toggleDropdown = (name: string) => {
@@ -277,13 +376,7 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
   const Divider = () => <div className="mx-0.5 h-5 w-px bg-gray-200" />;
 
   // ============== 插入图片 / 链接 ==============
-  const handleInsertImage = () => {
-    const url = window.prompt('请输入图片 URL');
-    if (url) {
-      const safe = url.replace(/"/g, '&quot;');
-      insertHtml(`<img src="${safe}" alt="" style="max-width:100%;height:auto;"/>`);
-    }
-  };
+  const handleInsertImage = chooseImage;
 
   const handleInsertLink = () => {
     const url = window.prompt('请输入链接地址');
@@ -300,6 +393,19 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
       ref={wrapperRef}
       className={`flex flex-col rounded-lg border border-gray-300 bg-white ${flex ? 'flex-1 min-h-0' : ''} ${className}`}
     >
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/gif,image/webp"
+        multiple
+        className="hidden"
+        aria-label="上传本地图片"
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = '';
+          if (files.length) void uploadImages(files);
+        }}
+      />
       {/* ============== 工具栏 ============== */}
       <div className="flex flex-wrap items-center gap-0.5 border-b border-gray-200 px-2 py-1.5">
         {extraToolbar}
@@ -686,6 +792,22 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         </ToolbarBtn>
       </div>
 
+      {uploadingImages && <div role="status" className="border-b px-3 py-2 text-xs text-blue-600">图片上传中，请稍候…</div>}
+      {selectedImage && (
+        <div className="flex flex-wrap items-center gap-2 border-b bg-blue-50 px-3 py-2 text-xs text-gray-700">
+          <label>图片宽度
+            <input aria-label="图片宽度" type="number" min={20} max={1600} value={imageWidth}
+              onChange={(e) => resizeImage(e.target.valueAsNumber)} className="ml-2 w-20 rounded border px-2 py-1" />
+            <span className="ml-1">px</span>
+          </label>
+          <input aria-label="等比例缩放图片" type="range" min={20} max={1600} value={imageWidth}
+            onChange={(e) => resizeImage(e.target.valueAsNumber)} />
+          <span>等比例缩放</span>
+          <button type="button" onClick={() => resizeImage(selectedImage.naturalWidth || 320)} className="rounded border px-2 py-1">原始尺寸</button>
+          <button type="button" onClick={() => setSelectedImage(null)} className="ml-auto rounded px-2 py-1">完成</button>
+        </div>
+      )}
+
       {/* ============== 编辑区 ==============
           字号 / 行距 / 段落间距 / 内边距都按"收件人邮箱客户端默认渲染"
           对齐：Gmail、Outlook、Apple Mail 对 <p> 都是 margin: 1em 0，
@@ -696,7 +818,38 @@ const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(fun
         ref={editorRef}
         contentEditable
         suppressContentEditableWarning
+        role="textbox"
+        aria-label={placeholder || '邮件正文'}
+        aria-multiline="true"
         onInput={emitChange}
+        onClick={(e) => {
+          const img = e.target instanceof HTMLImageElement ? e.target : null;
+          setSelectedImage(img);
+          if (img) setImageWidth(Math.round(img.getBoundingClientRect().width) || img.width || 320);
+        }}
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.files);
+          if (!files.length) return;
+          e.preventDefault();
+          saveSelection();
+          void uploadImages(files);
+        }}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes('Files')) e.preventDefault();
+        }}
+        onDrop={(e) => {
+          const files = Array.from(e.dataTransfer.files);
+          if (!files.length) return;
+          e.preventDefault();
+          // 拖到哪就插到哪；不支持坐标选区的浏览器回退到当前光标。
+          const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+          if (range && editorRef.current?.contains(range.commonAncestorContainer)) {
+            lastSelectionRef.current = range;
+          } else {
+            saveSelection();
+          }
+          void uploadImages(files);
+        }}
         onKeyUp={saveSelection}
         onMouseUp={saveSelection}
         onBlur={saveSelection}
