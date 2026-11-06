@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { extractDomain, FREE_MAIL_DOMAINS } from './email-customer-matcher.service';
 import { EmailAiSettingsService } from '../settings/email-ai-settings.service';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
-import { ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Job, Queue } from 'bullmq';
 import { emailPlainText } from './email-utils';
@@ -15,7 +15,7 @@ type AnalysisJob = { customerId: string; userId: string; all: boolean; triggerEm
 type AnalysisProgress = { phase: 'selecting' | 'preparing' | 'analyzing' | 'saving'; current?: number; total?: number; subject?: string };
 type ReportProgress = (progress: AnalysisProgress) => Promise<void>;
 
-type AnalysisResult = { count: number; rejected?: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
+type AnalysisResult = { count: number; fingerprint?: string; reused?: boolean; rejected?: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
 
 @Injectable()
 export class CustomerEmailAiService {
@@ -37,9 +37,6 @@ export class CustomerEmailAiService {
 
   async start(data: AnalysisJob) {
     await this.assertOwner(data.customerId, data.userId);
-    if (!(await this.settings.view()).hasKey) {
-      throw new ServiceUnavailableException('请先在系统设置配置邮件 AI');
-    }
     const job = await this.queue.add('analyze', data, {
       attempts: 1,
       removeOnComplete: { age: 3600, count: 100 },
@@ -87,7 +84,7 @@ export class CustomerEmailAiService {
     const startedAt = new Date();
     await report({ phase: 'selecting' });
     const result = await this.analyze(data, report);
-    if (!result.count) return result;
+    if (!result.count || result.reused) return result;
     await this.assertOwner(data.customerId, data.userId);
     await report({ phase: 'saving', total: result.count });
     const snapshot = {
@@ -97,6 +94,17 @@ export class CustomerEmailAiService {
       result: result as Prisma.InputJsonValue,
     };
     await this.prisma.$transaction(async (tx) => {
+      if (result.fingerprint && !result.rejected) {
+        await tx.customerEmailAnalysisBatch.createMany({
+          data: {
+            customerId: data.customerId,
+            ownerId: data.userId,
+            fingerprint: result.fingerprint,
+            result: snapshot.result,
+          },
+          skipDuplicates: true,
+        });
+      }
       const inserted = await tx.customerEmailAnalysis.createMany({ data: snapshot, skipDuplicates: true });
       const updated = inserted.count ? inserted : await tx.customerEmailAnalysis.updateMany({
         where: { customerId: data.customerId, startedAt: { lt: startedAt } },
@@ -151,7 +159,7 @@ export class CustomerEmailAiService {
   }
 
   private async visibleResult(customerId: string, userId: string, analysis: AnalysisResult) {
-    const { sourceIds, ...result } = analysis;
+    const { sourceIds, fingerprint: _fingerprint, ...result } = analysis;
     if (sourceIds?.length) {
       const count = await this.prisma.email.count({
         where: { id: { in: sourceIds }, OR: this.mailScope(customerId, userId) },
@@ -317,6 +325,14 @@ export class CustomerEmailAiService {
     }
 
     await this.assertOwner(customerId, userId);
+    const fingerprint = createHash('sha256').update(JSON.stringify(emails)).digest('hex');
+    const cached = await this.prisma.customerEmailAnalysisBatch.findUnique({
+      where: { customerId_ownerId_fingerprint: { customerId, ownerId: userId, fingerprint } },
+      select: { result: true },
+    });
+    if (cached) {
+      return { ...(cached.result as AnalysisResult), limited: candidates.length > 50, reused: true };
+    }
     const provider = await this.settings.runtime();
     if (!('apiKey' in provider) || !provider.apiKey) throw new Error('AI API Key missing');
     if (triggerEmailId && !provider.autoAnalyze) {
@@ -413,7 +429,7 @@ export class CustomerEmailAiService {
         analysis.rejected += batches.reduce((total, batch) => total + batch.rejected, 0);
       }
     }
-    return { count: emails.length, limited: candidates.length > 50, sourceIds: [...sources], ...analysis };
+    return { count: emails.length, limited: candidates.length > 50, sourceIds: [...sources], fingerprint, ...analysis };
   }
 }
 

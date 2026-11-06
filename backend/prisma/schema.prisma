@@ -216,6 +216,7 @@ model Customer {
   activities         Activity[]
   documents          Document[]
   emailAnalysis      CustomerEmailAnalysis?
+  emailAnalysisBatches CustomerEmailAnalysisBatch[]
   emails             Email[]
   proformaInvoices   ProformaInvoice[]
 
@@ -1099,4 +1100,17 @@ model CustomerEmailAnalysis {
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
   @@map("customer_email_analyses")
+}
+
+model CustomerEmailAnalysisBatch {
+  customerId  String @map("customer_id")
+  ownerId     String @map("owner_id")
+  fingerprint String
+  completedAt DateTime @default(now()) @map("completed_at")
+  result      Json
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, ownerId, fingerprint])
+  @@map("customer_email_analysis_batches")
 }

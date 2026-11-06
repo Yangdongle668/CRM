@@ -27,6 +27,7 @@ type ApiResponse<T> = { data: T };
 type Analysis = {
   count: number;
   rejected?: number;
+  reused?: boolean;
   limited?: boolean;
   unverifiedSenders?: string[];
   sections?: { name: string; items: { text: string; emailId: string }[] }[];
@@ -103,10 +104,10 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
         if (response.state === 'completed') {
           if (response.result) setProgress({ phase: 'done', total: response.result.count });
           setFeedback(response.result
-            ? { text: response.result.count ? `分析完成，已处理 ${response.result.count} 封邮件。` : '分析完成，没有符合条件的邮件。' }
+            ? { text: response.result.reused ? `这 ${response.result.count} 封邮件已成功分析过，已显示上次结果。` : response.result.count ? `分析完成，已处理 ${response.result.count} 封邮件。` : '分析完成，没有符合条件的邮件。' }
             : { text: '结果已不可用，邮件归属可能已变更，请重新分析。', error: true });
-          setResult(response.result?.count ? undefined : response.result ?? undefined);
-          if (response.result?.count) setLatest(response.result);
+          setResult(response.result?.count && !response.result.reused ? undefined : response.result ?? undefined);
+          if (response.result?.count && !response.result.reused) setLatest(response.result);
           void refreshTasks();
           setJobId(undefined);
         } else if (response.state === 'failed' || response.state === 'unknown') {
