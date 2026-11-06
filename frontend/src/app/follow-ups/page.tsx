@@ -141,6 +141,9 @@ export default function FollowUpsPage() {
     { key: 'ALL', label: '全部' },
   ];
 
+  const emailTasks = items.filter(({ id, customerId }) => customerId && id.startsWith('email-ai-'));
+  const otherItems = items.filter(({ id, customerId }) => !customerId || !id.startsWith('email-ai-'));
+
   return (
     <AppLayout>
       <div className="space-y-4">
@@ -195,16 +198,62 @@ export default function FollowUpsPage() {
           )}
         </div>
 
+        {!!emailTasks.length && (
+          <section aria-label="邮件 AI 待办" className="space-y-3" aria-busy={loading}>
+            <h2 className="font-semibold text-gray-800">邮件 AI 待办</h2>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {emailTasks.map((task) => {
+                const customerUrl = `/customers/${task.customerId}?tab=emails`;
+                const sourceUrl = task.triggerEmailId
+                  ? `${customerUrl}&sourceEmail=${encodeURIComponent(task.triggerEmailId)}`
+                  : customerUrl;
+                return (
+                  <article key={task.id} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <Link href={sourceUrl} className="min-w-0 break-words font-semibold text-blue-700 hover:underline">
+                        {task.customerName || '客户邮件待办'}
+                      </Link>
+                      <Badge className={STATUS_COLOR[task.status]}>{STATUS_LABEL[task.status]}</Badge>
+                    </div>
+                    <p className="break-words text-xs text-gray-600">
+                      对接人 · {task.contactName || task.contactEmail || '未识别'}
+                      {task.contactName && task.contactEmail ? `（${task.contactEmail}）` : ''}
+                    </p>
+                    <p className="flex-1 whitespace-pre-wrap break-words text-sm text-gray-900">{task.notes}</p>
+                    <p className="text-xs text-gray-600">
+                      到期 · {new Date(task.dueAt).toLocaleDateString('zh-CN')}
+                      {task.owner?.name ? ` · 负责人 ${task.owner.name}` : ''}
+                    </p>
+                    <div className="flex flex-wrap items-center gap-3 border-t pt-3 text-sm">
+                      {task.triggerEmailId ? (
+                        <Link href={sourceUrl} className="text-blue-700 underline">查看来源邮件</Link>
+                      ) : <span className="text-gray-500">来源邮件不可用</span>}
+                      {task.status === 'PENDING' && (
+                        <>
+                          <button type="button" className="text-green-700" onClick={() => handleDone(task)}>标记已完成</button>
+                          <button type="button" className="text-blue-700" onClick={() => handleSnooze(task, 3)}>+3 天</button>
+                          <button type="button" className="text-gray-600" onClick={() => handleDismiss(task)}>取消</button>
+                        </>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* List */}
+        {(loading || otherItems.length > 0 || emailTasks.length === 0) && (
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           {/* 移动端卡片 */}
           <div className="md:hidden divide-y divide-gray-100">
             {loading ? (
               <div className="px-4 py-8 text-center text-sm text-gray-400">加载中...</div>
-            ) : items.length === 0 ? (
+            ) : otherItems.length === 0 ? (
               <div className="px-4 py-10 text-center text-sm text-gray-400">暂无跟进</div>
             ) : (
-              items.map((fu) => {
+              otherItems.map((fu) => {
                 const due = formatDue(fu.dueAt);
                 const stageLabel = fu.lead?.stage
                   ? LEAD_STAGE_MAP[fu.lead.stage]?.label || fu.lead.stage
@@ -228,7 +277,12 @@ export default function FollowUpsPage() {
                         ) : (
                           fu.customerId ? (
                             <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
-                              {fu.notes || '客户邮件待办'}
+                              <span className="block font-medium">{fu.customerName || '客户邮件待办'}</span>
+                              <span className="block text-xs text-gray-500">
+                                对接人 · {fu.contactName || fu.contactEmail || '未识别'}
+                                {fu.contactName && fu.contactEmail ? `（${fu.contactEmail}）` : ''}
+                              </span>
+                              {fu.notes && <span className="mt-1 block">{fu.notes}</span>}
                             </Link>
                           ) : (
                             <span className="text-sm text-gray-400">-</span>
@@ -306,7 +360,7 @@ export default function FollowUpsPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr className="text-xs uppercase text-gray-500">
-                <th className="px-4 py-2 text-left font-semibold">线索</th>
+                <th className="px-4 py-2 text-left font-semibold">线索 / 客户待办</th>
                 <th className="px-4 py-2 text-left font-semibold">状态</th>
                 <th className="px-4 py-2 text-left font-semibold">到期</th>
                 <th className="px-4 py-2 text-left font-semibold">原因</th>
@@ -323,14 +377,14 @@ export default function FollowUpsPage() {
                     加载中...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : otherItems.length === 0 ? (
                 <tr>
                   <td colSpan={isAdmin ? 6 : 5} className="px-4 py-10 text-center text-gray-400">
                     暂无跟进
                   </td>
                 </tr>
               ) : (
-                items.map((fu) => {
+                otherItems.map((fu) => {
                   const due = formatDue(fu.dueAt);
                   const stageLabel = fu.lead?.stage
                     ? LEAD_STAGE_MAP[fu.lead.stage]?.label || fu.lead.stage
@@ -355,7 +409,12 @@ export default function FollowUpsPage() {
                         ) : (
                           fu.customerId ? (
                             <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
-                              {fu.notes || '客户邮件待办'}
+                              <span className="block font-medium">{fu.customerName || '客户邮件待办'}</span>
+                              <span className="block text-xs text-gray-500">
+                                对接人 · {fu.contactName || fu.contactEmail || '未识别'}
+                                {fu.contactName && fu.contactEmail ? `（${fu.contactEmail}）` : ''}
+                              </span>
+                              {fu.notes && <span className="mt-1 block">{fu.notes}</span>}
                             </Link>
                           ) : (
                             <span className="text-gray-400">-</span>
@@ -433,6 +492,7 @@ export default function FollowUpsPage() {
           </table>
           </div>
         </div>
+        )}
       </div>
 
       {/* 转派弹窗（ADMIN） */}
