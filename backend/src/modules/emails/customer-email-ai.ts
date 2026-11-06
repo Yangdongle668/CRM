@@ -244,7 +244,7 @@ export class CustomerEmailAiService {
     const customer = await this.assertOwner(customerId, userId);
     const contacts = await this.prisma.contact.findMany({
       where: { customerId, email: { not: null } },
-      select: { email: true },
+      select: { email: true, name: true },
     });
     const addresses = [...new Set(contacts.flatMap(({ email }) =>
       email?.trim() ? [email.trim().toLowerCase()] : [],
@@ -277,7 +277,7 @@ export class CustomerEmailAiService {
         },
         select: { email: true },
       }),
-      this.prisma.emailConfig.findMany({ select: { emailAddr: true } }),
+      this.prisma.emailConfig.findMany({ select: { emailAddr: true, fromName: true } }),
       this.prisma.customer.findMany({
         where: { id: { not: customerId } }, select: { companyName: true, website: true, website2: true },
       }),
@@ -412,8 +412,30 @@ export class CustomerEmailAiService {
         body: redactor.text(email.body).slice(0, 4000),
       };
     });
+    // Resolve display names only after building the provider payload so names
+    // from CRM contacts and mail headers are never added to the request.
+    const namesByAlias = new Map<string, string>();
+    const rememberName = (address: string | null, name?: string | null) => {
+      const cleaned = name?.trim().replace(/^"|"$/g, '');
+      if (!address || !cleaned || cleaned.includes('@')) return;
+      const safeName = redactor.text(cleaned);
+      if (safeName !== cleaned.normalize('NFKC')) return;
+      const [alias] = redactor.participants(address);
+      if (alias && !namesByAlias.has(alias)) namesByAlias.set(alias, safeName);
+    };
+    for (const contact of contacts) rememberName(contact.email, contact.name);
+    for (const account of accounts) rememberName(account.emailAddr, account.fromName);
+    for (const email of emails) {
+      rememberName(email.from, email.fromName);
+      for (const header of [email.to, email.cc]) {
+        for (const match of header?.matchAll(/(?:^|,)\s*("[^"]+"|[^,<"]+)\s*<([^<>]+)>/g) ?? []) {
+          rememberName(match[2], match[1]);
+        }
+      }
+    }
+    const restoreLocalDetails = redactor.restoreWith(namesByAlias);
     const fingerprint = createHash('sha256')
-      .update(JSON.stringify(['redaction-v1', [...sourceByAlias.values()], sanitizedEmails])).digest('hex');
+      .update(JSON.stringify(['redaction-v3', [...sourceByAlias.values()], sanitizedEmails, emails, [...namesByAlias]])).digest('hex');
     const cached = await this.prisma.customerEmailAnalysisBatch.findUnique({
       where: { customerId_ownerId_fingerprint: { customerId, ownerId: userId, fingerprint } },
       select: { result: true },
@@ -521,7 +543,7 @@ export class CustomerEmailAiService {
       rejected: analysis.rejected,
       sections: analysis.sections.map(({ name, items }) => ({
         name,
-        items: items.map(({ text, emailId }) => ({ text, emailId: sourceByAlias.get(emailId)! })),
+        items: items.map(({ text, emailId }) => ({ text: restoreLocalDetails(text), emailId: sourceByAlias.get(emailId)! })),
       })), };
   }
 }

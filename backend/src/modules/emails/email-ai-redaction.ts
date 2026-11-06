@@ -14,6 +14,17 @@ export function createEmailAiRedactor(companyNames: (string | null)[], domains: 
     return alias;
   };
 
+  const originals = new Map<string, string>();
+  const mask = (kind: string, value: string) => {
+    const key = `${kind}:${value.toLowerCase()}`;
+    const existing = aliases.get(key);
+    if (existing) return existing;
+    const token = `[${kind} ${originals.size + 1}]`;
+    aliases.set(key, token);
+    originals.set(token, value);
+    return token;
+  };
+
   const names = [...new Set(companyNames.flatMap((name) => {
     if (!name?.trim()) return [];
     const full = name.trim();
@@ -31,16 +42,24 @@ export function createEmailAiRedactor(companyNames: (string | null)[], domains: 
     .join('|'), 'giu') : null;
 
   return {
+    restoreWith(names: Map<string, string>) {
+      const values = new Map(originals);
+      for (const [address, token] of aliases) {
+        if (token.startsWith('[参与人 ')) values.set(token, names.get(token) ?? address);
+      }
+      return (text: string) => text.replace(/\[?(参与人|公司|网站|电话)\s*(\d+)\]?/g,
+        (match, kind: string, number: string) => values.get(`[${kind} ${number}]`) ?? match);
+    },
     participants: (value: string | null) => (value?.normalize('NFKC').match(EMAIL_ADDRESS) ?? []).map(identify),
     text: (value: string) => {
-      let text = value.normalize('NFKC').replace(EMAIL_ADDRESS, identify).replace(WEBSITE, '[网站]');
-      if (knownWebsites) text = text.replace(knownWebsites, '[网站]');
+      let text = value.normalize('NFKC').replace(EMAIL_ADDRESS, identify).replace(WEBSITE, (value) => mask('网站', value));
+      if (knownWebsites) text = text.replace(knownWebsites, (value) => mask('网站', value));
       text = text.replace(PHONE, (match) => {
         if (/^\d{4}-\d{2}-\d{2}$/.test(match)) return match;
-        return '[电话]';
+        return mask('电话', match);
       });
-      text = text.replace(LEGAL_NAME, '[公司]');
-      return company ? text.replace(company, '[公司]') : text;
+      text = text.replace(LEGAL_NAME, (value) => mask('公司', value));
+      return company ? text.replace(company, (value) => mask('公司', value)) : text;
     },
   };
 }
