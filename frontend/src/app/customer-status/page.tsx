@@ -45,7 +45,14 @@ export default function CustomerStatusPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  const filtered = customers.filter(({ companyName }) => companyName.toLowerCase().includes(search.trim().toLowerCase()));
+  const query = search.trim().toLowerCase();
+  const filtered = customers
+    .filter(({ companyName }) => companyName.toLowerCase().includes(query))
+    .sort((a, b) => {
+      const aTime = a.latest ? Date.parse(a.latest.at) : Number.NEGATIVE_INFINITY;
+      const bTime = b.latest ? Date.parse(b.latest.at) : Number.NEGATIVE_INFINITY;
+      return (bTime - aTime) || a.companyName.localeCompare(b.companyName, 'zh-CN');
+    });
   return (
     <AppLayout>
       <div className="space-y-4">
