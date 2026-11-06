@@ -79,6 +79,10 @@ export default function CustomerDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabKey>('info');
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('tab') === 'emails') setActiveTab('emails');
+  }, []);
+
   // 对该客户的敏感数据可见性。需要等 customer 加载完才能算（要 ownerId）。
   const isOwner = !!(user?.id && customer?.ownerId && user.id === customer.ownerId);
   const isSuperAdmin = !!user?.isSuperAdmin;
@@ -233,7 +237,7 @@ export default function CustomerDetailPage() {
   // 自动切回基本信息。避免渲染一个看不见的 tab 内容。
   useEffect(() => {
     if (activeTab === 'activities' && !canSeeActivities) setActiveTab('info');
-    if (activeTab === 'emails' && !canSeeEmails) setActiveTab('info');
+    if (customer && activeTab === 'emails' && !canSeeEmails) setActiveTab('info');
   }, [activeTab, canSeeActivities, canSeeEmails]);
 
   // Edit customer

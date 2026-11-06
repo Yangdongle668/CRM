@@ -72,6 +72,14 @@ export class EmailsController {
     return this.customerEmailAi.latest(customerId, user.id);
   }
 
+  @Get('customer-ai/:customerId/tasks')
+  getCustomerEmailTasks(
+    @CurrentUser() user: { id: string },
+    @Param('customerId') customerId: string,
+  ) {
+    return this.customerEmailAi.tasks(customerId, user.id);
+  }
+
   @Get('customer-ai/:customerId/:jobId')
   getCustomerAnalysis(
     @CurrentUser() user: { id: string },
