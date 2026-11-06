@@ -15,7 +15,7 @@ type AnalysisJob = { customerId: string; userId: string; all: boolean; triggerEm
 type AnalysisProgress = { phase: 'selecting' | 'preparing' | 'analyzing' | 'saving'; current?: number; total?: number; subject?: string };
 type ReportProgress = (progress: AnalysisProgress) => Promise<void>;
 
-type AnalysisResult = { count: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
+type AnalysisResult = { count: number; rejected?: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
 
 @Injectable()
 export class CustomerEmailAiService {
@@ -136,7 +136,13 @@ export class CustomerEmailAiService {
         : status === '429' ? 'AI 服务限流或额度不足，请检查额度后重试。'
         : job.failedReason === 'AI API Key missing' ? '尚未配置邮件 AI API Key，请前往系统设置。'
         : status ? `AI 服务返回 HTTP ${status}，请检查接口地址和模型配置。`
-        : job.failedReason === 'The operation was aborted due to timeout' ? 'AI 服务响应超时，请稍后重试。'
+        : job.failedReason === 'AI_TIMEOUT' ? 'AI 服务超过 3 分钟未返回完整结果，请稍后重试。'
+        : job.failedReason === 'AI_CONNECTION' ? 'CRM 无法连接 AI 服务，请检查 API 地址及服务器网络。'
+        : job.failedReason === 'AI_TRUNCATED' ? 'AI 输出达到模型长度限制，请缩小分析范围或更换模型。'
+        : job.failedReason === 'AI_EMPTY' ? 'AI 未返回可用内容，请检查模型是否支持 JSON 输出。'
+        : job.failedReason === 'AI_INVALID_JSON' ? 'AI 返回的内容无法解析为 JSON，请检查模型兼容性。'
+        : job.failedReason === 'AI_INVALID_SOURCE' ? 'AI 返回的结果无法关联到本次邮件，请重试。'
+        : job.failedReason === 'AI_FILTERED' ? 'AI 服务过滤了输出，请检查模型服务的限制。'
         : '后台分析失败，请稍后重试或查看后台日志。';
       return { state, message };
     }
@@ -317,10 +323,11 @@ export class CustomerEmailAiService {
       return { count: 0 };
     }
     await report({ phase: 'analyzing', total: emails.length });
+    const signal = AbortSignal.timeout(180000);
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {
       redirect: 'error',
       method: 'POST',
-      signal: AbortSignal.timeout(180000),
+      signal,
       headers: {
         Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
@@ -336,32 +343,55 @@ export class CustomerEmailAiService {
           { role: 'user', content: JSON.stringify(emails) },
         ],
       }),
+    }).catch(() => {
+      throw new Error(signal.aborted ? 'AI_TIMEOUT' : 'AI_CONNECTION');
     });
     if (!response.ok) throw new Error(`AI provider HTTP ${response.status}`);
-    const payload = await response.json();
-    const choice = payload.choices?.[0];
-    if (choice?.finish_reason !== 'stop') throw new Error('AI 响应不完整');
-    const parsed = JSON.parse(choice.message.content);
+    const payload = await response.json().catch((error) => {
+      throw new Error(signal.aborted ? 'AI_TIMEOUT' : error instanceof SyntaxError ? 'AI_INVALID_JSON' : 'AI_CONNECTION');
+    });
+    const choice = payload?.choices?.[0];
+    if (choice?.finish_reason === 'length') throw new Error('AI_TRUNCATED');
+    if (choice?.finish_reason === 'content_filter') throw new Error('AI_FILTERED');
+    const content = choice?.message?.content;
+    if (typeof content !== 'string' || !content.trim()) throw new Error('AI_EMPTY');
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1'));
+    } catch {
+      throw new Error('AI_INVALID_JSON');
+    }
     const sources = new Set(emails.map(({ id }) => id));
-    const sections = ['summary', 'timeline', 'requirements', 'nextSteps', 'people'].map((name) => {
-      if (!Array.isArray(parsed?.[name])) throw new Error('AI 响应格式无效');
-      const items = parsed[name].slice(0, 50).map((item: { text: string; emailId: string }) => {
-        if (typeof item?.text !== 'string' || !sources.has(item.emailId)) {
-          throw new Error('AI 返回了无效的邮件来源');
+    const names = ['summary', 'timeline', 'requirements', 'nextSteps', 'people'];
+    if (!parsed || !names.every((name) => Array.isArray(parsed[name]))) throw new Error('AI_INVALID_JSON');
+    let rejected = 0;
+    const sections = names.map((name) => {
+      const items = (parsed[name] as { text?: string; emailId?: string }[]).slice(0, 50).flatMap((item) => {
+        if (typeof item?.text !== 'string' || !item.text.trim() || !item.emailId || !sources.has(item.emailId)) {
+          rejected++;
+          return [];
         }
-        return { text: item.text.slice(0, 1500), emailId: item.emailId };
+        return [{ text: item.text.slice(0, 1500), emailId: item.emailId }];
       });
       return { name, items };
     });
-    return { count: emails.length, limited: candidates.length > 50, sourceIds: [...sources], sections };
+    if (rejected && !sections.some(({ items }) => items.length)) throw new Error('AI_INVALID_SOURCE');
+    return { count: emails.length, limited: candidates.length > 50, sourceIds: [...sources], sections, rejected };
   }
 }
 
 @Processor(CUSTOMER_EMAIL_AI_QUEUE)
 export class CustomerEmailAiWorker extends WorkerHost {
+  private readonly logger = new Logger(CustomerEmailAiWorker.name);
   constructor(private readonly ai: CustomerEmailAiService) { super(); }
 
   process(job: Job<AnalysisJob>) {
-    return this.ai.run(job.data, (progress) => job.updateProgress(progress));
+    return this.ai.run(job.data, (progress) => job.updateProgress(progress)).catch((error) => {
+      const reason = error instanceof Error && /^(AI_[A-Z_]+|AI provider HTTP \d{3})$/.test(error.message)
+        ? error.message : 'UNEXPECTED_ERROR';
+      const phase = typeof job.progress === 'object' && 'phase' in job.progress ? job.progress.phase : 'unknown';
+      this.logger.warn(`Email AI job ${job.id} failed at ${phase}: ${reason}`);
+      throw error;
+    });
   }
 }
