@@ -215,7 +215,9 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
             </div>
           )}
           {progress?.phase === 'analyzing' && (
-            <p>已提交 {progress.total} 封邮件，{feedback?.error ? '本次未取得可用结果。' : jobId ? '正在等待 AI 返回整批结果。' : '已停止查询任务状态。'}</p>
+            <p>已提交 {progress.total} 封邮件，{feedback?.error ? '本次未取得可用结果。' : jobId ? (progress.current && progress.subject
+              ? `正在分批重试，第 ${progress.current} 封起 · ${progress.subject}`
+              : progress.current ? '正在合并各批分析结果。' : '正在等待 AI 返回整批结果。') : '已停止查询任务状态。'}</p>
           )}
         </div>
       )}
