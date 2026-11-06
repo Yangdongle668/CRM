@@ -26,6 +26,7 @@ type ApiResponse<T> = { data: T };
 
 type Analysis = {
   count: number;
+  rejected?: number;
   limited?: boolean;
   unverifiedSenders?: string[];
   sections?: { name: string; items: { text: string; emailId: string }[] }[];
@@ -201,7 +202,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
           <ol className="flex flex-wrap gap-2">
             {phases.map(([phase, label], index) => (
               <li key={phase} aria-current={index === activePhase ? 'step' : undefined}
-                className={`rounded px-2 py-1 ${index === activePhase ? 'bg-blue-700 text-white' :
+                className={`rounded px-2 py-1 ${index === activePhase ? (feedback?.error ? 'bg-red-100 text-red-800' : 'bg-blue-700 text-white') :
                   index < activePhase ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
                 {index + 1}. {label}
               </li>
@@ -213,7 +214,9 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
               <p>正在准备第 {progress.current} / {progress.total} 封 · {progress.subject || '无主题'}</p>
             </div>
           )}
-          {progress?.phase === 'analyzing' && <p>已提交 {progress.total} 封邮件，正在等待 AI 返回整批结果。</p>}
+          {progress?.phase === 'analyzing' && (
+            <p>已提交 {progress.total} 封邮件，{feedback?.error ? '本次未取得可用结果。' : jobId ? '正在等待 AI 返回整批结果。' : '已停止查询任务状态。'}</p>
+          )}
         </div>
       )}
       {!!tasks.length && (
@@ -260,6 +263,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
             {displayed.count ? `已分析 ${displayed.count} 封邮件${displayed.limited ? '，部分邮件超出单次上限' : ''}。`
               : '此范围内没有符合条件的客户邮件。'}
           </p>
+          {!!displayed.rejected && <p>已跳过 {displayed.rejected} 条无法验证来源的结果。</p>}
           {!!displayed.unverifiedSenders?.length && (
             <div className="space-y-2">
               <p>以下发件人已出现在该客户的邮件列表，但尚未登记为联系人。确认是该客户后，可授权本次分析。</p>
