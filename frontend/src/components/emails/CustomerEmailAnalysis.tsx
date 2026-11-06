@@ -106,9 +106,9 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   return (
     <section className="space-y-3 rounded border p-4 text-sm">
-      <h3 className="font-semibold">DeepSeek 客户邮件分析</h3>
+      <h3 className="font-semibold">客户邮件 AI 分析</h3>
       <p className="text-gray-600">
-        仅将符合条件的客户往来邮件正文提交给 DeepSeek。每次最多 50 封，每封最多 4,000 字符。
+        仅将符合条件的客户往来邮件正文提交给已配置的 AI 服务。每次最多 50 封，每封最多 4,000 字符。
       </p>
       <div className="flex flex-wrap gap-2">
         <select aria-label="分析范围" className="rounded border px-2" value={all ? 'all' : 'recent'}

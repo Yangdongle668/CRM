@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { EMAIL_AI_SETTING } from './email-ai-settings.service';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateSettingsDto } from './dto/update-settings.dto';
 import { BankInfoDto } from './dto/bank-info.dto';
@@ -9,11 +10,15 @@ export class SettingsService {
 
   async getAllSettings() {
     return this.prisma.systemSetting.findMany({
+      where: { key: { not: EMAIL_AI_SETTING } },
       orderBy: { key: 'asc' },
     });
   }
 
   async updateSettings(dto: UpdateSettingsDto) {
+    if (dto.settings.some(({ key }) => key === EMAIL_AI_SETTING)) {
+      throw new BadRequestException('请通过邮件 AI 设置修改该配置');
+    }
     const results = await Promise.all(
       dto.settings.map((item) =>
         this.prisma.systemSetting.upsert({

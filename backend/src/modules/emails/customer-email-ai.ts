@@ -1,3 +1,4 @@
+import { EmailAiSettingsService } from '../settings/email-ai-settings.service';
 import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
 import { ForbiddenException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -16,6 +17,7 @@ export class CustomerEmailAiService {
   private readonly logger = new Logger(CustomerEmailAiService.name);
   constructor(
     private readonly prisma: PrismaService,
+    private readonly settings: EmailAiSettingsService,
     @InjectQueue(CUSTOMER_EMAIL_AI_QUEUE) private readonly queue: Queue<AnalysisJob>,
   ) {}
 
@@ -29,8 +31,8 @@ export class CustomerEmailAiService {
 
   async start(data: AnalysisJob) {
     await this.assertOwner(data.customerId, data.userId);
-    if (!process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_MODEL) {
-      throw new ServiceUnavailableException('请先配置 DeepSeek API Key 和模型');
+    if (!(await this.settings.view()).hasKey) {
+      throw new ServiceUnavailableException('请先在系统设置配置邮件 AI');
     }
     const job = await this.queue.add('analyze', data, {
       attempts: 1,
@@ -41,10 +43,10 @@ export class CustomerEmailAiService {
   }
 
   async enqueueForEmail(emailId: string, customerId: string | null) {
-    if (!customerId || process.env.DEEPSEEK_AUTO_ANALYZE !== 'true' ||
-        !process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_MODEL) return;
-
+    if (!customerId) return;
     try {
+      const settings = await this.settings.view();
+      if (!settings.autoAnalyze || !settings.hasKey) return;
       const customer = await this.prisma.customer.findUnique({
         where: { id: customerId },
         select: { ownerId: true },
@@ -198,15 +200,20 @@ export class CustomerEmailAiService {
     }
 
     await this.assertOwner(customerId, userId);
-    const response = await fetch('https://api.deepseek.com/chat/completions', {
+    const provider = await this.settings.runtime();
+    if (!('apiKey' in provider) || !provider.apiKey || (triggerEmailId && !provider.autoAnalyze)) {
+      return { count: 0 };
+    }
+    const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+      redirect: 'error',
       method: 'POST',
       signal: AbortSignal.timeout(180000),
       headers: {
-        Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+        Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: process.env.DEEPSEEK_MODEL,
+        model: provider.model,
         response_format: { type: 'json_object' },
         messages: [
           {
@@ -217,17 +224,17 @@ export class CustomerEmailAiService {
         ],
       }),
     });
-    if (!response.ok) throw new Error(`DeepSeek HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`AI provider HTTP ${response.status}`);
     const payload = await response.json();
     const choice = payload.choices?.[0];
-    if (choice?.finish_reason !== 'stop') throw new Error('DeepSeek 响应不完整');
+    if (choice?.finish_reason !== 'stop') throw new Error('AI 响应不完整');
     const parsed = JSON.parse(choice.message.content);
     const sources = new Set(emails.map(({ id }) => id));
     const sections = ['summary', 'timeline', 'requirements', 'nextSteps'].map((name) => {
-      if (!Array.isArray(parsed?.[name])) throw new Error('DeepSeek 响应格式无效');
+      if (!Array.isArray(parsed?.[name])) throw new Error('AI 响应格式无效');
       const items = parsed[name].slice(0, 50).map((item: { text: string; emailId: string }) => {
         if (typeof item?.text !== 'string' || !sources.has(item.emailId)) {
-          throw new Error('DeepSeek 返回了无效的邮件来源');
+          throw new Error('AI 返回了无效的邮件来源');
         }
         return { text: item.text.slice(0, 1500), emailId: item.emailId };
       });

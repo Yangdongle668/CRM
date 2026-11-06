@@ -1,3 +1,4 @@
+import { SettingsModule } from '../settings/settings.module';
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { EmailsController } from './emails.controller';
@@ -17,6 +18,7 @@ import { CUSTOMER_EMAIL_AI_QUEUE, CustomerEmailAiService, CustomerEmailAiWorker 
 @Module({
   imports: [
     PrismaModule,
+    SettingsModule,
     BullModule.registerQueue({ name: QUEUE_EMAIL }, { name: CUSTOMER_EMAIL_AI_QUEUE }),
     // Email 成功发送 / 收到回邮时通知跟进模块
     FollowUpsModule,
