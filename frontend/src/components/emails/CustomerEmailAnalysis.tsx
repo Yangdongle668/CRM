@@ -14,6 +14,16 @@ const labels: Record<string, string> = {
 
 type Task = { id: string; notes: string | null; triggerEmailId: string | null; status: string };
 
+const phases = [
+  ['selecting', '筛选邮件'],
+  ['preparing', '逐封准备'],
+  ['analyzing', 'AI 批量分析'],
+  ['saving', '保存结果'],
+  ['done', '完成'],
+] as const;
+type Progress = { phase: (typeof phases)[number][0]; current?: number; total?: number; subject?: string };
+type ApiResponse<T> = { data: T };
+
 type Analysis = {
   count: number;
   limited?: boolean;
@@ -24,6 +34,7 @@ type Analysis = {
 export default function CustomerEmailAnalysis({ customerId }: { customerId: string }) {
   const endpoint = `/emails/customer-ai/${customerId}`;
   const [all, setAll] = useState(false);
+  const [progress, setProgress] = useState<Progress>();
   const [starting, setStarting] = useState(false);
   const [jobId, setJobId] = useState<string>();
   const [result, setResult] = useState<Analysis>();
@@ -36,7 +47,8 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   const refreshTasks = useCallback(async () => {
     try {
-      setTasks(await api.get<unknown, Task[]>(`${endpoint}/tasks`));
+      const { data } = await api.get<unknown, ApiResponse<Task[]>>(`${endpoint}/tasks`);
+      setTasks(data);
     } catch {
       // The shared API interceptor displays the error.
     }
@@ -60,7 +72,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     let cancelled = false;
     async function refresh() {
       try {
-        const analysis = await api.get<unknown, Analysis | null>(endpoint);
+        const { data: analysis } = await api.get<unknown, ApiResponse<Analysis | null>>(endpoint);
         if (!cancelled) setLatest(analysis ?? undefined);
       } catch {
         if (!cancelled) setLatest(undefined);
@@ -84,9 +96,11 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     const startedAt = Date.now();
     async function poll() {
       try {
-        const response = await api.get<unknown, { state: string; message?: string; result?: Analysis | null }>(`${endpoint}/${jobId}`);
+        const { data: response } = await api.get<unknown, ApiResponse<{ state: string; message?: string; result?: Analysis | null; progress?: Progress }>>(`${endpoint}/${jobId}`);
         if (cancelled) return;
+        if (response.progress) setProgress(response.progress);
         if (response.state === 'completed') {
+          if (response.result) setProgress({ phase: 'done', total: response.result.count });
           setFeedback(response.result
             ? { text: response.result.count ? `分析完成，已处理 ${response.result.count} 封邮件。` : '分析完成，没有符合条件的邮件。' }
             : { text: '结果已不可用，邮件归属可能已变更，请重新分析。', error: true });
@@ -119,12 +133,13 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   async function start(confirmedSender?: string) {
     setStarting(true);
+    setProgress(undefined);
     setFeedback({ text: '正在提交分析请求…' });
     setResult(undefined);
     setSource(undefined);
     try {
-      const job = await api.post<unknown, { id: string }>(endpoint, { all, confirmedSender });
-      if (!job.id) throw new Error('Missing job ID');
+      const { data: job } = await api.post<unknown, ApiResponse<{ id: string }>>(endpoint, { all, confirmedSender });
+      if (!job?.id) throw new Error('Missing job ID');
       setFeedback({ text: '任务已提交，正在等待后台处理…' });
       setJobId(job.id);
     } catch (error) {
@@ -138,7 +153,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
   async function openSource(id: string) {
     setTaskFeedback({ text: '正在加载原邮件…' });
     try {
-      const email = await api.get<unknown, { subject: string; bodyText: string | null; bodyHtml: string | null; direction: string; fromAddr: string; toAddr: string }>(`/emails/${id}`);
+      const { data: email } = await api.get<unknown, ApiResponse<{ subject: string; bodyText: string | null; bodyHtml: string | null; direction: string; fromAddr: string; toAddr: string }>>(`/emails/${id}`);
       const template = document.createElement('template');
       template.innerHTML = email.bodyHtml || '';
       template.content.querySelectorAll('script, style').forEach((element) => element.remove());
@@ -155,7 +170,8 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     }
   }
 
-  const displayed = result ?? latest;
+  const displayed = feedback?.error ? latest : result ?? latest;
+  const activePhase = phases.findIndex(([phase]) => phase === progress?.phase);
 
   return (
     <section className="space-y-3 rounded border p-4 text-sm">
@@ -180,6 +196,26 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
           {message.text}
         </p>
       ))}
+      {(starting || jobId || progress) && (
+        <div className="space-y-2 rounded border p-3" aria-label="邮件分析进度">
+          <ol className="flex flex-wrap gap-2">
+            {phases.map(([phase, label], index) => (
+              <li key={phase} aria-current={index === activePhase ? 'step' : undefined}
+                className={`rounded px-2 py-1 ${index === activePhase ? 'bg-blue-700 text-white' :
+                  index < activePhase ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}`}>
+                {index + 1}. {label}
+              </li>
+            ))}
+          </ol>
+          {progress?.phase === 'preparing' && progress.total && (
+            <div>
+              <progress className="w-full" aria-label="邮件准备进度" max={progress.total} value={progress.current} />
+              <p>正在准备第 {progress.current} / {progress.total} 封 · {progress.subject || '无主题'}</p>
+            </div>
+          )}
+          {progress?.phase === 'analyzing' && <p>已提交 {progress.total} 封邮件，正在等待 AI 返回整批结果。</p>}
+        </div>
+      )}
       {!!tasks.length && (
         <div className="space-y-2">
           <h4 className="font-semibold">邮件跟进待办</h4>

@@ -12,6 +12,9 @@ export const CUSTOMER_EMAIL_AI_QUEUE = 'customer-email-ai';
 
 type AnalysisJob = { customerId: string; userId: string; all: boolean; triggerEmailId?: string; confirmedSender?: string };
 
+type AnalysisProgress = { phase: 'selecting' | 'preparing' | 'analyzing' | 'saving'; current?: number; total?: number; subject?: string };
+type ReportProgress = (progress: AnalysisProgress) => Promise<void>;
+
 type AnalysisResult = { count: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
 
 @Injectable()
@@ -80,11 +83,13 @@ export class CustomerEmailAiService {
     return this.visibleResult(customerId, userId, snapshot.result as AnalysisResult);
   }
 
-  async run(data: AnalysisJob) {
+  async run(data: AnalysisJob, report: ReportProgress) {
     const startedAt = new Date();
-    const result = await this.analyze(data);
+    await report({ phase: 'selecting' });
+    const result = await this.analyze(data, report);
     if (!result.count) return result;
     await this.assertOwner(data.customerId, data.userId);
+    await report({ phase: 'saving', total: result.count });
     const snapshot = {
       customerId: data.customerId,
       ownerId: data.userId,
@@ -135,7 +140,7 @@ export class CustomerEmailAiService {
         : '后台分析失败，请稍后重试或查看后台日志。';
       return { state, message };
     }
-    if (state !== 'completed') return { state };
+    if (state !== 'completed') return { state, progress: typeof job.progress === 'object' ? job.progress : undefined };
     return { state, result: await this.visibleResult(customerId, userId, job.returnvalue) };
   }
 
@@ -157,7 +162,7 @@ export class CustomerEmailAiService {
     ];
   }
 
-  async analyze({ customerId, userId, all, triggerEmailId, confirmedSender }: AnalysisJob): Promise<AnalysisResult> {
+  async analyze({ customerId, userId, all, triggerEmailId, confirmedSender }: AnalysisJob, report: ReportProgress): Promise<AnalysisResult> {
     const customer = await this.assertOwner(customerId, userId);
     const contacts = await this.prisma.contact.findMany({
       where: { customerId, email: { not: null } },
@@ -271,19 +276,36 @@ export class CustomerEmailAiService {
       dateOf(b).getTime() - dateOf(a).getTime() || b.id.localeCompare(a.id),
     );
     const seen = new Set<string>();
-    const emails = candidates.flatMap((email) => {
+    const emails: {
+      id: string;
+      threadId: string | null;
+      subject: string;
+      direction: (typeof candidates)[number]['direction'];
+      from: string;
+      fromName: string | null;
+      to: string;
+      cc: string | null;
+      date: string;
+      body: string;
+    }[] = [];
+    for (const [index, email] of candidates.entries()) {
+      if (index % 5 === 0 || index === candidates.length - 1) {
+        await report({ phase: 'preparing', current: index + 1, total: candidates.length, subject: email.subject.slice(0, 160) });
+      }
       const body = email.bodyText?.trim() || emailPlainText(null, email.bodyHtml);
       const key = email.messageId || email.id;
-      if (!body || seen.has(key)) return [];
+      if (!body || seen.has(key)) continue;
       seen.add(key);
-      return [{
+      emails.push({
         id: email.id, threadId: email.threadId, subject: email.subject.slice(0, 300),
         direction: email.direction, from: email.fromAddr, fromName: email.fromName,
         to: email.toAddr, cc: email.cc,
         date: dateOf(email).toISOString(),
         body: body.slice(0, 4000),
-      }];
-    }).slice(0, 50).sort((a, b) => a.date.localeCompare(b.date));
+      });
+      if (emails.length === 50) break;
+    }
+    emails.sort((a, b) => a.date.localeCompare(b.date));
     if (!emails.length || (triggerEmailId && !candidates.some((email) => email.id === triggerEmailId))) {
       return { count: 0, unverifiedSenders };
     }
@@ -294,6 +316,7 @@ export class CustomerEmailAiService {
     if (triggerEmailId && !provider.autoAnalyze) {
       return { count: 0 };
     }
+    await report({ phase: 'analyzing', total: emails.length });
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {
       redirect: 'error',
       method: 'POST',
@@ -339,6 +362,6 @@ export class CustomerEmailAiWorker extends WorkerHost {
   constructor(private readonly ai: CustomerEmailAiService) { super(); }
 
   process(job: Job<AnalysisJob>) {
-    return this.ai.run(job.data);
+    return this.ai.run(job.data, (progress) => job.updateProgress(progress));
   }
 }
