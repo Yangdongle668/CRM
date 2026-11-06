@@ -215,6 +215,7 @@ export interface EmailThreadItem {
 export type FollowUpStatus = 'PENDING' | 'DONE' | 'DISMISSED' | 'SNOOZED';
 
 export interface FollowUp {
+  sourceEmailAt?: string | null;
   customerName?: string;
   contactName?: string | null;
   contactEmail?: string | null;

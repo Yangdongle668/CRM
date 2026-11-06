@@ -221,6 +221,11 @@ export default function FollowUpsPage() {
                     </p>
                     <p className="flex-1 whitespace-pre-wrap break-words text-sm text-gray-900">{task.notes}</p>
                     <p className="text-xs text-gray-600">
+                      来源邮件时间 · {task.sourceEmailAt ? new Date(task.sourceEmailAt).toLocaleString('zh-CN', {
+                        dateStyle: 'medium', timeStyle: 'short',
+                      }) : '未知'}
+                    </p>
+                    <p className="text-xs text-gray-600">
                       到期 · {new Date(task.dueAt).toLocaleDateString('zh-CN')}
                       {task.owner?.name ? ` · 负责人 ${task.owner.name}` : ''}
                     </p>
