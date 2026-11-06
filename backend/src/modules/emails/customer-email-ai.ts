@@ -8,9 +8,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 export const CUSTOMER_EMAIL_AI_QUEUE = 'customer-email-ai';
 
-type AnalysisJob = { customerId: string; userId: string; all: boolean; triggerEmailId?: string };
+type AnalysisJob = { customerId: string; userId: string; all: boolean; triggerEmailId?: string; confirmedSender?: string };
 
-type AnalysisResult = { count: number; limited?: boolean; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
+type AnalysisResult = { count: number; limited?: boolean; unverifiedSenders?: string[]; sourceIds?: string[]; sections?: { name: string; items: { text: string; emailId: string }[] }[] };
 
 @Injectable()
 export class CustomerEmailAiService {
@@ -37,7 +37,7 @@ export class CustomerEmailAiService {
     const job = await this.queue.add('analyze', data, {
       attempts: 1,
       removeOnComplete: { age: 3600, count: 100 },
-      deduplication: { id: JSON.stringify([data.customerId, data.userId, data.all]) },
+      deduplication: { id: JSON.stringify([data.customerId, data.userId, data.all, data.confirmedSender]) },
     });
     return { id: job.id };
   }
@@ -108,7 +108,7 @@ export class CustomerEmailAiService {
     return result;
   }
 
-  async analyze({ customerId, userId, all, triggerEmailId }: AnalysisJob): Promise<AnalysisResult> {
+  async analyze({ customerId, userId, all, triggerEmailId, confirmedSender }: AnalysisJob): Promise<AnalysisResult> {
     await this.assertOwner(customerId, userId);
     const contacts = await this.prisma.contact.findMany({
       where: { customerId, email: { not: null } },
@@ -117,12 +117,23 @@ export class CustomerEmailAiService {
     const addresses = [...new Set(contacts.flatMap(({ email }) =>
       email?.trim() ? [email.trim().toLowerCase()] : [],
     ))];
-    if (!addresses.length) return { count: 0 };
+    const since = new Date(Date.now() - 180 * 86400000);
+    const linkedIncoming: Prisma.EmailWhereInput = {
+      customerId, customer: { ownerId: userId }, direction: 'INBOUND',
+      category: 'inbox', status: { in: ['RECEIVED', 'READ'] }, campaignId: null,
+      receivedAt: all ? { not: null } : { gte: since },
+    };
+    const linkedSenders = triggerEmailId ? [] : (await this.prisma.email.findMany({
+      where: linkedIncoming, distinct: ['fromAddr'], select: { fromAddr: true },
+      orderBy: { receivedAt: 'desc' }, take: 20,
+    })).map(({ fromAddr }) => fromAddr.trim().toLowerCase())
+      .filter((address) => /^[^\s<>@,;]+@[^\s<>@,;]+\.[^\s<>@,;]+$/.test(address));
+    const checked = [...new Set([...addresses, ...linkedSenders])];
     const [otherContacts, accounts] = await Promise.all([
       this.prisma.contact.findMany({
         where: {
           customerId: { not: customerId },
-          OR: addresses.map((address) => ({ email: { equals: address, mode: 'insensitive' } })),
+          OR: checked.map((address) => ({ email: { equals: address, mode: 'insensitive' } })),
         },
         select: { email: true },
       }),
@@ -133,9 +144,11 @@ export class CustomerEmailAiService {
       ...accounts.map(({ emailAddr }) => emailAddr),
     ].map((address) => address?.trim().toLowerCase()));
     const allowed = addresses.filter((address) => !excluded.has(address));
-    if (!allowed.length) return { count: 0 };
-
-    const since = new Date(Date.now() - 180 * 86400000);
+    const unverifiedSenders = [...new Set(linkedSenders)].filter(
+      (address) => !excluded.has(address) && !allowed.includes(address),
+    );
+    if (confirmedSender && unverifiedSenders.includes(confirmedSender)) allowed.push(confirmedSender);
+    if (!allowed.length) return { count: 0, unverifiedSenders };
     const load = (where: Prisma.EmailWhereInput, date: 'sentAt' | 'receivedAt') =>
       this.prisma.email.findMany({
         where: {
@@ -196,7 +209,7 @@ export class CustomerEmailAiService {
       }];
     }).slice(0, 50).sort((a, b) => a.date.localeCompare(b.date));
     if (!emails.length || (triggerEmailId && !candidates.some((email) => email.id === triggerEmailId))) {
-      return { count: 0 };
+      return { count: 0, unverifiedSenders };
     }
 
     await this.assertOwner(customerId, userId);
