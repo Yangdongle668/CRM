@@ -126,13 +126,30 @@ export class CustomerEmailAiService {
         .sort((a, b) => dateOf(b).getTime() - dateOf(a).getTime())[0];
       const freshness = !latest ? 'NO_MAIL' : !valid ? 'NEEDS_ANALYSIS'
         : ids.includes(latest.id) ? 'CURRENT' : 'STALE';
+      const sourceTimes = new Map(evidence.map((email) => [email.id, dateOf(email).getTime()]));
+      const summaries = valid?.sections?.find(({ name }) => name === 'summary')?.items ?? [];
+      const timeline = valid?.sections?.find(({ name }) => name === 'timeline')?.items ?? [];
+      const seen = new Set<string>();
+      const summary = [...summaries, ...timeline]
+        .flatMap((item) => {
+          const time = sourceTimes.get(item.emailId);
+          if (time === undefined) return [];
+          return [{ ...item, at: new Date(time) }];
+        })
+        .sort((a, b) => b.at.getTime() - a.at.getTime())
+        .filter(({ text }) => {
+          if (seen.has(text)) return false;
+          seen.add(text);
+          return true;
+        })
+        .slice(0, 3);
       return {
         id: customer.id,
         companyName: customer.companyName,
         freshness,
         latest: latest ? { id: latest.id, subject: latest.subject, direction: latest.direction, at: dateOf(latest), snippet: latest.snippet } : null,
         analyzedAt: valid ? customer.emailAnalysis?.startedAt : null,
-        summary: valid?.sections?.find(({ name }) => name === 'summary')?.items.slice(0, 3) ?? [],
+        summary,
       };
     });
   }
