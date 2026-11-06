@@ -254,7 +254,48 @@ export class FollowUpsService {
       ],
       take: 500,
     });
-    return { items };
+    const customerTasks = items.filter((item) => item.customerId && item.id.startsWith('email-ai-'));
+    if (!customerTasks.length) return { items };
+    const [customers, emails] = await Promise.all([
+      this.prisma.customer.findMany({
+        where: { id: { in: customerTasks.map((item) => item.customerId!) }, ownerId: userId },
+        select: { id: true, companyName: true, contacts: { select: { name: true, email: true } } },
+      }),
+      this.prisma.email.findMany({
+        where: { id: { in: customerTasks.flatMap(({ triggerEmailId }) => triggerEmailId ? [triggerEmailId] : []) } },
+        select: {
+          id: true, direction: true, fromAddr: true, fromName: true, toAddr: true,
+          customerId: true, emailConfigId: true, emailConfig: { select: { userId: true } }, senderId: true,
+        },
+      }),
+    ]);
+    const customerById = new Map(customers.map((customer) => [customer.id, customer]));
+    const emailById = new Map(emails.map((email) => [email.id, email]));
+    return {
+      items: items.map((item) => {
+        if (!item.id.startsWith('email-ai-')) return item;
+        const customer = customerById.get(item.customerId ?? '');
+        if (!customer) return item;
+        const email = emailById.get(item.triggerEmailId ?? '');
+        const visible = email && (email.customerId === customer.id || (!email.customerId &&
+          (email.emailConfig?.userId === userId || (!email.emailConfigId && email.senderId === userId))));
+        const outbound = visible && email.direction === 'OUTBOUND';
+        const raw = visible ? (outbound ? email.toAddr : email.fromAddr) : '';
+        const mailbox = /^([^<>]*)<([^<>]+)>$/.exec(raw.trim());
+        const address = (mailbox?.[2] ?? raw).trim();
+        const contactEmail = /^[^\s<>@,;]+@[^\s<>@,;]+$/.test(address) ? address : null;
+        const contact = contactEmail && customer.contacts.find(
+          ({ email: value }) => value?.trim().toLowerCase() === contactEmail.toLowerCase(),
+        );
+        const displayName = visible ? (outbound ? mailbox?.[1].trim() : email.fromName) : null;
+        return {
+          ...item,
+          customerName: customer.companyName,
+          contactName: (contact && contact.name) || (contactEmail && displayName) || null,
+          contactEmail,
+        };
+      }),
+    };
   }
 
   /** 小接口给侧栏角标用：返回 {pending, overdue}。 */

@@ -228,7 +228,12 @@ export default function FollowUpsPage() {
                         ) : (
                           fu.customerId ? (
                             <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
-                              {fu.notes || '客户邮件待办'}
+                              <span className="block font-medium">{fu.customerName || '客户邮件待办'}</span>
+                              <span className="block text-xs text-gray-500">
+                                对接人 · {fu.contactName || fu.contactEmail || '未识别'}
+                                {fu.contactName && fu.contactEmail ? `（${fu.contactEmail}）` : ''}
+                              </span>
+                              {fu.notes && <span className="mt-1 block">{fu.notes}</span>}
                             </Link>
                           ) : (
                             <span className="text-sm text-gray-400">-</span>
@@ -306,7 +311,7 @@ export default function FollowUpsPage() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr className="text-xs uppercase text-gray-500">
-                <th className="px-4 py-2 text-left font-semibold">线索</th>
+                <th className="px-4 py-2 text-left font-semibold">线索 / 客户待办</th>
                 <th className="px-4 py-2 text-left font-semibold">状态</th>
                 <th className="px-4 py-2 text-left font-semibold">到期</th>
                 <th className="px-4 py-2 text-left font-semibold">原因</th>
@@ -355,7 +360,12 @@ export default function FollowUpsPage() {
                         ) : (
                           fu.customerId ? (
                             <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
-                              {fu.notes || '客户邮件待办'}
+                              <span className="block font-medium">{fu.customerName || '客户邮件待办'}</span>
+                              <span className="block text-xs text-gray-500">
+                                对接人 · {fu.contactName || fu.contactEmail || '未识别'}
+                                {fu.contactName && fu.contactEmail ? `（${fu.contactEmail}）` : ''}
+                              </span>
+                              {fu.notes && <span className="mt-1 block">{fu.notes}</span>}
                             </Link>
                           ) : (
                             <span className="text-gray-400">-</span>
