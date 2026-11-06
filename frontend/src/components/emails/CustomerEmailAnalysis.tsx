@@ -135,7 +135,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     }
   }
 
-  const openSource = useCallback(async (id: string) => {
+  async function openSource(id: string) {
     setTaskFeedback({ text: '正在加载原邮件…' });
     try {
       const email = await api.get<unknown, { subject: string; bodyText: string | null; bodyHtml: string | null; direction: string; fromAddr: string; toAddr: string }>(`/emails/${id}`);
@@ -153,12 +153,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
       setTaskFeedback({ text: '无法打开原邮件，请检查邮件是否仍可访问。', error: true });
       setSource(undefined);
     }
-  }, []);
-
-  useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get('sourceEmail');
-    if (id) void openSource(id);
-  }, [openSource]);
+  }
 
   const displayed = result ?? latest;
 

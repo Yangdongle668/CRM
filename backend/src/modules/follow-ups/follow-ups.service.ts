@@ -264,7 +264,7 @@ export class FollowUpsService {
       this.prisma.email.findMany({
         where: { id: { in: customerTasks.flatMap(({ triggerEmailId }) => triggerEmailId ? [triggerEmailId] : []) } },
         select: {
-          id: true, direction: true, fromAddr: true, fromName: true, toAddr: true,
+          id: true, direction: true, fromAddr: true, fromName: true, toAddr: true, sentAt: true, receivedAt: true,
           customerId: true, emailConfigId: true, emailConfig: { select: { userId: true } }, senderId: true,
         },
       }),
@@ -293,6 +293,7 @@ export class FollowUpsService {
           customerName: customer.companyName,
           contactName: (contact && contact.name) || (contactEmail && displayName) || null,
           contactEmail,
+          sourceEmailAt: visible ? (outbound ? email.sentAt : email.receivedAt) : null,
         };
       }),
     };

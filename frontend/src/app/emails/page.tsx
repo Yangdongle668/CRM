@@ -142,6 +142,16 @@ function ComposeToWatcher({ onOpen }: { onOpen: (to: string) => void }) {
   return null;
 }
 
+function SourceEmailWatcher({ onOpen }: { onOpen: (id: string) => void }) {
+  const id = useSearchParams().get('emailId');
+  const openRef = useRef(onOpen);
+  openRef.current = onOpen;
+  useEffect(() => {
+    if (id) openRef.current(id);
+  }, [id]);
+  return null;
+}
+
 export default function EmailsPage() {
   const { user } = useAuth();
   const [activeFolder, setActiveFolder] = useState<FolderType>('inbox');
@@ -571,13 +581,13 @@ export default function EmailsPage() {
   }, [fetchUnreadCount, activeFolder, fetchEmails, loadAccounts]);
 
   // View email detail (with thread loading)
-  const handleViewEmail = async (email: Email, threadId?: string | null) => {
+  const handleViewEmail = async (email: Email | Pick<Email, 'id'>, threadId?: string | null) => {
     setDetailLoading(true);
     setThreadEmails([]);
     setViewingThreadEmailId(null);
     try {
       const res: any = await emailsApi.getById(email.id);
-      const emailData = res.data;
+      const emailData: Email = res.data ?? res;
       setSelectedEmail(emailData);
       setViewingThreadEmailId(emailData.id);
 
@@ -586,7 +596,7 @@ export default function EmailsPage() {
       setThreadEmails(Array.isArray(emailData.thread?.emails) ? emailData.thread.emails : []);
 
       // Mark as read if inbound and unread
-      if (email.direction === 'INBOUND' && email.status === 'RECEIVED') {
+      if (emailData.direction === 'INBOUND' && emailData.status === 'RECEIVED') {
         await emailsApi.markAsRead(email.id);
         // Update local thread list
         setThreads((prev) =>
@@ -606,7 +616,7 @@ export default function EmailsPage() {
         prevUnreadRef.current = Math.max(0, prevUnreadRef.current - 1);
       }
     } catch {
-      setSelectedEmail(email);
+      if ('subject' in email) setSelectedEmail(email);
     } finally {
       setDetailLoading(false);
     }
@@ -2401,6 +2411,7 @@ export default function EmailsPage() {
   return (
     <AppLayout>
       <Suspense fallback={null}>
+        <SourceEmailWatcher onOpen={(id) => void handleViewEmail({ id })} />
         <ComposeToWatcher
           onOpen={(to) => {
             openCompose({ ...emptyComposeForm, toAddr: to });
