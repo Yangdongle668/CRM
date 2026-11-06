@@ -20,7 +20,7 @@ export default function EmailAiSettings() {
 
   useEffect(() => {
     let active = true;
-    api.get<unknown, Config>(endpoint).then((value) => {
+    api.get<unknown, { data: Config }>(endpoint).then(({ data: value }) => {
       if (active) setConfig(value);
     }).catch(() => {});
     return () => { active = false; };
@@ -32,7 +32,7 @@ export default function EmailAiSettings() {
     event.preventDefault();
     setSaving(true);
     try {
-      const value = await api.put<unknown, Config>(endpoint, {
+      const { data: value } = await api.put<unknown, { data: Config }>(endpoint, {
         ...config, apiKey: key || undefined, clearKey,
       });
       setConfig(value);
