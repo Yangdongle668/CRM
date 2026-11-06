@@ -41,6 +41,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: '仪表盘', href: '/dashboard', icon: HiOutlineHome },
   { label: '客户管理', href: '/customers', icon: HiOutlineBuildingOffice2 },
+  { label: '客户目前情况', href: '/customer-status', icon: HiOutlineChartBar },
   { label: '联系人', href: '/contacts', icon: HiOutlineUsers },
   { label: '销售线索', href: '/leads', icon: HiOutlineFunnel },
   { label: '邮件中心', href: '/emails', icon: HiOutlineEnvelope },
