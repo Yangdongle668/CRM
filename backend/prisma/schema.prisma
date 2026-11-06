@@ -138,6 +138,8 @@ model User {
   followUpsOwned   FollowUp[]     @relation("FollowUpOwner")
   followUpsCompleted FollowUp[]   @relation("FollowUpCompletedBy")
 
+  hiddenCustomerCards CustomerStatusHiddenCard[]
+
   @@map("users")
 }
 
@@ -219,6 +221,8 @@ model Customer {
   emailAnalysisBatches CustomerEmailAnalysisBatch[]
   emails             Email[]
   proformaInvoices   ProformaInvoice[]
+
+  hiddenStatusCards CustomerStatusHiddenCard[]
 
   @@map("customers")
 }
@@ -1113,4 +1117,17 @@ model CustomerEmailAnalysisBatch {
 
   @@id([customerId, ownerId, fingerprint])
   @@map("customer_email_analysis_batches")
+}
+
+model CustomerStatusHiddenCard {
+  userId     String   @map("user_id")
+  customerId String   @map("customer_id")
+  hiddenAt   DateTime @default(now()) @map("hidden_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@id([userId, customerId])
+  @@index([customerId])
+  @@map("customer_status_hidden_cards")
 }
