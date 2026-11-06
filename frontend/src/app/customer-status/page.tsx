@@ -18,7 +18,7 @@ type CustomerOverview = {
   freshness: keyof typeof statusLabels;
   latest: { id: string; subject: string; direction: 'INBOUND' | 'OUTBOUND'; at: string; snippet: string | null } | null;
   analyzedAt: string | null;
-  summary: { text: string; emailId: string }[];
+  summary: { text: string; emailId: string; at: string }[];
 };
 
 const mailUrl = (id: string) => `/emails?emailId=${encodeURIComponent(id)}`;
@@ -88,7 +88,7 @@ export default function CustomerStatusPage() {
                   <Link href={mailUrl(customer.latest.id)} className="break-words text-blue-700 hover:underline">
                     {customer.latest.subject || '无主题'}
                   </Link>
-                  {customer.freshness !== 'CURRENT' && customer.latest.snippet && (
+                  {customer.latest.snippet && (
                     <p className="mt-1 break-words text-gray-600">{customer.latest.snippet}</p>
                   )}
                 </div>
@@ -100,8 +100,9 @@ export default function CustomerStatusPage() {
                     {customer.analyzedAt && ` · ${formatTime(customer.analyzedAt)}`}
                   </p>
                   <ul className="mt-1 space-y-1">
-                    {customer.summary.map(({ text, emailId }, index) => (
+                    {customer.summary.map(({ text, emailId, at }, index) => (
                       <li key={`${emailId}-${index}`} className="break-words">
+                        <time dateTime={at} className="mr-2 text-xs text-gray-500">{formatTime(at)}</time>
                         {text} <Link href={mailUrl(emailId)} className="text-blue-700 underline">来源</Link>
                       </li>
                     ))}
