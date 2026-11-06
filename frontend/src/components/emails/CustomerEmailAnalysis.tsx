@@ -13,6 +13,7 @@ const labels: Record<string, string> = {
 type Analysis = {
   count: number;
   limited?: boolean;
+  unverifiedSenders?: string[];
   sections?: { name: string; items: { text: string; emailId: string }[] }[];
 };
 
@@ -75,13 +76,13 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     };
   }, [endpoint, jobId]);
 
-  async function start() {
+  async function start(confirmedSender?: string) {
     setStarting(true);
     setFailed(false);
     setResult(undefined);
     setSource(undefined);
     try {
-      const job = await api.post<unknown, { id: string }>(endpoint, { all });
+      const job = await api.post<unknown, { id: string }>(endpoint, { all, confirmedSender });
       setJobId(job.id);
     } catch {
       setFailed(true);
@@ -116,7 +117,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
           <option value="recent">最近 180 天</option>
           <option value="all">不限日期（仍有单次上限）</option>
         </select>
-        <button type="button" disabled={starting || !!jobId} onClick={start}
+        <button type="button" disabled={starting || !!jobId} onClick={() => start()}
           className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50">
           {starting || jobId ? '分析中…' : '分析历史邮件'}
         </button>
@@ -128,6 +129,17 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
             {displayed.count ? `已分析 ${displayed.count} 封邮件${displayed.limited ? '，部分邮件超出单次上限' : ''}。`
               : '此范围内没有符合条件的客户邮件。'}
           </p>
+          {!!displayed.unverifiedSenders?.length && (
+            <div className="space-y-2">
+              <p>以下发件人已出现在该客户的邮件列表，但尚未登记为联系人。确认是该客户后，可授权本次分析。</p>
+              {displayed.unverifiedSenders.map((address) => (
+                <button key={address} type="button" disabled={starting || !!jobId}
+                  onClick={() => start(address)} className="mr-2 rounded border px-2 py-1">
+                  确认并分析 {address}
+                </button>
+              ))}
+            </div>
+          )}
           {displayed.sections?.map(({ name, items }) => (
             <div key={name}>
               <h4 className="font-medium">{labels[name]}</h4>
