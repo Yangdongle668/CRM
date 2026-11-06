@@ -205,12 +205,12 @@ export default function FollowUpsPage() {
               {emailTasks.map((task) => {
                 const customerUrl = `/customers/${task.customerId}?tab=emails`;
                 const sourceUrl = task.triggerEmailId
-                  ? `${customerUrl}&sourceEmail=${encodeURIComponent(task.triggerEmailId)}`
+                  ? `/emails?emailId=${encodeURIComponent(task.triggerEmailId)}`
                   : customerUrl;
                 return (
                   <article key={task.id} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-2">
-                      <Link href={sourceUrl} className="min-w-0 break-words font-semibold text-blue-700 hover:underline">
+                      <Link href={customerUrl} className="min-w-0 break-words font-semibold text-blue-700 hover:underline">
                         {task.customerName || '客户邮件待办'}
                       </Link>
                       <Badge className={STATUS_COLOR[task.status]}>{STATUS_LABEL[task.status]}</Badge>
