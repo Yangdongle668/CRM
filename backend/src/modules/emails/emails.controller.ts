@@ -64,6 +64,11 @@ export class EmailsController {
     });
   }
 
+  @Get('customer-ai-overview')
+  getCustomerEmailOverview(@CurrentUser() user: { id: string }) {
+    return this.customerEmailAi.overview(user.id);
+  }
+
   @Get('customer-ai/:customerId')
   getLatestCustomerAnalysis(
     @CurrentUser() user: { id: string },

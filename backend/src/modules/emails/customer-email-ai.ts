@@ -76,6 +76,69 @@ export class CustomerEmailAiService {
     });
   }
 
+  async overview(userId: string) {
+    const customers = await this.prisma.customer.findMany({
+      where: { ownerId: userId },
+      orderBy: { companyName: 'asc' },
+      select: {
+        id: true, companyName: true,
+        emailAnalysis: { select: { ownerId: true, startedAt: true, result: true } },
+      },
+    });
+    const latestLinked = await this.prisma.$queryRaw<{
+      id: string; customerId: string; subject: string; direction: 'INBOUND' | 'OUTBOUND';
+      receivedAt: Date | null; sentAt: Date | null; createdAt: Date; snippet: string | null;
+    }[]>`
+      SELECT DISTINCT ON (e.customer_id) e.id, e.customer_id AS "customerId", e.subject, e.direction,
+        e.received_at AS "receivedAt", e.sent_at AS "sentAt", e.created_at AS "createdAt", e.snippet
+      FROM emails e JOIN customers c ON c.id = e.customer_id
+      WHERE c.owner_id = ${userId} AND e.campaign_id IS NULL
+        AND ((e.direction = 'INBOUND' AND e.category = 'inbox' AND e.status IN ('RECEIVED', 'READ'))
+          OR (e.direction = 'OUTBOUND' AND e.category = 'sent' AND e.status IN ('SENT', 'VIEWED')))
+      ORDER BY e.customer_id, COALESCE(e.received_at, e.sent_at, e.created_at) DESC, e.id DESC
+    `;
+    const latestByCustomer = new Map(latestLinked.map((email) => [email.customerId, email]));
+    const snapshots = customers.map(({ emailAnalysis }) => emailAnalysis?.ownerId === userId
+      ? emailAnalysis.result as AnalysisResult : null);
+    const sourceIds = [...new Set(snapshots.flatMap((snapshot) => snapshot?.sourceIds ?? []))];
+    const sources = await this.prisma.email.findMany({
+      where: {
+        id: { in: sourceIds },
+        OR: [
+          { customer: { ownerId: userId } },
+          { customerId: null, OR: [{ emailConfig: { userId } }, { emailConfigId: null, senderId: userId }] },
+        ],
+      },
+      select: { id: true, customerId: true, subject: true, direction: true, receivedAt: true, sentAt: true, createdAt: true, snippet: true },
+    });
+    const byId = new Map(sources.map((email) => [email.id, email]));
+    const dateOf = (email: (typeof sources)[number]) =>
+      email.receivedAt ?? email.sentAt ?? email.createdAt;
+
+    return customers.map((customer, index) => {
+      const snapshot = snapshots[index];
+      const ids = snapshot?.sourceIds ?? [];
+      const evidence = ids.flatMap((id) => {
+        const email = byId.get(id);
+        return email && (email.customerId === customer.id || email.customerId === null) ? [email] : [];
+      });
+      const valid = ids.length > 0 && evidence.length === ids.length ? snapshot : null;
+      const linked = latestByCustomer.get(customer.id);
+      const latest = (linked ? [linked, ...evidence] : evidence)
+        .sort((a, b) => dateOf(b).getTime() - dateOf(a).getTime())[0];
+      const freshness = !latest ? 'NO_MAIL' : !valid ? 'NEEDS_ANALYSIS'
+        : ids.includes(latest.id) ? 'CURRENT' : 'STALE';
+      return {
+        id: customer.id,
+        companyName: customer.companyName,
+        freshness,
+        latest: latest ? { id: latest.id, subject: latest.subject, direction: latest.direction, at: dateOf(latest), snippet: latest.snippet } : null,
+        analyzedAt: valid ? customer.emailAnalysis?.startedAt : null,
+        summary: valid?.sections?.find(({ name }) => name === 'summary')?.items.slice(0, 3) ?? [],
+      };
+    });
+  }
+
   async latest(customerId: string, userId: string) {
     await this.assertOwner(customerId, userId);
     const snapshot = await this.prisma.customerEmailAnalysis.findUnique({ where: { customerId } });
