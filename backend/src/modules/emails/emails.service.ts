@@ -1,3 +1,4 @@
+import { CustomerEmailAiService } from './customer-email-ai';
 import {
   Injectable,
   Logger,
@@ -92,6 +93,7 @@ export class EmailsService implements OnApplicationBootstrap {
     private readonly matcher: EmailCustomerMatcher,
     private readonly imapSync: ImapSyncService,
     private readonly events: EmailEventsService,
+    private readonly customerEmailAi: CustomerEmailAiService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -877,6 +879,8 @@ export class EmailsService implements OnApplicationBootstrap {
         },
         include: { customer: true },
       });
+
+      await this.customerEmailAi.enqueueForEmail(email.id, email.customerId);
 
       if (email.recipientId) {
         await this.prisma.emailRecipient.update({

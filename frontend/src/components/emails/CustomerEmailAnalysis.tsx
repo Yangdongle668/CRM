@@ -23,7 +23,26 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
   const [jobId, setJobId] = useState<string>();
   const [result, setResult] = useState<Analysis>();
   const [failed, setFailed] = useState(false);
+  const [latest, setLatest] = useState<Analysis>();
   const [source, setSource] = useState<{ subject: string; bodyText: string }>();
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      try {
+        const analysis = await api.get<unknown, Analysis | null>(endpoint);
+        if (!cancelled) setLatest(analysis ?? undefined);
+      } catch {
+        if (!cancelled) setLatest(undefined);
+      }
+    }
+    void refresh();
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', refresh);
+    };
+  }, [endpoint]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -31,10 +50,11 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
       try {
-        const response = await api.get<unknown, { state: string; result?: Analysis }>(`${endpoint}/${jobId}`);
+        const response = await api.get<unknown, { state: string; result?: Analysis | null }>(`${endpoint}/${jobId}`);
         if (cancelled) return;
         if (response.state === 'completed') {
-          setResult(response.result);
+          setResult(response.result?.count ? undefined : response.result ?? undefined);
+          if (response.result?.count) setLatest(response.result);
           setJobId(undefined);
         } else if (response.state === 'failed' || response.state === 'unknown') {
           setFailed(true);
@@ -72,12 +92,17 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   async function openSource(id: string) {
     try {
-      const email = await api.get<unknown, { subject: string; bodyText: string }>(`/emails/${id}`);
-      setSource({ subject: email.subject, bodyText: email.bodyText });
+      const email = await api.get<unknown, { subject: string; bodyText: string | null; bodyHtml: string | null }>(`/emails/${id}`);
+      const template = document.createElement('template');
+      template.innerHTML = email.bodyHtml || '';
+      template.content.querySelectorAll('script, style').forEach((element) => element.remove());
+      setSource({ subject: email.subject, bodyText: email.bodyText || template.content.textContent || '' });
     } catch {
       setSource(undefined);
     }
   }
+
+  const displayed = result ?? latest;
 
   return (
     <section className="space-y-3 rounded border p-4 text-sm">
@@ -97,13 +122,13 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
         </button>
       </div>
       {failed && <p role="alert" className="text-red-700">分析失败，请检查服务配置后重试。</p>}
-      {result && (
+      {displayed && (
         <div className="space-y-3">
           <p className="text-gray-600">
-            {result.count ? `已分析 ${result.count} 封邮件${result.limited ? '，部分邮件超出单次上限' : ''}。`
-              : '此范围内没有符合条件的客户来信。'}
+            {displayed.count ? `已分析 ${displayed.count} 封邮件${displayed.limited ? '，部分邮件超出单次上限' : ''}。`
+              : '此范围内没有符合条件的客户邮件。'}
           </p>
-          {result.sections?.map(({ name, items }) => (
+          {displayed.sections?.map(({ name, items }) => (
             <div key={name}>
               <h4 className="font-medium">{labels[name]}</h4>
               {items.length ? (

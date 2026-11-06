@@ -215,6 +215,7 @@ model Customer {
   orders             Order[]
   activities         Activity[]
   documents          Document[]
+  emailAnalysis      CustomerEmailAnalysis?
   emails             Email[]
   proformaInvoices   ProformaInvoice[]
 
@@ -1087,4 +1088,15 @@ model FollowUp {
   @@index([leadId])
   @@index([triggerEmailId])
   @@map("follow_ups")
+}
+
+model CustomerEmailAnalysis {
+  customerId String   @id @map("customer_id")
+  ownerId    String   @map("owner_id")
+  startedAt  DateTime @map("started_at")
+  result     Json
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@map("customer_email_analyses")
 }

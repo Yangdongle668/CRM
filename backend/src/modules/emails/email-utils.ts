@@ -15,10 +15,10 @@ const ENTITIES: Record<string, string> = {
 };
 
 /**
- * 生成列表预览：优先用纯文本正文，没有就从 HTML 里剥标签（连同
- * <style>/<script>/<head> 的内容一起去掉），折叠空白，截 200 字。
+ * 提取正文纯文本：优先用纯文本正文，没有就从 HTML 里剥标签（连同
+ * <style>/<script>/<head> 的内容一起去掉），折叠空白。
  */
-export function makeSnippet(
+export function emailPlainText(
   bodyText?: string | null,
   bodyHtml?: string | null,
 ): string {
@@ -39,7 +39,11 @@ export function makeSnippet(
         return ENTITIES[code.toLowerCase()] ?? m;
       });
   }
-  text = text.replace(/\s+/g, ' ').trim();
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+export function makeSnippet(bodyText?: string | null, bodyHtml?: string | null): string {
+  const text = emailPlainText(bodyText, bodyHtml);
   // 按码点截断，避免把 emoji 等代理对切成半个
   const chars = Array.from(text);
   return chars.length > SNIPPET_LENGTH ? chars.slice(0, SNIPPET_LENGTH).join('') : text;

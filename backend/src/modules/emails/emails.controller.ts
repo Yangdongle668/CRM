@@ -60,6 +60,14 @@ export class EmailsController {
     return this.customerEmailAi.start({ customerId, userId: user.id, all: body?.all === true });
   }
 
+  @Get('customer-ai/:customerId')
+  getLatestCustomerAnalysis(
+    @CurrentUser() user: { id: string },
+    @Param('customerId') customerId: string,
+  ) {
+    return this.customerEmailAi.latest(customerId, user.id);
+  }
+
   @Get('customer-ai/:customerId/:jobId')
   getCustomerAnalysis(
     @CurrentUser() user: { id: string },
