@@ -1,5 +1,6 @@
 import {
   Controller,
+  BadRequestException,
   Get,
   Post,
   Put,
@@ -67,6 +68,16 @@ export class EmailsController {
   @Get('customer-ai-overview')
   getCustomerEmailOverview(@CurrentUser() user: { id: string }) {
     return this.customerEmailAi.overview(user.id);
+  }
+
+  @Patch('customer-ai-overview/:customerId/visibility')
+  setCustomerCardVisibility(
+    @CurrentUser() user: { id: string },
+    @Param('customerId') customerId: string,
+    @Body() body: { hidden?: boolean },
+  ) {
+    if (typeof body?.hidden !== 'boolean') throw new BadRequestException('请指定卡片是否隐藏');
+    return this.customerEmailAi.setCardHidden(customerId, user.id, body.hidden);
   }
 
   @Get('customer-ai/:customerId')

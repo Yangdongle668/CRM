@@ -74,12 +74,37 @@ export class CustomerEmailAiService {
     });
   }
 
+  async setCardHidden(customerId: string, userId: string, hidden: boolean) {
+    await this.assertOwner(customerId, userId);
+    if (hidden) {
+      await this.prisma.customerStatusHiddenCard.createMany({
+        data: { userId, customerId }, skipDuplicates: true,
+      });
+    } else {
+      await this.prisma.customerStatusHiddenCard.deleteMany({ where: { userId, customerId } });
+    }
+    return { hidden };
+  }
+
   async overview(userId: string) {
+    await this.prisma.$executeRaw`
+      DELETE FROM customer_status_hidden_cards h
+      WHERE h.user_id = ${userId}
+        AND EXISTS (
+          SELECT 1 FROM emails e
+          WHERE e.customer_id = h.customer_id AND e.campaign_id IS NULL
+            AND e.direction = 'INBOUND' AND e.category = 'inbox'
+            AND e.status IN ('RECEIVED', 'READ')
+            AND e.created_at > h.hidden_at
+            AND COALESCE(e.received_at, e.created_at) > h.hidden_at
+        )
+    `;
     const customers = await this.prisma.customer.findMany({
       where: { ownerId: userId },
       orderBy: { companyName: 'asc' },
       select: {
         id: true, companyName: true,
+        hiddenStatusCards: { where: { userId }, select: { customerId: true } },
         emailAnalysis: { select: { ownerId: true, startedAt: true, result: true } },
       },
     });
@@ -146,6 +171,7 @@ export class CustomerEmailAiService {
       return {
         id: customer.id,
         companyName: customer.companyName,
+        hidden: customer.hiddenStatusCards.length > 0,
         freshness,
         latest: latest ? { id: latest.id, subject: latest.subject, direction: latest.direction, at: dateOf(latest), snippet: latest.snippet } : null,
         analyzedAt: valid ? customer.emailAnalysis?.startedAt : null,
