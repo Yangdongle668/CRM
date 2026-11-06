@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
 // 公共邮箱域名：不能拿来按官网域名匹配客户
-const FREE_MAIL_DOMAINS = new Set([
+export const FREE_MAIL_DOMAINS = new Set([
   'gmail.com', 'googlemail.com', 'yahoo.com', 'hotmail.com', 'outlook.com',
   'live.com', 'msn.com', 'aol.com', 'mail.com', 'icloud.com', 'me.com',
   'protonmail.com', 'proton.me', 'zoho.com', 'gmx.com', 'gmx.de', 'yandex.ru',
@@ -13,7 +13,7 @@ const FREE_MAIL_DOMAINS = new Set([
 // 官网域名 → 客户的映射缓存时长。新建客户最多 5 分钟后生效。
 const DOMAIN_CACHE_TTL_MS = 5 * 60 * 1000;
 
-function extractDomain(url: string): string {
+export function extractDomain(url: string): string {
   return url
     .trim()
     .replace(/^https?:\/\//i, '')

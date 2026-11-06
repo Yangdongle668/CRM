@@ -5,6 +5,7 @@ import api from '@/lib/api';
 
 const labels: Record<string, string> = {
   summary: '最新进展',
+  people: '往来人员',
   timeline: '项目时间线',
   requirements: '客户需求',
   nextSteps: '下一步建议',
