@@ -14,6 +14,7 @@ import BankAccountsPanel from '@/components/settings/BankAccountsPanel';
 import PITemplatesPanel from '@/components/settings/PITemplatesPanel';
 import { useAuth } from '@/contexts/auth-context';
 import { useLogo } from '@/contexts/logo-context';
+import EmailAiSettings from '@/components/settings/EmailAiSettings';
 import { usersApi, settingsApi, authApi, backupApi, rbacApi } from '@/lib/api';
 import { ROLE_MAP } from '@/lib/constants';
 import type { User, Role } from '@/types';
@@ -788,6 +789,7 @@ export default function SettingsPage() {
         {/* ==================== System Settings Tab ==================== */}
         {activeTab === 'system' && (
           <div className="space-y-6">
+            {currentUser?.isSuperAdmin && <EmailAiSettings />}
             {/* Company Info Section */}
             <div className="rounded-lg border border-gray-200 bg-white p-6">
               <h3 className="text-base font-semibold text-gray-900 mb-4">公司信息</h3>

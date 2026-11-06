@@ -1,5 +1,7 @@
+import { EmailAiSettingsService } from './email-ai-settings.service';
 import {
   Controller,
+  ForbiddenException,
   Get,
   Put,
   Post,
@@ -42,7 +44,27 @@ const uploadStorage = diskStorage({
 @Controller('settings')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class SettingsController {
-  constructor(private readonly settingsService: SettingsService) {}
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly emailAiSettings: EmailAiSettingsService,
+  ) {}
+
+  @Get('email-ai')
+  @RequirePermissions('settings:update')
+  getEmailAi(@CurrentUser() user: { isSuperAdmin?: boolean }) {
+    if (!user.isSuperAdmin) throw new ForbiddenException();
+    return this.emailAiSettings.view();
+  }
+
+  @Put('email-ai')
+  @RequirePermissions('settings:update')
+  saveEmailAi(
+    @CurrentUser() user: { isSuperAdmin?: boolean },
+    @Body() body: Parameters<EmailAiSettingsService['save']>[0],
+  ) {
+    if (!user.isSuperAdmin) throw new ForbiddenException();
+    return this.emailAiSettings.save(body);
+  }
 
   @Get()
   @RequirePermissions('settings:read')

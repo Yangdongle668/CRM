@@ -1,3 +1,4 @@
+import { CustomerEmailAiService } from './customer-email-ai';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -78,6 +79,7 @@ export class ImapSyncService {
     private readonly followUps: FollowUpsService,
     private readonly matcher: EmailCustomerMatcher,
     private readonly events: EmailEventsService,
+    private readonly customerEmailAi: CustomerEmailAiService,
     @Optional()
     @InjectQueue(QUEUE_EMAIL)
     private readonly emailQueue?: Queue,
@@ -235,7 +237,8 @@ export class ImapSyncService {
 
     let uids: number[];
     let lastUid = 0;
-    if (state && uidValidity && state.uidValidity === uidValidity) {
+    const incremental = !!(state && uidValidity && state.uidValidity === uidValidity);
+    if (incremental && state) {
       lastUid = Number(state.lastUid);
       // 没有新邮件：连 SEARCH 都不用发
       if (uidNext && uidNext - 1 <= lastUid) return { fetched: 0, failed: 0 };
@@ -279,7 +282,7 @@ export class ImapSyncService {
         for (const raw of raws) {
           try {
             const parsed = await simpleParser(raw.data);
-            const created = await this.ingest(ctx, parsed, raw.uid, folder, direction);
+            const created = await this.ingest(ctx, parsed, raw.uid, folder, direction, incremental);
             if (created) fetched++;
           } catch (err: any) {
             failed++;
@@ -347,6 +350,7 @@ export class ImapSyncService {
     uid: number,
     folder: string,
     direction: 'INBOUND' | 'OUTBOUND',
+    incremental: boolean,
   ): Promise<boolean> {
     const messageId = parsed.messageId || null;
     const fromAddr = parsed.from?.value?.[0]?.address || 'unknown';
@@ -464,6 +468,9 @@ export class ImapSyncService {
         .catch(() => undefined);
     }
 
+    if (incremental) {
+      await this.customerEmailAi.enqueueForEmail(newEmail.id, newEmail.customerId);
+    }
     return true;
   }
 

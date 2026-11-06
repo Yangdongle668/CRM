@@ -46,6 +46,9 @@ services:
       - "3001:3001"
     environment:
       DATABASE_URL: postgresql://crm_user:${DB_PASSWORD:-crm_password}@postgres:5432/trade_crm?schema=public
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_AUTO_ANALYZE: ${DEEPSEEK_AUTO_ANALYZE:-false}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       JWT_SECRET: ${JWT_SECRET:-change-this-jwt-secret-in-production}
