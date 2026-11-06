@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Public } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { CustomerEmailAiService } from './customer-email-ai';
 import { EmailsService } from './emails.service';
 import { EmailTrackingService } from './email-tracking.service';
 import { SendEmailDto, SaveDraftDto } from './dto/send-email.dto';
@@ -47,7 +48,26 @@ export class EmailsController {
   constructor(
     private readonly emailsService: EmailsService,
     private readonly tracking: EmailTrackingService,
+    private readonly customerEmailAi: CustomerEmailAiService,
   ) {}
+
+  @Post('customer-ai/:customerId')
+  startCustomerAnalysis(
+    @CurrentUser() user: { id: string },
+    @Param('customerId') customerId: string,
+    @Body() body: { all?: boolean },
+  ) {
+    return this.customerEmailAi.start({ customerId, userId: user.id, all: body?.all === true });
+  }
+
+  @Get('customer-ai/:customerId/:jobId')
+  getCustomerAnalysis(
+    @CurrentUser() user: { id: string },
+    @Param('customerId') customerId: string,
+    @Param('jobId') jobId: string,
+  ) {
+    return this.customerEmailAi.status(customerId, user.id, jobId);
+  }
 
   // ==================== Email Account Config ====================
 

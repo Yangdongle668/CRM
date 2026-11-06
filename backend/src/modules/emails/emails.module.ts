@@ -12,10 +12,12 @@ import { FollowUpsModule } from '../follow-ups/follow-ups.module';
 import { MessagesModule } from '../messages/messages.module';
 import { EmailEventsService } from './email-events.service';
 
+import { CUSTOMER_EMAIL_AI_QUEUE, CustomerEmailAiService, CustomerEmailAiWorker } from './customer-email-ai';
+
 @Module({
   imports: [
     PrismaModule,
-    BullModule.registerQueue({ name: QUEUE_EMAIL }),
+    BullModule.registerQueue({ name: QUEUE_EMAIL }, { name: CUSTOMER_EMAIL_AI_QUEUE }),
     // Email 成功发送 / 收到回邮时通知跟进模块
     FollowUpsModule,
     // 复用站内消息的 WebSocket 网关推送邮件事件
@@ -29,6 +31,8 @@ import { EmailEventsService } from './email-events.service';
     ImapSyncService,
     EmailCustomerMatcher,
     EmailEventsService,
+    CustomerEmailAiService,
+    CustomerEmailAiWorker,
   ],
   exports: [EmailsService, EmailTrackingService],
 })

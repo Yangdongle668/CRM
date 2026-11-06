@@ -8,6 +8,7 @@ import Badge from '@/components/ui/Badge';
 import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
+import CustomerEmailAnalysis from '@/components/emails/CustomerEmailAnalysis';
 import { customersApi, contactsApi, activitiesApi, documentsApi, emailsApi, ordersApi } from '@/lib/api';
 import {
   CUSTOMER_STATUS_MAP,
@@ -896,6 +897,9 @@ export default function CustomerDetailPage() {
 
             return (
               <div className="space-y-4">
+                {isOwner && (
+                  <CustomerEmailAnalysis key={customerId} customerId={customerId} />
+                )}
                 {emails.length === 0 ? (
                   <p className="py-8 text-center text-sm text-gray-500">暂无邮件记录</p>
                 ) : (

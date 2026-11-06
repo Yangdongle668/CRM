@@ -1595,3 +1595,13 @@ docker image prune -f
 ## License
 
 Private project. All rights reserved.
+
+### DeepSeek 客户历史邮件分析
+
+在部署目录的 `.env` 中设置 `DEEPSEEK_API_KEY` 和 `DEEPSEEK_MODEL`，
+然后运行 `docker compose up -d --build backend frontend`。模型名使用账户可用的 DeepSeek API 模型 ID。
+
+客户负责人可在「客户详情 → 邮件」手动分析已同步且已关联的客户邮件。
+默认回溯 180 天，也可取消日期限制。每次最多处理 50 封，每封最多提交
+4,000 字符的纯文本正文。收件人无法精确验证的回信会被跳过。
+分析结果通过后台队列短期保存，页面展示带原邮件来源的下一步建议。
