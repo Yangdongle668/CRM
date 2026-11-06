@@ -125,6 +125,16 @@ export class CustomerEmailAiService {
       throw new ForbiddenException('分析任务不可用');
     }
     const state = await job.getState();
+    if (state === 'failed') {
+      const status = /^AI provider HTTP (\d{3})$/.exec(job.failedReason)?.[1];
+      const message = status === '401' || status === '403' ? 'AI 服务拒绝了凭证，请检查 API Key 和模型权限。'
+        : status === '429' ? 'AI 服务限流或额度不足，请检查额度后重试。'
+        : job.failedReason === 'AI API Key missing' ? '尚未配置邮件 AI API Key，请前往系统设置。'
+        : status ? `AI 服务返回 HTTP ${status}，请检查接口地址和模型配置。`
+        : job.failedReason === 'The operation was aborted due to timeout' ? 'AI 服务响应超时，请稍后重试。'
+        : '后台分析失败，请稍后重试或查看后台日志。';
+      return { state, message };
+    }
     if (state !== 'completed') return { state };
     return { state, result: await this.visibleResult(customerId, userId, job.returnvalue) };
   }
@@ -280,7 +290,8 @@ export class CustomerEmailAiService {
 
     await this.assertOwner(customerId, userId);
     const provider = await this.settings.runtime();
-    if (!('apiKey' in provider) || !provider.apiKey || (triggerEmailId && !provider.autoAnalyze)) {
+    if (!('apiKey' in provider) || !provider.apiKey) throw new Error('AI API Key missing');
+    if (triggerEmailId && !provider.autoAnalyze) {
       return { count: 0 };
     }
     const response = await fetch(`${provider.baseUrl}/chat/completions`, {

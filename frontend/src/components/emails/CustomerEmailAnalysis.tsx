@@ -27,7 +27,8 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
   const [starting, setStarting] = useState(false);
   const [jobId, setJobId] = useState<string>();
   const [result, setResult] = useState<Analysis>();
-  const [failed, setFailed] = useState(false);
+  const [feedback, setFeedback] = useState<{ text: string; error?: boolean }>();
+  const [taskFeedback, setTaskFeedback] = useState<{ text: string; error?: boolean }>();
   const [latest, setLatest] = useState<Analysis>();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [completing, setCompleting] = useState<string>();
@@ -43,11 +44,13 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   async function complete(id: string) {
     setCompleting(id);
+    setTaskFeedback({ text: '正在保存完成状态…' });
     try {
       await followUpsApi.done(id);
       setTasks((items) => items.map((item) => item.id === id ? { ...item, status: 'DONE' } : item));
+      setTaskFeedback({ text: '待办已标记完成。' });
     } catch {
-      // Keep the card pending if the update fails.
+      setTaskFeedback({ text: '保存失败，待办仍未完成，请重试。', error: true });
     } finally {
       setCompleting(undefined);
     }
@@ -78,24 +81,32 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     if (!jobId) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
+    const startedAt = Date.now();
     async function poll() {
       try {
-        const response = await api.get<unknown, { state: string; result?: Analysis | null }>(`${endpoint}/${jobId}`);
+        const response = await api.get<unknown, { state: string; message?: string; result?: Analysis | null }>(`${endpoint}/${jobId}`);
         if (cancelled) return;
         if (response.state === 'completed') {
+          setFeedback(response.result
+            ? { text: response.result.count ? `分析完成，已处理 ${response.result.count} 封邮件。` : '分析完成，没有符合条件的邮件。' }
+            : { text: '结果已不可用，邮件归属可能已变更，请重新分析。', error: true });
           setResult(response.result?.count ? undefined : response.result ?? undefined);
           if (response.result?.count) setLatest(response.result);
           void refreshTasks();
           setJobId(undefined);
         } else if (response.state === 'failed' || response.state === 'unknown') {
-          setFailed(true);
+          setFeedback({ text: response.message || '分析任务已失效，请重新提交。', error: true });
+          setJobId(undefined);
+        } else if (Date.now() - startedAt >= 5 * 60 * 1000) {
+          setFeedback({ text: '等待超过 5 分钟，后台可能仍在处理。重新打开邮件页可查看最新结果。' });
           setJobId(undefined);
         } else {
+          setFeedback({ text: response.state === 'active' ? '正在筛选邮件并等待 AI 分析结果…' : '任务已提交，正在等待后台处理…' });
           timer = setTimeout(poll, 2500);
         }
       } catch {
         if (cancelled) return;
-        setFailed(true);
+        setFeedback({ text: '暂时无法查询任务状态，后台可能仍在处理。请稍后重新打开邮件页。', error: true });
         setJobId(undefined);
       }
     }
@@ -108,20 +119,24 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
 
   async function start(confirmedSender?: string) {
     setStarting(true);
-    setFailed(false);
+    setFeedback({ text: '正在提交分析请求…' });
     setResult(undefined);
     setSource(undefined);
     try {
       const job = await api.post<unknown, { id: string }>(endpoint, { all, confirmedSender });
+      if (!job.id) throw new Error('Missing job ID');
+      setFeedback({ text: '任务已提交，正在等待后台处理…' });
       setJobId(job.id);
-    } catch {
-      setFailed(true);
+    } catch (error) {
+      const message = (error as { response?: { data?: { message?: unknown } } }).response?.data?.message;
+      setFeedback({ text: typeof message === 'string' ? message : '提交失败，请检查网络连接后重试。', error: true });
     } finally {
       setStarting(false);
     }
   }
 
   async function openSource(id: string) {
+    setTaskFeedback({ text: '正在加载原邮件…' });
     try {
       const email = await api.get<unknown, { subject: string; bodyText: string | null; bodyHtml: string | null; direction: string; fromAddr: string; toAddr: string }>(`/emails/${id}`);
       const template = document.createElement('template');
@@ -133,7 +148,9 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
         subject: email.subject, bodyText: email.bodyText || template.content.textContent || '',
         recipient: /^[^\s<>@,;]+@[^\s<>@,;]+$/.test(recipient) ? recipient : undefined,
       });
+      setTaskFeedback({ text: '原邮件已打开。' });
     } catch {
+      setTaskFeedback({ text: '无法打开原邮件，请检查邮件是否仍可访问。', error: true });
       setSource(undefined);
     }
   }
@@ -157,7 +174,12 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
           {starting || jobId ? '分析中…' : '分析历史邮件'}
         </button>
       </div>
-      {failed && <p role="alert" className="text-red-700">分析失败，请检查服务配置后重试。</p>}
+      {[feedback, taskFeedback].map((message, index) => message && (
+        <p key={index} role={message.error ? 'alert' : 'status'}
+          className={message.error ? 'rounded bg-red-50 p-2 text-red-700' : 'rounded bg-blue-50 p-2 text-blue-800'}>
+          {message.text}
+        </p>
+      ))}
       {!!tasks.length && (
         <div className="space-y-2">
           <h4 className="font-semibold">邮件跟进待办</h4>
