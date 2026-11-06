@@ -237,6 +237,7 @@ export class FollowUpsService {
     } else {
       where.ownerId = userId;
     }
+    where.OR = [{ NOT: { id: { startsWith: 'email-ai-' } } }, { ownerId: userId }];
     if (filters.status) where.status = filters.status;
     if (filters.leadId) where.leadId = filters.leadId;
     if (filters.overdueOnly) {
@@ -336,7 +337,7 @@ export class FollowUpsService {
   private async loadForAction(id: string, userId: string, role: string) {
     const f = await this.prisma.followUp.findUnique({ where: { id } });
     if (!f) throw new NotFoundException('跟进不存在');
-    if (role !== 'ADMIN' && f.ownerId !== userId) {
+    if ((role !== 'ADMIN' || f.id.startsWith('email-ai-')) && f.ownerId !== userId) {
       throw new ForbiddenException('无权操作该跟进');
     }
     return f;

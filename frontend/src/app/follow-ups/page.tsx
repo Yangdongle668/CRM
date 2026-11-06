@@ -26,6 +26,7 @@ const STATUS_COLOR: Record<FollowUpStatus, string> = {
 };
 
 const REASON_LABEL: Record<string, string> = {
+  CUSTOMER_EMAIL_AI: '邮件 AI 待办',
   FIRST_OUTREACH: '首次外发',
   RENEWED: '再次外发',
   STAGE_CHANGED: '阶段变化',
@@ -225,7 +226,13 @@ export default function FollowUpsPage() {
                             </div>
                           </Link>
                         ) : (
-                          <span className="text-sm text-gray-400">-</span>
+                          fu.customerId ? (
+                            <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
+                              {fu.notes || '客户邮件待办'}
+                            </Link>
+                          ) : (
+                            <span className="text-sm text-gray-400">-</span>
+                          )
                         )}
                       </div>
                       <Badge className={STATUS_COLOR[fu.status]}>
@@ -346,7 +353,13 @@ export default function FollowUpsPage() {
                             </div>
                           </Link>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          fu.customerId ? (
+                            <Link href={`/customers/${fu.customerId}?tab=emails`} className="text-sm text-blue-700 hover:underline">
+                              {fu.notes || '客户邮件待办'}
+                            </Link>
+                          ) : (
+                            <span className="text-gray-400">-</span>
+                          )
                         )}
                       </td>
                       <td className="px-4 py-2">
