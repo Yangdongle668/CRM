@@ -1,5 +1,6 @@
 import {
   Injectable,
+  BadRequestException,
   Logger,
   NotFoundException,
   ForbiddenException,
@@ -293,6 +294,34 @@ export class CustomersService implements OnModuleInit {
     }
 
     return customer;
+  }
+
+  assignableOwners() {
+    return this.prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, email: true },
+    });
+  }
+
+  async assignOwner(id: string, ownerId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findUnique({
+        where: { id }, select: { ownerId: true, companyName: true },
+      });
+      if (!customer) throw new NotFoundException('客户不存在');
+      const owner = await tx.user.findFirst({
+        where: { id: ownerId, isActive: true }, select: { id: true, name: true, email: true },
+      });
+      if (!owner) throw new BadRequestException('负责人不存在或已停用');
+      if (customer.ownerId !== ownerId) {
+        const updated = await tx.customer.updateMany({
+          where: { id, ownerId: customer.ownerId }, data: { ownerId },
+        });
+        if (!updated.count) throw new BadRequestException('客户负责人已变更，请刷新后重试');
+      }
+      return { companyName: customer.companyName, previousOwnerId: customer.ownerId, ownerId, owner };
+    });
   }
 
   async update(

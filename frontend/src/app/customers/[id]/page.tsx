@@ -9,7 +9,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { useAuth } from '@/contexts/auth-context';
 import CustomerEmailAnalysis from '@/components/emails/CustomerEmailAnalysis';
-import { customersApi, contactsApi, activitiesApi, documentsApi, emailsApi, ordersApi } from '@/lib/api';
+import api, { customersApi, contactsApi, activitiesApi, documentsApi, emailsApi, ordersApi } from '@/lib/api';
 import {
   CUSTOMER_STATUS_MAP,
   CUSTOMER_SOURCES,
@@ -74,6 +74,12 @@ export default function CustomerDetailPage() {
   const router = useRouter();
   const { isAdmin, user } = useAuth();
   const customerId = params.id as string;
+
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [owners, setOwners] = useState<{ id: string; name: string; email: string }[]>([]);
+  const [selectedOwner, setSelectedOwner] = useState('');
+  const [ownersLoading, setOwnersLoading] = useState(false);
+  const [assigning, setAssigning] = useState(false);
 
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -165,6 +171,35 @@ export default function CustomerDetailPage() {
       setLoading(false);
     }
   }, [customerId, router]);
+
+  async function openAssignment() {
+    setAssignOpen(true);
+    setSelectedOwner(customer?.ownerId ?? '');
+    setOwners([]);
+    setOwnersLoading(true);
+    try {
+      const { data } = await api.get<unknown, { data: typeof owners }>('/customers/assignable-owners');
+      setOwners(data);
+    } catch {
+      // The API interceptor displays the error.
+    } finally {
+      setOwnersLoading(false);
+    }
+  }
+
+  async function assignOwner() {
+    setAssigning(true);
+    try {
+      await api.patch(`/customers/${customerId}/owner`, { ownerId: selectedOwner });
+      toast.success('客户负责人已更新');
+      setAssignOpen(false);
+      await fetchCustomer();
+    } catch {
+      // The API interceptor displays the error.
+    } finally {
+      setAssigning(false);
+    }
+  }
 
   const fetchContacts = useCallback(async () => {
     try {
@@ -463,6 +498,12 @@ export default function CustomerDetailPage() {
               {statusInfo?.label || customer.status}
             </Badge>
           </div>
+          {isSuperAdmin && (
+            <button type="button" onClick={openAssignment}
+              className="w-full rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 sm:w-auto">
+              分配负责人
+            </button>
+          )}
           <button
             onClick={openEditModal}
             className="w-full sm:w-auto rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
@@ -1018,6 +1059,24 @@ export default function CustomerDetailPage() {
       </div>
 
       {/* Edit Customer Modal */}
+      <Modal open={assignOpen} onClose={() => { if (!assigning) setAssignOpen(false); }} title="分配客户负责人">
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">当前负责人 · {customer.owner?.name || '未知'}</p>
+          <label className="block text-sm">
+            新负责人
+            <select value={selectedOwner} onChange={(event) => setSelectedOwner(event.target.value)}
+              disabled={ownersLoading || assigning} className="mt-1 block w-full rounded border p-2">
+              <option value="">{ownersLoading ? '加载人员中…' : '请选择启用的人员'}</option>
+              {owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}（{owner.email}）</option>)}
+            </select>
+          </label>
+          <button type="button" onClick={assignOwner}
+            disabled={assigning || ownersLoading || selectedOwner === customer.ownerId || !owners.some(({ id }) => id === selectedOwner)}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+            {assigning ? '正在分配…' : '确认分配'}
+          </button>
+        </div>
+      </Modal>
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="编辑客户信息" maxWidth="2xl" dismissible={false}>
         <form onSubmit={handleUpdateCustomer} className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

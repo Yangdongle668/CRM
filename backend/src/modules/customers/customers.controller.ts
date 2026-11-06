@@ -11,6 +11,7 @@ import {
   Res,
   UseGuards,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { CustomersService } from './customers.service';
@@ -102,6 +103,34 @@ export class CustomersController {
     });
 
     await this.exportService.streamArchiveXlsx(res, where, statusLabel);
+  }
+
+  @Get('assignable-owners')
+  assignableOwners(@CurrentUser() user: { isSuperAdmin?: boolean }) {
+    if (!user.isSuperAdmin) throw new ForbiddenException('仅超级管理员可以分配客户');
+    return this.customersService.assignableOwners();
+  }
+
+  @Patch(':id/owner')
+  async assignOwner(
+    @Param('id') id: string,
+    @Body() body: { ownerId?: string },
+    @CurrentUser() user: { isSuperAdmin?: boolean },
+    @Req() req: Request,
+  ) {
+    if (!user.isSuperAdmin) throw new ForbiddenException('仅超级管理员可以分配客户');
+    if (typeof body?.ownerId !== 'string' || !body.ownerId.trim()) {
+      throw new BadRequestException('请选择负责人');
+    }
+    const result = await this.customersService.assignOwner(id, body.ownerId.trim());
+    await this.auditService.logFromRequest(req, {
+      action: 'customer.assign_owner',
+      targetType: 'customer',
+      targetId: id,
+      targetLabel: result.companyName,
+      metadata: { previousOwnerId: result.previousOwnerId, ownerId: result.ownerId },
+    });
+    return result;
   }
 
   @Get(':id')
