@@ -191,6 +191,7 @@ model Customer {
   // 保证）。设为可空 + 唯一：可空兼容历史数据 backfill 期间的空值，唯一
   // 防止并发写入产生重复代码。
   customerCode String?       @unique @map("customer_code")
+  customerCodeManual Boolean @default(false) @map("customer_code_manual")
   companyName String         @map("company_name")
   country     String?
   address     String?

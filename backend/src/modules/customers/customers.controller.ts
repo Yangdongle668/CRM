@@ -111,6 +111,26 @@ export class CustomersController {
     return this.customersService.assignableOwners();
   }
 
+  @Patch(':id/code')
+  async setCustomerCode(
+    @Param('id') id: string,
+    @Body() body: { customerCode?: string },
+    @CurrentUser() user: { isSuperAdmin?: boolean },
+    @Req() req: Request,
+  ) {
+    if (!user.isSuperAdmin) throw new ForbiddenException('仅超级管理员可以修改客户编号');
+    const code = typeof body?.customerCode === 'string' ? body.customerCode.trim().toUpperCase() : '';
+    if (!code || code.length > 64 || /[\s\x00-\x1f\x7f]/.test(code)) {
+      throw new BadRequestException('请输入 1–64 个字符且不含空白的客户编号');
+    }
+    const result = await this.customersService.setCustomerCode(id, code);
+    await this.auditService.logFromRequest(req, {
+      action: 'customer.set_code', targetType: 'customer', targetId: id, targetLabel: result.companyName,
+      metadata: { previousCode: result.previousCode, customerCode: result.customerCode },
+    });
+    return result;
+  }
+
   @Patch(':id/owner')
   async assignOwner(
     @Param('id') id: string,

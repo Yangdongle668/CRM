@@ -75,6 +75,10 @@ export default function CustomerDetailPage() {
   const { isAdmin, user } = useAuth();
   const customerId = params.id as string;
 
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [codeDraft, setCodeDraft] = useState('');
+  const [codeSaving, setCodeSaving] = useState(false);
+
   const [assignOpen, setAssignOpen] = useState(false);
   const [owners, setOwners] = useState<{ id: string; name: string; email: string }[]>([]);
   const [selectedOwner, setSelectedOwner] = useState('');
@@ -171,6 +175,21 @@ export default function CustomerDetailPage() {
       setLoading(false);
     }
   }, [customerId, router]);
+
+  async function saveCustomerCode(event: React.FormEvent) {
+    event.preventDefault();
+    setCodeSaving(true);
+    try {
+      await api.patch(`/customers/${customerId}/code`, { customerCode: codeDraft });
+      toast.success('客户编号已更新');
+      setCodeOpen(false);
+      await fetchCustomer();
+    } catch {
+      // The API interceptor displays duplicate codes and other errors.
+    } finally {
+      setCodeSaving(false);
+    }
+  }
 
   async function openAssignment() {
     setAssignOpen(true);
@@ -498,6 +517,12 @@ export default function CustomerDetailPage() {
               {statusInfo?.label || customer.status}
             </Badge>
           </div>
+          {isSuperAdmin && (
+            <button type="button" onClick={() => { setCodeDraft(customer.customerCode || ''); setCodeOpen(true); }}
+              className="w-full rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 sm:w-auto">
+              修改编号
+            </button>
+          )}
           {isSuperAdmin && (
             <button type="button" onClick={openAssignment}
               className="w-full rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-700 sm:w-auto">
@@ -1059,6 +1084,20 @@ export default function CustomerDetailPage() {
       </div>
 
       {/* Edit Customer Modal */}
+      <Modal open={codeOpen} onClose={() => { if (!codeSaving) setCodeOpen(false); }} title="修改客户编号">
+        <form onSubmit={saveCustomerCode} className="space-y-3">
+          <label className="block text-sm">
+            客户编号
+            <input value={codeDraft} onChange={(event) => setCodeDraft(event.target.value)}
+              required maxLength={64} disabled={codeSaving} className="mt-1 block w-full rounded border p-2" />
+          </label>
+          <p className="text-xs text-gray-600">编号会转为大写，且不能与其他客户重复。</p>
+          <button type="submit" disabled={codeSaving || !codeDraft.trim()}
+            className="rounded bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-50">
+            {codeSaving ? '保存中…' : '保存编号'}
+          </button>
+        </form>
+      </Modal>
       <Modal open={assignOpen} onClose={() => { if (!assigning) setAssignOpen(false); }} title="分配客户负责人">
         <div className="space-y-3">
           <p className="text-sm text-gray-600">当前负责人 · {customer.owner?.name || '未知'}</p>
