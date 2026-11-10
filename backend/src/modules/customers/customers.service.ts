@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ConflictException,
   Logger,
   NotFoundException,
   ForbiddenException,
@@ -84,15 +85,15 @@ export class CustomersService implements OnModuleInit {
     letter: string,
     tx: Prisma.TransactionClient,
   ): Promise<string> {
-    const row = await tx.customerCodeSequence.upsert({
-      where: { letter },
-      update: { nextSeq: { increment: 1 } },
-      create: { letter, nextSeq: 2 },
-    });
-    // upsert 返回操作后的 row。create 分支 nextSeq=2，update 分支 nextSeq 是
-    // 自增后的新值；两种情况下本次客户应使用的流水号都是 nextSeq - 1。
-    const seq = row.nextSeq - 1;
-    return `LD-${letter}-${String(seq).padStart(4, '0')}`;
+    for (;;) {
+      const row = await tx.customerCodeSequence.upsert({
+        where: { letter },
+        update: { nextSeq: { increment: 1 } },
+        create: { letter, nextSeq: 2 },
+      });
+      const code = `LD-${letter}-${String(row.nextSeq - 1).padStart(4, '0')}`;
+      if (!await tx.customer.findFirst({ where: { customerCode: { equals: code, mode: 'insensitive' } }, select: { id: true } })) return code;
+    }
   }
 
   /**
@@ -117,7 +118,7 @@ export class CustomersService implements OnModuleInit {
         await this.prisma.$transaction(async (tx) => {
           const code = await this.allocateCustomerCode(letter, tx);
           await tx.customer.update({
-            where: { id: c.id },
+            where: { id: c.id, AND: [{ customerCode: null }] },
             data: { customerCode: code },
           });
         });
@@ -304,6 +305,41 @@ export class CustomersService implements OnModuleInit {
     });
   }
 
+  async setCustomerCode(id: string, code: string) {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const current = await tx.customer.findUnique({
+          where: { id }, select: { companyName: true, customerCode: true },
+        });
+        if (!current) throw new NotFoundException('客户不存在');
+        const letter = /^LD-([A-Z])-\d+$/.exec(code)?.[1];
+        if (letter) {
+          // Serialize reservations with the automatic allocator for this prefix.
+          await tx.customerCodeSequence.upsert({
+            where: { letter }, create: { letter, nextSeq: 1 },
+            update: { nextSeq: { increment: 0 } },
+          });
+        }
+        const duplicate = await tx.customer.findFirst({
+          where: { id: { not: id }, customerCode: { equals: code, mode: 'insensitive' } },
+          select: { id: true },
+        });
+        if (duplicate) throw new ConflictException('该客户编号已被使用');
+        const updated = await tx.customer.updateMany({
+          where: { id, customerCode: current.customerCode },
+          data: { customerCode: code, customerCodeManual: true },
+        });
+        if (!updated.count) throw new ConflictException('客户编号已变更，请刷新后重试');
+        return { companyName: current.companyName, previousCode: current.customerCode, customerCode: code };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException('该客户编号已被使用');
+      }
+      throw error;
+    }
+  }
+
   async assignOwner(id: string, ownerId: string) {
     return this.prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({
@@ -356,6 +392,7 @@ export class CustomersService implements OnModuleInit {
     const currentLetter = customer.customerCode?.split('-')[1] || null;
     const shouldAllocateCode =
       newStatus === 'ACTIVE' &&
+      !customer.customerCodeManual &&
       (!customer.customerCode || newLetter !== currentLetter);
 
     const normalizedBatteryModels = normalizeBatteryModels(dto.batteryModels);
@@ -369,7 +406,7 @@ export class CustomersService implements OnModuleInit {
         updateData.customerCode = await this.allocateCustomerCode(newLetter, tx);
       }
       return tx.customer.update({
-        where: { id },
+        where: { id, ...(shouldAllocateCode ? { customerCodeManual: false } : {}) },
         data: updateData,
         include: {
           owner: { select: { id: true, name: true, email: true } },
