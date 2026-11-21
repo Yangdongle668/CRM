@@ -27,6 +27,11 @@ const STATUS_COLOR: Record<FollowUpStatus, string> = {
 
 const REASON_LABEL: Record<string, string> = {
   CUSTOMER_EMAIL_AI: '邮件 AI 待办',
+  AI_RESOLVED: 'AI 判断已完成',
+  AI_DROPPED: 'AI 判断不再需要',
+  AI_MERGED: 'AI 合并重复',
+  AI_SUPERSEDED: '被新分析取代',
+  AI_STALE: '来源邮件已过期',
   FIRST_OUTREACH: '首次外发',
   RENEWED: '再次外发',
   STAGE_CHANGED: '阶段变化',

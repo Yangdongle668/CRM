@@ -56,10 +56,10 @@ export class EmailsController {
   startCustomerAnalysis(
     @CurrentUser() user: { id: string },
     @Param('customerId') customerId: string,
-    @Body() body: { all?: boolean; confirmedSender?: string },
+    @Body() body: { force?: boolean; confirmedSender?: string },
   ) {
     return this.customerEmailAi.start({
-      customerId, userId: user.id, all: body?.all === true,
+      customerId, userId: user.id, force: body?.force === true,
       confirmedSender: typeof body?.confirmedSender === 'string' && body.confirmedSender.length <= 320
         ? body.confirmedSender.trim().toLowerCase() : undefined,
     });

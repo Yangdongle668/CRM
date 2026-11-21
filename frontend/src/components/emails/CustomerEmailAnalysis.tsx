@@ -12,7 +12,12 @@ const labels: Record<string, string> = {
   nextSteps: '下一步建议',
 };
 
-type Task = { id: string; notes: string | null; triggerEmailId: string | null; status: string };
+type Task = { id: string; notes: string | null; triggerEmailId: string | null; status: string; reason?: string | null };
+
+const doneLabels: Record<string, string> = {
+  AI_RESOLVED: 'AI 判断已完成',
+  MANUAL_DONE: '已完成',
+};
 
 const phases = [
   ['selecting', '筛选邮件'],
@@ -26,16 +31,17 @@ type ApiResponse<T> = { data: T };
 
 type Analysis = {
   count: number;
+  total?: number;
+  remaining?: number;
   rejected?: number;
-  reused?: boolean;
-  limited?: boolean;
+  tasks?: { created: number; kept: number; done: number; dropped: number };
   unverifiedSenders?: string[];
   sections?: { name: string; items: { text: string; emailId: string }[] }[];
 };
 
 export default function CustomerEmailAnalysis({ customerId }: { customerId: string }) {
   const endpoint = `/emails/customer-ai/${customerId}`;
-  const [all, setAll] = useState(false);
+  const [force, setForce] = useState(false);
   const [progress, setProgress] = useState<Progress>();
   const [starting, setStarting] = useState(false);
   const [jobId, setJobId] = useState<string>();
@@ -103,11 +109,17 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
         if (response.progress) setProgress(response.progress);
         if (response.state === 'completed') {
           if (response.result) setProgress({ phase: 'done', total: response.result.count });
-          setFeedback(response.result
-            ? { text: response.result.reused ? `这 ${response.result.count} 封邮件已成功分析过，已显示上次结果。` : response.result.count ? `分析完成，已处理 ${response.result.count} 封邮件。` : '分析完成，没有符合条件的邮件。' }
+          const done = response.result;
+          const taskText = done?.tasks && (done.tasks.created || done.tasks.done || done.tasks.dropped)
+            ? `新增 ${done.tasks.created} 条待办，完成 ${done.tasks.done} 条，取消 ${done.tasks.dropped} 条。` : '';
+          setFeedback(done
+            ? { text: done.count
+              ? `本批分析了 ${done.count} 封新邮件。${taskText}${done.remaining ? `还有 ${done.remaining} 封在后台继续分析，稍后刷新查看。` : ''}`
+              : '没有需要分析的新邮件。' }
             : { text: '结果已不可用，邮件归属可能已变更，请重新分析。', error: true });
-          setResult(response.result?.count && !response.result.reused ? undefined : response.result ?? undefined);
-          if (response.result?.count && !response.result.reused) setLatest(response.result);
+          setResult(done?.count ? undefined : done ?? undefined);
+          if (done?.count) setLatest(done);
+          if (done?.count) setForce(false);
           void refreshTasks();
           setJobId(undefined);
         } else if (response.state === 'failed' || response.state === 'unknown') {
@@ -134,13 +146,14 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
   }, [endpoint, jobId, refreshTasks]);
 
   async function start(confirmedSender?: string) {
+    if (force && !window.confirm('强制重新分析会取消该客户现有的 AI 待跟进，并从最早的邮件开始重新分析。确定继续吗？')) return;
     setStarting(true);
     setProgress(undefined);
     setFeedback({ text: '正在提交分析请求…' });
     setResult(undefined);
     setSource(undefined);
     try {
-      const { data: job } = await api.post<unknown, ApiResponse<{ id: string }>>(endpoint, { all, confirmedSender });
+      const { data: job } = await api.post<unknown, ApiResponse<{ id: string }>>(endpoint, { force, confirmedSender });
       if (!job?.id) throw new Error('Missing job ID');
       setFeedback({ text: '任务已提交，正在等待后台处理…' });
       setJobId(job.id);
@@ -179,18 +192,19 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
     <section className="space-y-3 rounded border p-4 text-sm">
       <h3 className="font-semibold">客户邮件 AI 分析</h3>
       <p className="text-gray-600">
-        邮件在提交给 AI 前会屏蔽已识别的公司名、电话、网站和邮箱地址。每次最多 50 封，每封最多 4,000 字符。
+        邮件在提交给 AI 前会屏蔽已识别的公司名、电话、网站和邮箱地址。系统只分析尚未分析过的邮件，并在已有结果上更新待办；
+        每批最多 20 封，其余在后台自动继续。
       </p>
-      <div className="flex flex-wrap gap-2">
-        <select aria-label="分析范围" className="rounded border px-2" value={all ? 'all' : 'recent'}
-          disabled={starting || !!jobId} onChange={(event) => setAll(event.target.value === 'all')}>
-          <option value="recent">最近 180 天</option>
-          <option value="all">不限日期（仍有单次上限）</option>
-        </select>
+      <div className="flex flex-wrap items-center gap-3">
         <button type="button" disabled={starting || !!jobId} onClick={() => start()}
           className="rounded bg-blue-600 px-3 py-1 text-white disabled:opacity-50">
-          {starting || jobId ? '分析中…' : '分析历史邮件'}
+          {starting || jobId ? '分析中…' : force ? '强制重新分析' : '分析新邮件'}
         </button>
+        <label className="inline-flex items-center gap-1.5 text-gray-600">
+          <input type="checkbox" checked={force} disabled={starting || !!jobId}
+            onChange={(event) => setForce(event.target.checked)} />
+          强制从头重新分析
+        </label>
       </div>
       {[feedback, taskFeedback].map((message, index) => message && (
         <p key={index} role={message.error ? 'alert' : 'status'}
@@ -216,9 +230,8 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
             </div>
           )}
           {progress?.phase === 'analyzing' && (
-            <p>已提交 {progress.total} 封邮件，{feedback?.error ? '本次未取得可用结果。' : jobId ? (progress.current && progress.subject
-              ? `正在分批重试，第 ${progress.current} 封起 · ${progress.subject}`
-              : progress.current ? '正在合并各批分析结果。' : '正在等待 AI 返回整批结果。') : '已停止查询任务状态。'}</p>
+            <p>已提交 {progress.total} 封新邮件，{feedback?.error ? '本次未取得可用结果。' : jobId
+              ? (progress.current ? 'AI 输出格式异常，正在缩小批次重试。' : '正在等待 AI 返回结果。') : '已停止查询任务状态。'}</p>
           )}
         </div>
       )}
@@ -235,7 +248,7 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
                       onClick={() => openSource(task.triggerEmailId!)}>打开邮件跟进</button>
                   )}
                   {task.status === 'DONE' ? (
-                    <span className="text-gray-500">已完成</span>
+                    <span className="text-gray-500">{(task.reason && doneLabels[task.reason]) || '已完成'}</span>
                   ) : (
                     <button type="button" className="text-green-700 underline" disabled={!!completing}
                       onClick={() => complete(task.id)}>标记已完成</button>
@@ -263,8 +276,8 @@ export default function CustomerEmailAnalysis({ customerId }: { customerId: stri
       {displayed && (
         <div className="space-y-3">
           <p className="text-gray-600">
-            {displayed.count ? `已分析 ${displayed.count} 封邮件${displayed.limited ? '，部分邮件超出单次上限' : ''}。`
-              : '此范围内没有符合条件的客户邮件。'}
+            {displayed.count ? `累计已分析 ${displayed.total ?? displayed.count} 封邮件${displayed.remaining ? `，还有 ${displayed.remaining} 封待分析` : ''}。`
+              : '没有需要分析的新邮件。'}
           </p>
           {!!displayed.rejected && <p>已跳过 {displayed.rejected} 条无法验证来源的结果。</p>}
           {!!displayed.unverifiedSenders?.length && (
