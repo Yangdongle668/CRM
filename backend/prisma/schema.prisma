@@ -219,7 +219,7 @@ model Customer {
   activities         Activity[]
   documents          Document[]
   emailAnalysis      CustomerEmailAnalysis?
-  emailAnalysisBatches CustomerEmailAnalysisBatch[]
+  emailAiProcessed   CustomerEmailAiProcessed[]
   emails             Email[]
   proformaInvoices   ProformaInvoice[]
 
@@ -419,6 +419,7 @@ model Email {
   recipient    EmailRecipient? @relation("RecipientEmails", fields: [recipientId], references: [id])
   attachments  EmailAttachment[]
   triggeredFollowUps FollowUp[]  @relation("FollowUpTrigger")
+  aiProcessed  CustomerEmailAiProcessed[]
   translations EmailTranslation[]
 
   @@unique([emailConfigId, messageId])
@@ -1107,17 +1108,19 @@ model CustomerEmailAnalysis {
   @@map("customer_email_analyses")
 }
 
-model CustomerEmailAnalysisBatch {
-  customerId  String @map("customer_id")
-  ownerId     String @map("owner_id")
-  fingerprint String
-  completedAt DateTime @default(now()) @map("completed_at")
-  result      Json
+// 邮件 AI 增量分析台账：某封邮件已被某客户的 AI 分析成功处理过。
+// 按客户记录，邮件改关联到别的客户后会被新客户重新分析。
+model CustomerEmailAiProcessed {
+  customerId  String   @map("customer_id")
+  emailId     String   @map("email_id")
+  processedAt DateTime @default(now()) @map("processed_at")
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  email    Email    @relation(fields: [emailId], references: [id], onDelete: Cascade)
 
-  @@id([customerId, ownerId, fingerprint])
-  @@map("customer_email_analysis_batches")
+  @@id([customerId, emailId])
+  @@index([emailId])
+  @@map("customer_email_ai_processed")
 }
 
 model CustomerStatusHiddenCard {
