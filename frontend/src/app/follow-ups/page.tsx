@@ -58,6 +58,14 @@ function formatDue(dateStr: string): { label: string; overdue: boolean } {
   return { label: `${diffDays} 天后`, overdue: false };
 }
 
+const isEmailTask = ({ id, customerId }: FollowUp) => !!customerId && id.startsWith('email-ai-');
+/** 邮件 AI 待办按来源邮件时间排时间线；来源邮件不可见时退回待办建立时间。 */
+const emailTime = (task: FollowUp) => new Date(task.sourceEmailAt || task.createdAt).getTime();
+
+const formatEmailTime = (task: FollowUp) => task.sourceEmailAt
+  ? new Date(task.sourceEmailAt).toLocaleString('zh-CN', { dateStyle: 'medium', timeStyle: 'short' })
+  : '来源邮件时间未知';
+
 export default function FollowUpsPage() {
   const { user, isAdmin } = useAuth();
   const [items, setItems] = useState<FollowUp[]>([]);
@@ -65,23 +73,32 @@ export default function FollowUpsPage() {
   const [statusFilter, setStatusFilter] = useState<FollowUpStatus | 'ALL'>('PENDING');
   const [ownerFilter, setOwnerFilter] = useState<string>(''); // 仅 ADMIN
   const [overdueOnly, setOverdueOnly] = useState(false);
+  const [customerFilter, setCustomerFilter] = useState(''); // 邮件 AI 待办按客户筛选
+  const [customerOptions, setCustomerOptions] = useState<Array<{ id: string; name: string; count: number }>>([]);
+  const [newestFirst, setNewestFirst] = useState(true);
   const [users, setUsers] = useState<User[]>([]);
   const [reassignTarget, setReassignTarget] = useState<FollowUp | null>(null);
   const [reassignOwnerId, setReassignOwnerId] = useState('');
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    const status = statusFilter === 'ALL' ? undefined : statusFilter;
     try {
-      const res: any = await followUpsApi.list({
-        ownerId: isAdmin ? ownerFilter || undefined : undefined,
-        status: statusFilter === 'ALL' ? undefined : statusFilter,
-        overdueOnly,
-      });
+      const [res, customers]: any[] = await Promise.all([
+        followUpsApi.list({
+          ownerId: isAdmin ? ownerFilter || undefined : undefined,
+          status,
+          overdueOnly,
+          customerId: customerFilter || undefined,
+        }),
+        followUpsApi.aiCustomers({ status, overdueOnly }).catch(() => null),
+      ]);
       setItems(res.data?.items || []);
+      if (customers) setCustomerOptions(customers.data || []);
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, ownerFilter, statusFilter, overdueOnly]);
+  }, [isAdmin, ownerFilter, statusFilter, overdueOnly, customerFilter]);
 
   useEffect(() => {
     fetchItems();
@@ -146,8 +163,25 @@ export default function FollowUpsPage() {
     { key: 'ALL', label: '全部' },
   ];
 
-  const emailTasks = items.filter(({ id, customerId }) => customerId && id.startsWith('email-ai-'));
-  const otherItems = items.filter(({ id, customerId }) => !customerId || !id.startsWith('email-ai-'));
+  const otherItems = customerFilter ? [] : items.filter((item) => !isEmailTask(item));
+  // 邮件 AI 待办按客户分组；组内按来源邮件时间排成时间线，客户按最近一封来源邮件排序
+  const emailGroups = useMemo(() => {
+    const direction = newestFirst ? -1 : 1;
+    const groups = new Map<string, FollowUp[]>();
+    for (const task of items) {
+      if (!isEmailTask(task)) continue;
+      const list = groups.get(task.customerId!) ?? [];
+      list.push(task);
+      groups.set(task.customerId!, list);
+    }
+    return Array.from(groups.entries())
+      .map(([customerId, tasks]) => {
+        tasks.sort((a, b) => direction * (emailTime(a) - emailTime(b)));
+        return { customerId, name: tasks[0].customerName || '客户邮件待办', tasks, latest: Math.max(...tasks.map(emailTime)) };
+      })
+      .sort((a, b) => b.latest - a.latest);
+  }, [items, newestFirst]);
+  const selectedMissing = customerFilter && !customerOptions.some(({ id }) => id === customerFilter);
 
   return (
     <AppLayout>
@@ -187,6 +221,30 @@ export default function FollowUpsPage() {
             仅显示逾期
           </label>
 
+          <select
+            aria-label="按客户筛选邮件 AI 待办"
+            value={customerFilter}
+            onChange={(e) => setCustomerFilter(e.target.value)}
+            className="max-w-full rounded-lg border border-gray-300 px-2 py-1 text-xs sm:max-w-xs"
+          >
+            <option value="">全部客户（邮件 AI 待办）</option>
+            {selectedMissing && <option value={customerFilter}>当前客户（0）</option>}
+            {customerOptions.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}（{c.count}）
+              </option>
+            ))}
+          </select>
+
+          <button
+            type="button"
+            onClick={() => setNewestFirst((v) => !v)}
+            className="rounded-lg border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-50"
+            title="切换邮件时间线顺序"
+          >
+            邮件时间 · {newestFirst ? '最新在前' : '最早在前'}
+          </button>
+
           {isAdmin && (
             <select
               value={ownerFilter}
@@ -203,41 +261,60 @@ export default function FollowUpsPage() {
           )}
         </div>
 
-        {!!emailTasks.length && (
-          <section aria-label="邮件 AI 待办" className="space-y-3" aria-busy={loading}>
-            <h2 className="font-semibold text-gray-800">邮件 AI 待办</h2>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {emailTasks.map((task) => {
-                const customerUrl = `/customers/${task.customerId}?tab=emails`;
+        {customerFilter && !loading && emailGroups.length === 0 && (
+          <div className="rounded-lg border border-gray-200 bg-white px-4 py-10 text-center text-sm text-gray-400">
+            该客户在当前筛选下没有邮件 AI 待办。
+            <button type="button" className="ml-2 text-blue-700 underline" onClick={() => setCustomerFilter('')}>
+              查看全部客户
+            </button>
+          </div>
+        )}
+
+        {emailGroups.map((group) => (
+          <section key={group.customerId} aria-label={`${group.name} 的邮件 AI 待办`} aria-busy={loading}
+            className="rounded-lg border border-gray-200 bg-white shadow-sm">
+            <header className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
+              <div className="min-w-0">
+                <Link href={`/customers/${group.customerId}?tab=emails`}
+                  className="break-words font-semibold text-blue-700 hover:underline">
+                  {group.name}
+                </Link>
+                <span className="ml-2 text-xs text-gray-500">邮件 AI 待办 {group.tasks.length} 条</span>
+              </div>
+              {!customerFilter && (
+                <button type="button" className="text-xs text-blue-700 hover:underline"
+                  onClick={() => setCustomerFilter(group.customerId)}>
+                  只看该客户
+                </button>
+              )}
+            </header>
+            <ol className="relative mx-4 my-3 space-y-4 border-l-2 border-gray-200 pl-5">
+              {group.tasks.map((task) => {
                 const sourceUrl = task.triggerEmailId
                   ? `/emails?emailId=${encodeURIComponent(task.triggerEmailId)}`
-                  : customerUrl;
+                  : `/customers/${task.customerId}?tab=emails`;
+                const overdue = task.status === 'PENDING' && formatDue(task.dueAt).overdue;
                 return (
-                  <article key={task.id} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                    <div className="flex items-start justify-between gap-2">
-                      <Link href={customerUrl} className="min-w-0 break-words font-semibold text-blue-700 hover:underline">
-                        {task.customerName || '客户邮件待办'}
-                      </Link>
+                  <li key={task.id} className="relative">
+                    <span aria-hidden className={`absolute -left-[27px] top-1.5 h-3 w-3 rounded-full border-2 border-white ${
+                      task.status === 'PENDING' ? (overdue ? 'bg-red-500' : 'bg-amber-500') : 'bg-gray-300'}`} />
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-500">
+                      <time className="font-medium text-gray-700">{formatEmailTime(task)}</time>
+                      <span>· {task.contactName || task.contactEmail || '对接人未识别'}</span>
                       <Badge className={STATUS_COLOR[task.status]}>{STATUS_LABEL[task.status]}</Badge>
+                      {task.status !== 'PENDING' && task.reason && (
+                        <span className="text-gray-400">{REASON_LABEL[task.reason] || task.reason}</span>
+                      )}
                     </div>
-                    <p className="break-words text-xs text-gray-600">
-                      对接人 · {task.contactName || task.contactEmail || '未识别'}
-                      {task.contactName && task.contactEmail ? `（${task.contactEmail}）` : ''}
-                    </p>
-                    <p className="flex-1 whitespace-pre-wrap break-words text-sm text-gray-900">{task.notes}</p>
-                    <p className="text-xs text-gray-600">
-                      来源邮件时间 · {task.sourceEmailAt ? new Date(task.sourceEmailAt).toLocaleString('zh-CN', {
-                        dateStyle: 'medium', timeStyle: 'short',
-                      }) : '未知'}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      到期 · {new Date(task.dueAt).toLocaleDateString('zh-CN')}
-                      {task.owner?.name ? ` · 负责人 ${task.owner.name}` : ''}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-3 border-t pt-3 text-sm">
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm text-gray-900">{task.notes}</p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <span className={overdue ? 'font-semibold text-red-600' : 'text-gray-500'}>
+                        到期 {new Date(task.dueAt).toLocaleDateString('zh-CN')}
+                        {task.status === 'PENDING' ? `（${formatDue(task.dueAt).label}）` : ''}
+                      </span>
                       {task.triggerEmailId ? (
                         <Link href={sourceUrl} className="text-blue-700 underline">查看来源邮件</Link>
-                      ) : <span className="text-gray-500">来源邮件不可用</span>}
+                      ) : <span className="text-gray-400">来源邮件不可用</span>}
                       {task.status === 'PENDING' && (
                         <>
                           <button type="button" className="text-green-700" onClick={() => handleDone(task)}>标记已完成</button>
@@ -246,15 +323,15 @@ export default function FollowUpsPage() {
                         </>
                       )}
                     </div>
-                  </article>
+                  </li>
                 );
               })}
-            </div>
+            </ol>
           </section>
-        )}
+        ))}
 
         {/* List */}
-        {(loading || otherItems.length > 0 || emailTasks.length === 0) && (
+        {!customerFilter && (loading || otherItems.length > 0 || emailGroups.length === 0) && (
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
           {/* 移动端卡片 */}
           <div className="md:hidden divide-y divide-gray-100">

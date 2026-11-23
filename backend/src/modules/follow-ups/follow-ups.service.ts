@@ -47,6 +47,7 @@ interface ListFilters {
   status?: 'PENDING' | 'DONE' | 'DISMISSED' | 'SNOOZED';
   overdueOnly?: boolean;
   leadId?: string;
+  customerId?: string;
 }
 
 @Injectable()
@@ -240,6 +241,7 @@ export class FollowUpsService {
     where.OR = [{ NOT: { id: { startsWith: 'email-ai-' } } }, { ownerId: userId }];
     if (filters.status) where.status = filters.status;
     if (filters.leadId) where.leadId = filters.leadId;
+    if (filters.customerId) where.customerId = filters.customerId;
     if (filters.overdueOnly) {
       where.status = 'PENDING';
       where.dueAt = { lte: new Date() };
@@ -297,6 +299,37 @@ export class FollowUpsService {
         };
       }),
     };
+  }
+
+  /** 跟进页客户筛选：当前用户有邮件 AI 待办的客户及数量（AI 待办只对负责人本人可见）。 */
+  async aiCustomers(
+    filters: Pick<ListFilters, 'status' | 'overdueOnly'>,
+    userId: string,
+  ) {
+    const where: any = {
+      ownerId: userId,
+      id: { startsWith: 'email-ai-' },
+      customerId: { not: null },
+    };
+    if (filters.status) where.status = filters.status;
+    if (filters.overdueOnly) {
+      where.status = 'PENDING';
+      where.dueAt = { lte: new Date() };
+    }
+    const groups = await this.prisma.followUp.groupBy({
+      by: ['customerId'],
+      where,
+      _count: { _all: true },
+    });
+    const customers = await this.prisma.customer.findMany({
+      where: { id: { in: groups.map((g) => g.customerId!) }, ownerId: userId },
+      select: { id: true, companyName: true },
+    });
+    const names = new Map(customers.map((c) => [c.id, c.companyName]));
+    return groups
+      .filter((g) => names.has(g.customerId!))
+      .map((g) => ({ id: g.customerId!, name: names.get(g.customerId!)!, count: g._count._all }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
   }
 
   /** 小接口给侧栏角标用：返回 {pending, overdue}。 */

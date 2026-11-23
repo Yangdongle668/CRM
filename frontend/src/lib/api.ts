@@ -424,7 +424,10 @@ export const followUpsApi = {
     status?: string;
     overdueOnly?: boolean;
     leadId?: string;
+    customerId?: string;
   }) => api.get('/follow-ups', { params }),
+  aiCustomers: (params?: { status?: string; overdueOnly?: boolean }) =>
+    api.get('/follow-ups/ai-customers', { params }),
   summary: () => api.get('/follow-ups/summary'),
   adminOverview: () => api.get('/follow-ups/admin/overview'),
   create: (data: {

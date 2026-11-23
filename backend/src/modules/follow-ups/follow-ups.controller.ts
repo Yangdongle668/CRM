@@ -34,6 +34,19 @@ export class FollowUpsController {
     return this.followUpsService.adminOverview();
   }
 
+  /** 有邮件 AI 待办的客户列表，供跟进页按客户筛选 */
+  @Get('ai-customers')
+  aiCustomers(
+    @CurrentUser() user: any,
+    @Query('status') status?: any,
+    @Query('overdueOnly') overdueOnly?: string,
+  ) {
+    return this.followUpsService.aiCustomers(
+      { status, overdueOnly: overdueOnly === 'true' || overdueOnly === '1' },
+      user.id,
+    );
+  }
+
   @Get()
   list(
     @CurrentUser() user: any,
@@ -41,6 +54,7 @@ export class FollowUpsController {
     @Query('status') status?: any,
     @Query('overdueOnly') overdueOnly?: string,
     @Query('leadId') leadId?: string,
+    @Query('customerId') customerId?: string,
   ) {
     return this.followUpsService.list(
       {
@@ -48,6 +62,7 @@ export class FollowUpsController {
         status,
         overdueOnly: overdueOnly === 'true' || overdueOnly === '1',
         leadId,
+        customerId,
       },
       user.id,
       user.role,
